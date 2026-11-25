@@ -9,11 +9,12 @@ Dex retries a failed Step method with exponential backoff.
 When retries alone do not meet the requirement, choose one of these recovery patterns.
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — Retry failed work, then move to a recovery Step.
+- [Fail Fast on Permanent Errors](/design-patterns/failure-handling/fail-fast-on-permanent-errors) — Route an error that the provider confirms as permanent at once, and retry only transient errors.
 - [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — When retries run out, wait for an operator to fix the problem and decide what happens next.
 - [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — Run your own handler when the whole Flow times out.
 - [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery) — When `WaitFor` still fails after its retries, handle the failure in Step code.
 
-To wait for an external system, use [Polling](/design-patterns/polling) instead.
+To wait for an external system, use [Polling](/design-patterns/durable-timer/polling) instead.
 
 ## Next
 

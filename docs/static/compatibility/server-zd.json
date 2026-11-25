@@ -24,16 +24,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -143,16 +143,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -262,16 +262,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -381,16 +381,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -500,16 +500,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -619,16 +619,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -738,16 +738,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -857,16 +857,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -976,16 +976,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {
@@ -1092,16 +1092,16 @@
         },
         "java": {
           "oldest": "0.9.0",
-          "newest": "1.45.2"
+          "newest": "1.45.3"
         },
         "rust": {
           "oldest": "0.9.0",
-          "newest": "1.45.7"
+          "newest": "1.45.8"
         }
       },
       "dexcli": {
         "oldest": "0.9.0",
-        "newest": "1.47.22"
+        "newest": "1.48.0"
       },
       "agents": {
         "npm": {

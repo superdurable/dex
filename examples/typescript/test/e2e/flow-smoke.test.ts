@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { Client, Registry, StepExecutionId, Worker, rpc, type Context } from "@superdurable/dex";
+import { Client, Registry, StepExecutionId, Worker, rpc, stringCodec, type Context } from "@superdurable/dex";
 
 import { loadEnv } from "../../src/config/env.js";
 import type { SampleServer } from "../../src/main.js";
@@ -142,10 +142,32 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "patterns/interruptible",
+      name: "patterns/deferred-choice",
+      trigger: async () => {
+        const result = await triggerGet(context, "/patterns/deferred-choice/start", {
+          workflowId: newFlowId("deferred-choice"),
+          offerId: "offer-smoke",
+        });
+        await verifyDeferredChoiceAcceptance(result.flowId);
+        return result;
+      },
+      flags: defaultFlags(),
+    },
+    {
+      name: "patterns/fail-fast",
       trigger: () =>
-        triggerGet(context, "/patterns/interruptible/start", {
-          workflowId: newFlowId("interruptible"),
+        triggerGet(context, "/patterns/fail-fast/start", {
+          workflowId: newFlowId("pattern-fail-fast"),
+          amountCents: "12000",
+          bankAccount: "12345678",
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "patterns/control-long-running-work",
+      trigger: () =>
+        triggerGet(context, "/patterns/control-long-running-work/start", {
+          workflowId: newFlowId("control-long-running-work"),
         }),
       flags: defaultFlags(),
     },
@@ -169,6 +191,18 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
           metadata: { source: "smoke", tags: ["example"] },
         });
         return { flowId: result.flowId || userId, runId: result.runId };
+      },
+      flags: noStartStepFlags(),
+    },
+    {
+      name: "patterns/entity-flow",
+      trigger: () => {
+        const accountId = newFlowId("entity-flow");
+        return triggerPost(context, "/patterns/entity-flow/account", {
+          accountId,
+          displayName: "Smoke Tester",
+          email: `${accountId}@example.com`,
+        });
       },
       flags: noStartStepFlags(),
     },
@@ -205,6 +239,14 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       trigger: () =>
         triggerGet(context, "/patterns/inactiveness-tracker-timer/start", {
           workflowId: newFlowId("inactiveness-tracker-timer"),
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "patterns/inbound-event-loop",
+      trigger: () =>
+        triggerGet(context, "/patterns/inbound-event-loop/start", {
+          workflowId: newFlowId("inbound-event-loop"),
         }),
       flags: defaultFlags(),
     },
@@ -254,6 +296,17 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
     parallelSubFlowsSmokeEntry("wait-for-half"),
     parallelSubFlowsSmokeEntry("long-lived-parent"),
     parallelSubFlowsSmokeEntry("short-lived-parent"),
+    {
+      name: "patterns/child-flows-business-identity",
+      trigger: async () => {
+        const result = await triggerGet(context, "/patterns/child-flows-business-identity/start", {
+          workflowId: newFlowId("child-flows-order"),
+        });
+        await verifyShipmentLookupByNumber(result.flowId);
+        return result;
+      },
+      flags: defaultFlags(),
+    },
     {
       name: "patterns/drain-channels/internal",
       trigger: () =>
@@ -457,8 +510,8 @@ test("flow smoke all registered flows via controller", async (t) => {
         const result = await entry.trigger(context);
         assert.ok(result.flowId, `${entry.name}: controller response did not include flowID`);
         await assertFlowSmokeStartStep(entry, result.flowId, result.runId);
-        if (entry.name === "patterns/interruptible") {
-          await triggerGet(context, "/patterns/interruptible/cancel", {
+        if (entry.name === "patterns/control-long-running-work") {
+          await triggerGet(context, "/patterns/control-long-running-work/stop", {
             workflowId: result.flowId,
           });
         }
@@ -469,6 +522,26 @@ test("flow smoke all registered flows via controller", async (t) => {
       }
     });
   }
+});
+
+test("deferred choice route answers 409 after the Flow ended and 404 for a missing Flow", async () => {
+  const flowId = newFlowId("deferred-choice-ended");
+  const start = await fetch(
+    `${context.baseUrl}/patterns/deferred-choice/start?${new URLSearchParams({ workflowId: flowId, offerId: "offer-ended" })}`,
+  );
+  assert.equal(start.status, 200, await start.text());
+  const accepted = await acceptOfferRoute(flowId);
+  assert.equal(accepted.status, 200, accepted.body);
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage ?? "");
+
+  const late = await acceptOfferRoute(flowId);
+  assert.equal(late.status, 409, late.body);
+  assert.equal(late.body, "offer response window closed");
+
+  const missing = await acceptOfferRoute(newFlowId("deferred-choice-missing"));
+  assert.equal(missing.status, 404, missing.body);
+  assert.equal(missing.body, "offer response flow not found");
 });
 
 test("attribute read returns committed values of a closed run", async () => {
@@ -748,6 +821,72 @@ async function refundRoute(
   const response = await fetch(url);
   const text = await response.text();
   return { status: response.status, text, body: JSON.parse(text) as Record<string, unknown> };
+}
+
+// Accepts the offer over HTTP and waits for the fulfillment.
+async function verifyDeferredChoiceAcceptance(flowId: string): Promise<void> {
+  const response = await acceptOfferRoute(flowId);
+  assert.equal(response.status, 200, response.body);
+  assert.equal(response.body, "offer response recorded");
+  const result = await server.client.waitForFlow(flowId, 30_000);
+  assert.equal(result.status, "completed", result.errorMessage ?? "");
+  assert.deepEqual(
+    result.completions
+      .filter((completion) => completion.stepType === "FulfillOffer")
+      .map((completion) => completion.decode(stringCodec)),
+    ["fulfilled offer-smoke"],
+  );
+}
+
+async function acceptOfferRoute(flowId: string): Promise<{ status: number; body: string }> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/deferred-choice/accept?${new URLSearchParams({ workflowId: flowId, note: "looks good" })}`,
+  );
+  return { status: response.status, body: await response.text() };
+}
+
+// The order's second shipment runs for a day, so its lookup by number reports running.
+async function verifyShipmentLookupByNumber(orderId: string): Promise<void> {
+  const shipmentNumber = `${orderId}-2`;
+  await pollUntil(
+    async () => {
+      const { status, body } = await getChildFlowsRoute("/shipment", shipmentNumber);
+      return status === 200 && (JSON.parse(body) as { status?: string }).status === "running";
+    },
+    `shipment lookup for order ${orderId} never reported running`,
+  );
+
+  // The order is not a shipment: both shipment routes answer 404 and leave it running.
+  for (const route of ["/shipment", "/cancel-shipment"]) {
+    const { status } = await getChildFlowsRoute(route, orderId);
+    assert.equal(status, 404, route);
+  }
+  assert.equal((await server.client.describeFlow(orderId)).status, "running");
+
+  const canceled = await getChildFlowsRoute("/cancel-shipment", shipmentNumber);
+  assert.equal(canceled.status, 200, canceled.body);
+  await pollUntil(
+    async () => (await server.client.describeFlow(shipmentNumber)).status === "cancelled",
+    `shipment ${shipmentNumber} never became canceled`,
+  );
+}
+
+async function getChildFlowsRoute(route: string, shipmentNumber: string): Promise<{ status: number; body: string }> {
+  const response = await fetch(
+    `${context.baseUrl}/patterns/child-flows-business-identity${route}?${new URLSearchParams({ shipmentNumber })}`,
+  );
+  return { status: response.status, body: await response.text() };
+}
+
+async function pollUntil(check: () => Promise<boolean>, message: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await check()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(message);
 }
 
 function attributeReadUrl(query: Record<string, string>): string {

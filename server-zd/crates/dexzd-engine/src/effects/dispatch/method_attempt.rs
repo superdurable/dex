@@ -37,7 +37,7 @@ use super::attempt_deadlines::{AttemptEnd, AttemptTimeouts, MethodDeadline, task
 use super::attempt_handout::pull_routing;
 use crate::blocking_work::BlockingWorkFailure;
 use crate::effects::dispatch::attempt_failure::AttemptFailure;
-use crate::effects::dispatch::worker_result::{WorkerResultCheck, check_worker_result};
+use crate::effects::dispatch::worker_result::accept_worker_result;
 use crate::effects::dispatch::{MethodDispatchSession, MethodTask, ReservedMethodStream};
 use crate::effects::hard_delete_objects::{HardDeleteObjectOwner, HardDeleteUploads};
 use crate::effects::method_request::{
@@ -284,6 +284,7 @@ impl MethodAttempt {
         } = sent;
         let urgency = self.urgency();
         let timeouts = AttemptTimeouts::new(&state, method_deadline);
+        let injected_result_loss = session.injected_result_loss().map(str::to_owned);
         let end = self.follow(&state, session, &timeouts).await;
         let sticky_app_worker_id = state.run_record.sticky_app_worker_id.clone();
         match end {
@@ -297,7 +298,9 @@ impl MethodAttempt {
                 Ok(StartedAttemptEnd::Ended)
             }
             AttemptEnd::Result(frame, app_worker_id) => {
-                self.complete(&state, *frame, app_worker_id, &timeouts.method, urgency)
+                let deadline = &timeouts.method;
+                let loss = injected_result_loss;
+                self.complete(&state, *frame, app_worker_id, loss, deadline, urgency)
                     .await?;
                 Ok(StartedAttemptEnd::Ended)
             }
@@ -779,6 +782,7 @@ impl MethodAttempt {
         state: &MethodAttemptState,
         frame: PollWorkerTaskFrame,
         app_worker_id: String,
+        injected_result_loss: Option<String>,
         method_deadline: &MethodDeadline,
         urgency: CommitUrgency,
     ) -> Result<(), EffectError> {
@@ -788,30 +792,19 @@ impl MethodAttempt {
             _ => self.context.config.default_max_value_bytes,
         };
         let flow_config = state.run_record.flow_config.clone().unwrap_or_default();
-        let check = check_worker_result(
+        let accepted = accept_worker_result(
             frame,
             self.key.method,
             &self.context.validation_config,
             &flow_config,
             max_value_bytes,
+            &app_worker_id,
+            injected_result_loss.as_deref(),
         );
-        let mut result = match check {
-            WorkerResultCheck::Valid(result) => *result,
-            WorkerResultCheck::Invalid {
-                kind,
-                detail,
-                is_non_retryable,
-            } => {
-                let failure = AttemptFailure {
-                    kind,
-                    worker_error: None,
-                    server_detail: detail,
-                    is_non_retryable,
-                    served_by_app_worker_id: app_worker_id,
-                    omitted_value_slots: None,
-                    is_not_run: false,
-                };
-                self.propose_failure(failure, &sticky_app_worker_id, urgency)
+        let mut result = match accepted {
+            Ok(result) => result,
+            Err(failure) => {
+                self.propose_failure(*failure, &sticky_app_worker_id, urgency)
                     .await;
                 return Ok(());
             }

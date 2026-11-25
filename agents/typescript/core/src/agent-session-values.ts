@@ -566,6 +566,21 @@ export interface AgentToolCall {
    * @since 0.6.0
    */
   readonly approvalDisplay?: AgentInterruptDisplay | null;
+  /**
+   * Whether the last attempt of the call's tool Step failed by throwing an error, on an `outcome_unknown` record;
+   * `false` for every other record.
+   *
+   * The tool, its runner, or its tool source threw an error that is neither a `ToolExecutionError` nor a
+   * `ToolOutcomeUnknownError`, such as an HTTP client's error for a 400 response. A write records `outcome_unknown`
+   * for such an error, and {@link error} holds the message that the Worker reported. Dex ending the attempt without
+   * an answer, such as for a lost Worker or a passed time limit, leaves it `false`; {@link error} then holds Dex's
+   * text. {@link describeToolCallOutcome} shows the model the thrown message only when it is `true`.
+   *
+   * Wire field: `tool_step_threw`. Encoding omits it when it is `false`, and a missing value means `false`. A Worker
+   * before 0.6.18 ignores it, and drops it when it rewrites the record.
+   * @since 0.6.18
+   */
+  readonly toolStepThrew?: boolean;
 }
 
 /**
@@ -1363,10 +1378,50 @@ export function isFinalToolCallStatus(status: AgentToolCallRecordStatus): boolea
   );
 }
 
-/** Tool result text the model sees for an `outcome_unknown` call; the same text as the Python core. */
+/**
+ * Tool result text the model sees for an `outcome_unknown` call; the same text as the Python core.
+ *
+ * Changed in 0.6.18: a call whose last tool Step attempt threw an error, a record with
+ * {@link AgentToolCall.toolStepThrew} set, shows {@link outcomeUnknownThrownErrorToolResult} instead.
+ */
 export const outcomeUnknownToolResult =
   "The tool call's outcome is unknown: it stopped without returning a result, so it may " +
   "or may not have taken effect. It will not be retried automatically.";
+
+/**
+ * Template of the tool result text the model sees for an `outcome_unknown` call whose last tool Step attempt threw
+ * an error, a record with {@link AgentToolCall.toolStepThrew} set.
+ *
+ * `{error}` is the record's `error`, cut to {@link outcomeUnknownErrorMaxBytes}. The model reads the error, such as
+ * a service's answer that the charge was already refunded, instead of being told that the call returned nothing.
+ * The same text as the Python core's `OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT`.
+ * @since 0.6.18
+ */
+export const outcomeUnknownThrownErrorToolResult =
+  "The tool call's outcome is unknown: it ended with an error, so it may or may not have taken effect. " +
+  "It will not be retried automatically. Error: {error}";
+
+/**
+ * Most UTF-8 bytes of a thrown error's message that {@link outcomeUnknownThrownErrorToolResult} keeps.
+ *
+ * {@link describeToolCallOutcome} cuts a longer message at the last whole code point within this budget and
+ * appends {@link outcomeUnknownErrorTruncationMarker}; the stored record keeps the whole message. The TypeScript and
+ * Python Dex SDKs already report at most this many bytes of a Worker error's message, so the text then shows such a
+ * message whole. The text uses a copy of the message with each lone surrogate replaced by U+FFFD, and counts bytes
+ * on that copy. The same value as the Python core's `OUTCOME_UNKNOWN_ERROR_MAX_BYTES`.
+ * @since 0.6.18
+ */
+export const outcomeUnknownErrorMaxBytes = 1024;
+
+/**
+ * Marker {@link outcomeUnknownThrownErrorToolResult} appends to a cut error message.
+ *
+ * `{omitted_bytes}` is the UTF-8 size of the cut part and `{total_bytes}` the size of the whole message, both in
+ * plain decimal digits. The same text as the Python core's `OUTCOME_UNKNOWN_ERROR_TRUNCATION_MARKER`.
+ * @since 0.6.18
+ */
+export const outcomeUnknownErrorTruncationMarker =
+  "\u2026 [error truncated: {omitted_bytes} of {total_bytes} bytes omitted]";
 
 /** First line of the note `RecordTurnFailure` stores after a failed turn ran tools. */
 export const turnFailureNoteHeader = "[Dex] The previous turn failed after these tool calls ran:";
@@ -1502,27 +1557,32 @@ export function buildToolCallNote(
 
 /** The well-formed outcome, cut to the note budget with the marker when longer. */
 function truncateNoteOutcome(outcome: string): string {
+  return truncateWellFormedUtf8Text(outcome, toolCallNoteMaxOutputBytes, toolCallNoteTruncationMarker);
+}
+
+/** The well-formed text, cut to `maxBytes` UTF-8 bytes with the filled-in `markerTemplate` when longer. */
+function truncateWellFormedUtf8Text(text: string, maxBytes: number, markerTemplate: string): string {
   // Every core cuts the same text: lone surrogates become U+FFFD, 3 bytes each.
   // Only the kept prefix is copied; the rest is only counted.
   let keptText = "";
   let totalBytes = 0;
   let keptBytes = 0;
   let index = 0;
-  while (index < outcome.length) {
-    const codePoint = outcome.codePointAt(index) ?? 0;
+  while (index < text.length) {
+    const codePoint = text.codePointAt(index) ?? 0;
     const unitCount = codePoint > 0xffff ? 2 : 1;
     const isLoneSurrogate = codePoint >= 0xd800 && codePoint <= 0xdfff;
     totalBytes += isLoneSurrogate ? 3 : utf8CodePointSize(codePoint);
-    if (totalBytes <= toolCallNoteMaxOutputBytes) {
-      keptText += isLoneSurrogate ? "\ufffd" : outcome.slice(index, index + unitCount);
+    if (totalBytes <= maxBytes) {
+      keptText += isLoneSurrogate ? "\ufffd" : text.slice(index, index + unitCount);
       keptBytes = totalBytes;
     }
     index += unitCount;
   }
-  if (totalBytes <= toolCallNoteMaxOutputBytes) {
+  if (totalBytes <= maxBytes) {
     return keptText;
   }
-  const marker = toolCallNoteTruncationMarker
+  const marker = markerTemplate
     .replace("{omitted_bytes}", String(totalBytes - keptBytes))
     .replace("{total_bytes}", String(totalBytes));
   return keptText + marker;
@@ -1555,10 +1615,16 @@ function utf8CodePointSize(codePoint: number): number {
  *   frameworkToolResult = describeToolCallOutcome(record);
  * }
  * ```
+ *
+ * Changed in 0.6.18: an `outcome_unknown` record whose last tool Step attempt threw an error,
+ * {@link AgentToolCall.toolStepThrew}, gets {@link outcomeUnknownThrownErrorToolResult} with the error.
+ *
  * @param toolCall - Record whose status is final.
  * @returns The output for `succeeded`; `The tool call failed: <error>` for `failed`; the rejection
- * message, or {@link defaultRejectionToolResult}, for `rejected`; {@link outcomeUnknownToolResult}
- * for `outcome_unknown`.
+ * message, or {@link defaultRejectionToolResult}, for `rejected`. For `outcome_unknown`,
+ * {@link outcomeUnknownThrownErrorToolResult} with the record's error cut to {@link outcomeUnknownErrorMaxBytes}
+ * when {@link AgentToolCall.toolStepThrew} is `true` and the error is not `null`, otherwise
+ * {@link outcomeUnknownToolResult}.
  * @throws {TypeError} When the record status is not final.
  */
 export function describeToolCallOutcome(toolCall: AgentToolCall | AgentToolCallRecord): string {
@@ -1570,7 +1636,7 @@ export function describeToolCallOutcome(toolCall: AgentToolCall | AgentToolCallR
     case "rejected":
       return toolCall.rejectionMessage ?? defaultRejectionToolResult;
     case "outcome_unknown":
-      return outcomeUnknownToolResult;
+      return describeOutcomeUnknown(toolCall);
     case "awaiting_approval":
     case "approved":
     case "awaiting_answer":
@@ -1578,4 +1644,17 @@ export function describeToolCallOutcome(toolCall: AgentToolCall | AgentToolCallR
     case "waiting_for_task":
       throw new TypeError(`tool call ${toolCall.toolCallId} has no final outcome yet`);
   }
+}
+
+function describeOutcomeUnknown(toolCall: AgentToolCall | AgentToolCallRecord): string {
+  if (toolCall.toolStepThrew !== true || toolCall.error === null) {
+    return outcomeUnknownToolResult;
+  }
+  const error = truncateWellFormedUtf8Text(
+    toolCall.error,
+    outcomeUnknownErrorMaxBytes,
+    outcomeUnknownErrorTruncationMarker,
+  );
+  // A function replacement keeps "$" patterns in the error text literal.
+  return outcomeUnknownThrownErrorToolResult.replace("{error}", () => error);
 }

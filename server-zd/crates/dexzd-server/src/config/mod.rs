@@ -11,6 +11,7 @@
 mod attribute_store_config;
 mod auth_config;
 mod engine_config;
+mod result_loss_config;
 mod service_config;
 mod source_config;
 mod standby_config;
@@ -32,6 +33,7 @@ pub use engine_config::{
     ClusterConfig, CommitConfig, DeprecatedConfigKey, HistoryConfig, IgnoredConfigKey, LeaseConfig,
     LimitsConfig, RecoveryConfig, RetentionConfig, SnapshotConfig, ValuesConfig,
 };
+pub use result_loss_config::{ResultLossShare, WorkerResultLossConfig};
 pub use service_config::{
     ApiConfig, FlowDefinitionsConfig, LifecycleConfig, MatchingConfig, MetricsConfig,
     SearchBackend, SearchConfig, StreamStoreBackend, StreamStoreConfig,

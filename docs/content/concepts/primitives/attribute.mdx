@@ -328,7 +328,7 @@ self.progress
 ### Partition a growing collection {#attributemap-partitioning}
 
 A collection that keeps growing should be split across bounded AttributeMap
-instances. [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning)
+instances. [Data Storage](/design-patterns/data-storage)
 compares the two patterns: sequential chunks for append-only, ordered data, and
 hash partitions for lookup by a stable key.
 
@@ -360,11 +360,20 @@ the Step method or RPC starts and releases it when it finishes. A Step waits for
 its lock. An RPC that cannot get a lock fails, and you retry it.
 
 Lock any Attribute that two parallel Steps, or a Step and an RPC, read and
-then write. Dex does not detect an unlocked read-then-write. Test it by running
-both writers concurrently and checking the final value.
+then write. Dex does not guess which lock a Step or RPC is missing from what it
+reads and writes. Instead, with the Go, Python, and Java SDKs, declare the rule on the
+Attribute: every write must hold a lock. The lock is the Attribute's own lock or the lock of a shared
+coordination Attribute. A Worker then fails any Step method or RPC that writes
+the Attribute without registering that lock, and Dex discards the method's
+changes. Only locks registered with the Step or RPC count. A Channel can declare
+the same rule for publishes. See
+[Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements)
+for the exact rules.
+Test the lock by running both writers concurrently and checking the final value.
 
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
-not declare it can still write the Attribute.
+not declare it can still write the Attribute, unless the Attribute declares
+that its writes require the lock.
 
 Keep locked Steps and RPCs short; an RPC can take a free lock ahead of waiting
 Steps (see [Lock order](/reference/server/runtime-data#lock-order)). Make slow external calls in a Step that holds no
@@ -489,7 +498,7 @@ including dropped writes and repairs.
 The [Attribute Store sync](/reference/server/attribute-store-sync) reference
 covers configuration, table requirements, row keys, AttributeMap tables,
 retries, metrics, and local development. The
-[Entity Store](/design-patterns/entity-store) pattern shows a complete example.
+[Entity Flow with Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync) pattern shows a complete example.
 
 ## Reference
 

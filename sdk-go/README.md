@@ -88,8 +88,8 @@ Runnable applications use this API in the
 [sequential chunking](../examples/go/patterns/sequentially-chunked-attribute-map)
 and [hash partitioning](../examples/go/patterns/hash-partitioned-attribute-map)
 patterns. The product guides explain the
-[ordered append layout](../docs/content/design-patterns/sequentially-chunked-attribute-map.mdx)
-and [stable-key lookup layout](../docs/content/design-patterns/hash-partitioned-attribute-map.mdx).
+[ordered append layout](../docs/content/design-patterns/data-storage/sequentially-chunked-attribute-map.mdx)
+and [stable-key lookup layout](../docs/content/design-patterns/data-storage/hash-partitioned-attribute-map.mdx).
 
 ## Action permission projection
 
@@ -695,6 +695,24 @@ func (RemoteOrderFlow) Cancel(dex.Context, string) (*dex.RPCResult[bool], error)
 	return nil, errors.New("RemoteOrderFlow is client-only")
 }
 ```
+
+## Declared lock requirements
+
+Declare the lock that every write of an Attribute, or every publish to a
+Channel, must hold. A WaitFor, Execute, or RPC handler that writes or publishes
+without registering that lock fails with `*dex.MissingAttributeLockError`, and
+Dex discards its buffered changes:
+
+```go
+var cartLock = dex.DefineAttribute[bool]("cart-lock")
+var cartTotal = dex.DefineAttribute[int]("cart-total", dex.WritesRequireLock())
+var cartItems = dex.DefineAttributeMap[int]("cart-items", dex.WritesRequireAttributeLock(cartLock))
+var cartEvents = dex.DefineChannelWithOptions[string]("cart-events", dex.PublishesRequireAttributeLock(cartLock))
+```
+
+Only locks in `StepOptions` and `RPCOptions` count; locks chosen for one call
+do not. See
+[Declared lock requirements](https://docs.superdurable.io/reference/server/runtime-data#declared-lock-requirements).
 
 ## Attribute Store synchronization
 

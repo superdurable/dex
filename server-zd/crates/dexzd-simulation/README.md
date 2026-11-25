@@ -624,6 +624,32 @@ attempt.
 Seed `1592590450` (400 commands) was added in #1372 to cover an abandoned history migration. It started no history migration either before or
 after this change, so it is a historical case; the seed set still abandons one.
 
+### Pending-close RPC publication rule digest change
+
+An owner now stamps `should_reject_publication_during_pending_close` on every RpcCommitted and
+TimeTravel command it builds, and apply rejects a stamped RPC that publishes to a Channel during
+a pending close (#2230). Every engine pin moved. Two controls ran: the rejection without the
+stamp (`93903b623`) moved no pin, and with only the stamp reverted every pin keeps its previous
+digest. These show that the stamp causes the new digests; they do not compare the stamped
+trajectories command by command. The four engine regression seeds were already historical
+baseline cases before this change: they did not fail with the #847 fix reverted, and the
+deterministic `outbox_and_purge_tests` cover that failure. `FIRST_SEED`, `FIRST_SEED + 1`,
+`FIRST_SEED + 2`, `FIRST_REDEPLOY_SEED`, and `FIRST_HOT_STANDBY_SEED` pin no regression. So no
+pinned seed is an active regression detector, and #847 was not reverted again. The apply model
+builds unstamped commands, so no apply pin moved.
+
+| Engine seed | Previous digest | Stamped digest |
+| --- | --- | --- |
+| `3856990760` | `0x1a31cac8da98bebe555569ea849011f6` | `0xac35d59ef59f127d385b68fd58f8db97` |
+| `3856990458` | `0x0f98572c207cd278c2608b1038276e5a` | `0x45039bfaec23ff23764644474747fd79` |
+| `3856990875` | `0x7becfe95bcf5b7c8b295de4c2405bf1b` | `0x0c646bb2bcdc594887db798e075a2ac0` |
+| `3856990400` | `0xe9a2455b24bfe1f589a766079e67b1b8` | `0x57ebc3bb9e7b7cd3a1111423aa956a65` |
+| `FIRST_SEED` | `0x355641fac931a0c4513849497ecc3878` | `0x9c931225c57ab470cce804b73d3482c1` |
+| `FIRST_SEED + 1` | `0x9b86932f39f419eebccad7cf14abebd7` | `0x826eaedd98c9d0639bad0cff839bad84` |
+| `FIRST_SEED + 2` | `0x9d0b8ede440c1e0ba31f195894f26b20` | `0xa434c09d16b89be9b3d34c36575c181c` |
+| `FIRST_REDEPLOY_SEED` | `0xb25da8d0050508150779b54ffd0e3ad0` | `0x3a31ce4b8e648ede3fc4932389ffc5b2` |
+| `FIRST_HOT_STANDBY_SEED` | `0x66a018be2e982dea2faefe938e1ac7a2` | `0x80655540ae6c7452fc1d3907bccbbc85` |
+
 ### Running
 
 ```bash

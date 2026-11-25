@@ -21,12 +21,17 @@
 package integ
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 func flowSmokeCatalog() []flowSmokeEntry {
@@ -146,13 +151,30 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "patterns/interruptible",
+			name: "patterns/fail-fast",
 			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{"workflowId": {smokeWorkflowID(t, "interruptible")}}
+				query := url.Values{
+					"workflowId":  {smokeWorkflowID(t, "pattern-fail-fast")},
+					"amountCents": {"12000"},
+					"bankAccount": {"12345678"},
+				}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/interruptible/start",
+					"/patterns/fail-fast/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/control-long-running-work",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "control-long-running-work")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/control-long-running-work/start",
 					query,
 					nil,
 				)
@@ -171,6 +193,26 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				flowID, runID := parseFlowTriggerResponse(string(responseBody), "")
 				return flowID, runID
 			},
+		},
+		{
+			name: "patterns/entity-flow",
+			trigger: func(t *testing.T) (string, string) {
+				accountID := smokeWorkflowID(t, "entity-flow")
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodPost,
+					"/patterns/entity-flow/account",
+					nil,
+					entityflow.AccountRequest{
+						AccountID: accountID,
+						ContactDetails: entityflow.ContactDetails{
+							DisplayName: "Smoke Tester",
+							Email:       accountID + "@example.com",
+						},
+					},
+				)
+			},
+			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
 			name: "patterns/entity-store",
@@ -259,6 +301,34 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "patterns/inbound-event-loop",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "inbound-event-loop")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/inbound-event-loop/start",
+					query,
+					nil,
+				)
+			},
+			verifyAfterTrigger: requireInboundEventLoopSmokeTimers,
+		},
+		{
+			name: "patterns/deferred-choice",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "deferred-choice")}, "offerId": {"offer-smoke"}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/deferred-choice/start",
+					query,
+					nil,
+				)
+			},
+			verifyAfterTrigger: requireDeferredChoiceSmokeAcceptance,
+		},
+		{
 			name: "patterns/parallel/static",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-static")}}
@@ -302,6 +372,14 @@ func flowSmokeCatalog() []flowSmokeEntry {
 		parallelSubFlowsSmokeEntry("wait-for-half"),
 		parallelSubFlowsSmokeEntry("long-lived-parent"),
 		parallelSubFlowsSmokeEntry("short-lived-parent"),
+		{
+			name: "patterns/child-flows-business-identity",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "child-flows-order")}}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/patterns/child-flows-business-identity/start", query, nil)
+			},
+			verifyAfterTrigger: verifyShipmentLookupByNumber,
+		},
 		{
 			name: "patterns/drain-channels/internal",
 			trigger: func(t *testing.T) (string, string) {
@@ -529,7 +607,7 @@ func parallelSmokeEntry(kind string) flowSmokeEntry {
 }
 
 func parallelSubFlowsSmokeEntry(kind string) flowSmokeEntry {
-	return flowSmokeEntry{
+	entry := flowSmokeEntry{
 		name: "patterns/parallel-subflows/" + kind,
 		trigger: func(t *testing.T) (string, string) {
 			query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-subflows-"+kind)}}
@@ -542,6 +620,48 @@ func parallelSubFlowsSmokeEntry(kind string) flowSmokeEntry {
 			)
 		},
 	}
+	if kind == "wait-for-half" {
+		entry.verifyAfterTrigger = verifyWaitForHalfParentCompletes
+	}
+	return entry
+}
+
+func verifyWaitForHalfParentCompletes(t *testing.T, flowID string) {
+	t.Helper()
+	result := waitForFlow(t, flowID)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+}
+
+func verifyShipmentLookupByNumber(t *testing.T, orderID string) {
+	t.Helper()
+	shipmentNumber := orderID + "-2"
+	require.Eventually(t, func() bool {
+		status, body := getChildFlowsRoute(t, "/shipment", shipmentNumber)
+		var shipment map[string]string
+		return status == http.StatusOK && json.Unmarshal(body, &shipment) == nil && shipment["status"] == "running"
+	}, 30*time.Second, 200*time.Millisecond, "shipment lookup for order %s", orderID)
+
+	// The order is not a shipment: both shipment routes answer 404 and leave it running.
+	for _, route := range []string{"/shipment", "/cancel-shipment"} {
+		status, _ := getChildFlowsRoute(t, route, orderID)
+		require.Equal(t, http.StatusNotFound, status, route)
+	}
+	requireWorkflowPatternRunning(t, orderID)
+
+	status, body := getChildFlowsRoute(t, "/cancel-shipment", shipmentNumber)
+	require.Equal(t, http.StatusOK, status, string(body))
+	waitForShipmentStatus(t, shipmentNumber, dex.FlowCanceled)
+}
+
+func getChildFlowsRoute(t *testing.T, route string, shipmentNumber string) (int, []byte) {
+	t.Helper()
+	response, err := http.Get(examplesAPIURL + "/patterns/child-flows-business-identity" + route + "?" +
+		url.Values{"shipmentNumber": {shipmentNumber}}.Encode())
+	require.NoError(t, err)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	return response.StatusCode, body
 }
 
 func TestFlowSmokeCatalogSize(t *testing.T) {

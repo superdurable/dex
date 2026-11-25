@@ -20,6 +20,7 @@ import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "
 import {
   ToolExecutionError,
   createAgentSessionFlow,
+  outcomeUnknownThrownErrorToolResult,
   outcomeUnknownToolResult,
   resolveToolPolicy,
   type AgentTurnContext,
@@ -388,7 +389,14 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
     await sessions.waitForCompletedTurns(sessionId, 1);
 
-    assert.equal(await lastMessageText(sessionId), `local__send_message: ${outcomeUnknownToolResult}`);
+    assert.equal(
+      await lastMessageText(sessionId),
+      `local__send_message: ${outcomeUnknownThrownErrorToolResult.replace(
+        "{error}",
+        "MCP tool send_message of server local returned no result: the connection broke before a result arrived: " +
+          "McpError: MCP error -32000: Connection closed",
+      )}`,
+    );
     assert.deepEqual(toolRuns("send_message", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
     const steps = await executedStepTypes(sessionId);
     assert.ok(steps.includes("RecordToolOutcomeUnknown"));
@@ -545,6 +553,10 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
 
     assert.deepEqual(result, { output: "report on q14" });
   });
+  const gatewayErrors = {
+    "502": "Error: Streamable HTTP error: Error POSTing to endpoint: Bad Gateway",
+    "internal-error": "McpError: MCP error -32603: upstream failed",
+  } as const;
   for (const gatewayMode of ["502", "internal-error"] as const) {
     test(`a gateway ${gatewayMode} after the server ran a write records outcome_unknown`, async () => {
       const gatewayPort = await findFreeLoopbackPort();
@@ -561,7 +573,13 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
       await sessions.waitForCompletedTurns(sessionId, 1);
 
       // The server ran the write, so a failed record would invite the model to repeat it.
-      assert.equal(await lastMessageText(sessionId), `gateway__send_message: ${outcomeUnknownToolResult}`);
+      const error =
+        "MCP tool send_message of server gateway returned no result: the connection broke before a result arrived: " +
+        gatewayErrors[gatewayMode];
+      assert.equal(
+        await lastMessageText(sessionId),
+        `gateway__send_message: ${outcomeUnknownThrownErrorToolResult.replace("{error}", error)}`,
+      );
       assert.deepEqual(toolRuns("send_message", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
       assert.ok((await executedStepTypes(sessionId)).includes("RecordToolOutcomeUnknown"));
     });

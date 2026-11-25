@@ -11,6 +11,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 CHECKER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECKER)
+DEX_REPOSITORY_URL = "https://github.com/superdurable/dex"
 
 
 class ExternalUrlTest(unittest.TestCase):
@@ -19,8 +20,8 @@ class ExternalUrlTest(unittest.TestCase):
             "https://docs.superdurable.io/reference/",
             "https://docs.superdurable.io/reference/go/",
             "https://docs.superdurable.io/reference/server/configuration#limits",
-            "https://github.com/superdurable/dex/tree/main/examples/go",
-            "https://github.com/superdurable/dex/blob/main/examples/python/polling/flow.py",
+            f"{DEX_REPOSITORY_URL}/tree/main/examples/go",
+            f"{DEX_REPOSITORY_URL}/blob/main/examples/python/polling/flow.py",
             "https://github.com/superdurable/dex-connectors-library",
             "https://github.com/superdurable/dex-connectors-library/blob/main/README.md",
             "https://github.com/superdurable/dex-connectors-library/blob/main/sdkgo/projectconfig/README.md",
@@ -53,7 +54,7 @@ class ExternalUrlTest(unittest.TestCase):
             "https://github.com/superdurable/dex/releases/latest",
             "https://github.com/superdurable/dex",
             "https://github.com/superdurable/dex/issues/1",
-            "https://github.com/superdurable/dex/blob/main/examples/../sdk-go/dex/client.go",
+            f"{DEX_REPOSITORY_URL}/blob/main/examples/../sdk-go/dex/client.go",
             "https://github.com/superdurable/dex-connectors-library/blob/main/sdkgo/projectconfig/config.go",
             "https://github.com/superdurable/dex-skills/releases",
             "https://api.github.com/repos/superdurable/dex/releases/latest",
@@ -62,10 +63,49 @@ class ExternalUrlTest(unittest.TestCase):
             "https://docs.superdurable.io/reference/../concepts/flow",
             "https://docs.superdurable.io/reference/%2e%2e/concepts/flow",
             "https://docs.superdurable.io/reference/%2E%2E/design-patterns/polling",
-            "https://github.com/superdurable/dex/tree/main/examples/./../sdk-go",
+            f"{DEX_REPOSITORY_URL}/tree/main/examples/./../sdk-go",
         ):
             with self.subTest(url=url):
                 self.assertIsNotNone(CHECKER.external_url_problem(url))
+
+    def test_allows_full_example_commit_pins_only_with_opt_in(self):
+        commit = "3f2a9c1" + "a" * 33
+        for url in (
+            f"{DEX_REPOSITORY_URL}/tree/{commit}/examples",
+            f"{DEX_REPOSITORY_URL}/tree/{commit}/examples/",
+            f"{DEX_REPOSITORY_URL}/tree/{commit}/examples/go",
+            f"{DEX_REPOSITORY_URL}/blob/{commit}/examples/python/flow.py#L10",
+        ):
+            with self.subTest(url=url):
+                self.assertIsNotNone(CHECKER.external_url_problem(url))
+                self.assertIsNone(CHECKER.external_url_problem(url, allow_pinned_examples=True))
+
+    def test_source_example_links_require_https_and_a_lowercase_host(self):
+        for url in (
+            "http://github.com/superdurable/dex/tree/main/examples",
+            "HTTP://github.com/superdurable/dex/tree/main/examples/",
+            "https://GitHub.com/superdurable/dex/blob/main/examples/go/flow.go",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(CHECKER.URL.findall(f"[Example]({url})"), [url])
+                self.assertEqual(
+                    CHECKER.external_url_problem(url),
+                    "Dex example links must use https:// and a lowercase github.com host",
+                )
+
+    def test_opt_in_still_rejects_other_commit_and_tag_links(self):
+        commit = "a" * 40
+        for url in (
+            f"{DEX_REPOSITORY_URL}/tree/3f2a9c1/examples/go",
+            f"{DEX_REPOSITORY_URL}/tree/{commit.upper()}/examples/go",
+            f"{DEX_REPOSITORY_URL}/tree/v1.35.0/examples/go",
+            f"{DEX_REPOSITORY_URL}/blob/{commit}/sdk-go/dex/client.go",
+            f"{DEX_REPOSITORY_URL}/blob/{commit}/examples-other/go",
+            f"{DEX_REPOSITORY_URL}/tree/{commit}/examples/%2e%2e/sdk-go",
+            f"http://github.com/superdurable/dex/tree/{commit}/examples/go",
+        ):
+            with self.subTest(url=url):
+                self.assertIsNotNone(CHECKER.external_url_problem(url, allow_pinned_examples=True))
 
 
 class DexVersionTest(unittest.TestCase):
@@ -97,7 +137,6 @@ class DexVersionTest(unittest.TestCase):
             "Use OAuth 2.0 client credentials.",
             "Rust 1.97 or newer builds the SDK.",
             "Node 22.18 and later strip types.",
-            "n8n 2.36.0 added the field.",
             "Dex Web v2 shows the Run.",
             "Bind to 0.0.0.0:8080.",
             "Retry with a backoff coefficient of 2.0.",
@@ -106,11 +145,6 @@ class DexVersionTest(unittest.TestCase):
         ):
             with self.subTest(line=line):
                 self.assertEqual(CHECKER.find_dex_versions(line), [])
-
-    def test_checks_only_dex_releases_in_n8n_documents(self):
-        self.assertEqual(CHECKER.find_dex_versions("Before v4.4 the HTTP Request node resent credentials.", True), [])
-        self.assertTrue(CHECKER.find_dex_versions("Pin sdk-go/v1.35.0 for the backend.", True))
-        self.assertTrue(CHECKER.find_dex_versions("Before v4.4 the HTTP Request node resent credentials."))
 
 
 class BoundaryTest(unittest.TestCase):
@@ -145,12 +179,11 @@ class BoundaryTest(unittest.TestCase):
             "Read the Flow history for diagnosis.",
             "Have the fake signal that the Step started.",
             "A query-only RPC reads a retained run.",
-            "The n8n workflow imports into one Flow.",
             "Signal the operator when the query returns.",
             "A Channel message can signal that a query finished.",
             "The workflow updates the stored Attributes.",
             "This workflow queries the external service.",
-            "The n8n workflow signals completion with a webhook.",
+            "The workflow signals completion with a webhook.",
         ):
             with self.subTest(text=text):
                 self.assertEqual(CHECKER.find_boundary_terms(text), [])
@@ -179,6 +212,28 @@ class FrontMatterTest(unittest.TestCase):
             self.assertEqual(
                 CHECKER.parse_front_matter(skill),
                 {"name": "dex-sdk", "description": "Build Dex apps. Use for SDK work."},
+            )
+
+
+class InvocationPolicyTest(unittest.TestCase):
+    def test_public_skill_allows_model_invocation(self):
+        CHECKER.check_public_skill_invocation("dex-app-builder", {}, "allow_implicit_invocation: true\n")
+        with self.assertRaises(SystemExit):
+            CHECKER.check_public_skill_invocation(
+                "dex-app-builder", {"disable-model-invocation": "true"}, "allow_implicit_invocation: true\n"
+            )
+        with self.assertRaises(SystemExit):
+            CHECKER.check_public_skill_invocation("dex-app-builder", {}, "allow_implicit_invocation: false\n")
+
+    def test_transition_skill_requires_explicit_invocation(self):
+        CHECKER.check_transition_skill_invocation(
+            "dex-sdk", {"disable-model-invocation": "true"}, "allow_implicit_invocation: false\n"
+        )
+        with self.assertRaises(SystemExit):
+            CHECKER.check_transition_skill_invocation("dex-sdk", {}, "allow_implicit_invocation: false\n")
+        with self.assertRaises(SystemExit):
+            CHECKER.check_transition_skill_invocation(
+                "dex-sdk", {"disable-model-invocation": "true"}, "allow_implicit_invocation: true\n"
             )
 
 

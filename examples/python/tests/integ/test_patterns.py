@@ -14,8 +14,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Callable
 
 import pytest
 from dex_examples.app import ExampleApp
@@ -25,10 +26,12 @@ from dex_examples.patterns.entity_store.user_profile import (
     UserProfileMetadata,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
-from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow import (
-    AdvancedLongLiveParentFlow,
-)
 from dex_examples.patterns.parallel_subflows.models import ParentInput
+from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
+    PAYOUT_OUTCOME,
+    ExpenseClaim,
+    PayoutOutcome,
+)
 from dex_examples.patterns.polling.job_service import JobState
 from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
@@ -45,19 +48,17 @@ from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
 from tests.integ.conftest import (
     LONG_WAIT_TIMEOUT,
     WAIT_TIMEOUT,
-    flow_status_or_none,
     wait_until,
 )
 
 from dex import (
     AsyncClient,
-    AttributeMatch,
+    Context,
     FlowConfig,
     FlowStatus,
-    IdReusePolicy,
     StartFlowOptions,
+    StepDecision,
     StepExecutionId,
-    WaitForAttributeOptions,
     WaitForStepCompletionOptions,
 )
 
@@ -100,39 +101,51 @@ async def test_draining_channel_for_external_publishing(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     flow_id = new_flow_id("drain-external")
+    first_message = f"first message for {flow_id}"
+    barrier = _FirstMessageExecutionBarrier(
+        first_message, app.drain_external.process_message.execute
+    )
+    monkeypatch.setattr(app.drain_external.process_message, "execute", barrier.execute)
     run_id = await client.start_flow(
         app.drain_external,
         flow_id,
-        "first message from start",
+        first_message,
         start_options(),
     )
-    assert run_id
-    await client.invoke_rpc(
-        app.drain_external.publish_external_channel_message,
-        flow_id,
-        "message from test",
-    )
+    try:
+        assert run_id
+        await asyncio.wait_for(barrier.started.wait(), WAIT_TIMEOUT.total_seconds())
+        await client.invoke_rpc(
+            app.drain_external.publish_external_channel_message,
+            flow_id,
+            "message from test",
+        )
+    finally:
+        barrier.release.set()
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert barrier.execution_count == 2
 
 
-async def test_interruptible_start_and_cancel(
-    app: ExampleApp,
-    client: AsyncClient,
-    new_flow_id: Callable[[str], str],
-) -> None:
-    flow_id = new_flow_id("interruptible")
-    await client.start_flow(app.interruptible, flow_id, None, start_options())
-    await wait_until(
-        "interruptible flow running",
-        lambda: _status_is(client, flow_id, FlowStatus.RUNNING),
-    )
-    await client.invoke_rpc(app.interruptible.interrupt, flow_id)
-    await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+class _FirstMessageExecutionBarrier:
+    def __init__(
+        self, first_message: str, execute: Callable[[Context, str], StepDecision]
+    ) -> None:
+        self.first_message = first_message
+        self.original_execute = execute
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.execution_count = 0
 
-
-async def _status_is(client: AsyncClient, flow_id: str, status: FlowStatus) -> bool:
-    return await flow_status_or_none(client, flow_id) is status
+    async def execute(self, context: Context, input: str) -> StepDecision:
+        self.execution_count += 1
+        if input == self.first_message:
+            self.started.set()
+            await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
+        return self.original_execute(context, input)
 
 
 async def test_manual_recovery_retry_completes(
@@ -202,6 +215,54 @@ async def test_failure_recovery(
     assert "Failed to process transaction" in (result.error_message or "")
 
 
+async def test_fail_fast_routes_a_rejected_bank_account_after_one_attempt(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    retry = app.expense_reimbursement.submit_payout.get_step_options().execute_retry
+    assert retry is not None and retry.total_duration == timedelta(hours=1)
+    # The full-width digits are not ASCII, so the provider rejects them too.
+    for bank_account in ("not-a-bank-account", "１２３４５６７８"):
+        flow_id = new_flow_id("pattern-fail-fast")
+        await client.start_flow(
+            app.expense_reimbursement,
+            flow_id,
+            ExpenseClaim(12_000, bank_account),
+            start_options(),
+        )
+
+        result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        assert result.status is FlowStatus.COMPLETED
+        assert result.single_output(str) == "rejected: bank account is invalid"
+        values = await client.get_attributes(flow_id, PAYOUT_OUTCOME)
+        assert values.get(PAYOUT_OUTCOME) == PayoutOutcome(
+            "REJECTED", "bank account is invalid", 1
+        )
+        assert app.payment_provider.count_submissions(flow_id) == 1
+
+
+async def test_fail_fast_retries_a_provider_timeout(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("pattern-fail-fast")
+    await client.start_flow(
+        app.expense_reimbursement,
+        flow_id,
+        ExpenseClaim(12_000, "12345678"),
+        start_options(),
+    )
+
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert result.single_output(str) == f"payout-{flow_id}"
+    values = await client.get_attributes(flow_id, PAYOUT_OUTCOME)
+    assert values.get(PAYOUT_OUTCOME) == PayoutOutcome("PAID", f"payout-{flow_id}", 2)
+    assert app.payment_provider.count_submissions(flow_id) == 2
+
+
 async def test_reminder_opt_out(
     app: ExampleApp,
     client: AsyncClient,
@@ -238,24 +299,37 @@ async def test_long_lived_parallel_subflows_stop(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     flow_id = new_flow_id("parallel-subflows-long-lived")
+    barrier = _InitExecutionBarrier(app.long_live_subflows.init.execute)
+    monkeypatch.setattr(app.long_live_subflows.init, "execute", barrier.execute)
     await client.start_flow(
         app.long_live_subflows,
         flow_id,
         ParentInput(["one", "two"], 2),
         start_options(),
     )
-
-    await client.wait_for_attribute_match(
-        flow_id,
-        AdvancedLongLiveParentFlow.stopped,
-        AttributeMatch.equal_to(False),
-        WaitForAttributeOptions(request_timeout=WAIT_TIMEOUT),
-    )
-    await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
+    try:
+        # Stop commits while Init runs; Init must not reset Stopped afterwards.
+        await asyncio.wait_for(barrier.started.wait(), WAIT_TIMEOUT.total_seconds())
+        await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
+    finally:
+        barrier.release.set()
     result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED
+
+
+class _InitExecutionBarrier:
+    def __init__(self, execute: Callable[[Context, ParentInput], StepDecision]) -> None:
+        self.original_execute = execute
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def execute(self, context: Context, input: ParentInput) -> StepDecision:
+        self.started.set()
+        await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
+        return self.original_execute(context, input)
 
 
 async def test_short_lived_parallel_subflows(

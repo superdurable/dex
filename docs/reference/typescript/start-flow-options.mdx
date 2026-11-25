@@ -90,8 +90,17 @@ To load AttributeMap values or pending Channel messages, select them in
 with its decision, the handler can write Attributes, delete Channel messages,
 and publish to Channels.
 
+Active Steps keep running while the handler runs, including Steps that wait
+on a Channel, a Timer, or a SubFlow. When the handler commits
+**ForceComplete** or **ForceFail**, Dex starts closing the Flow and cancels
+the other Steps. **GracefulComplete**, or a **GoTo** to a Step that completes
+gracefully, waits until every other active Step ends. The handler can commit
+after the deadline, because it waits for a Worker and may retry. To start
+closing the Flow when the timeout fires, use **FAIL** or **CANCEL**.
+
 With the **HANDLER** policy, Dex runs this code when the timeout fires. It
-records why the Flow ended, then fails the Flow with an application reason.
+records why the Flow ended. This example then fails the Flow with an
+application reason.
 
 ```typescript
 public handleTimeout(context: Context): StepDecision {
@@ -101,6 +110,9 @@ public handleTimeout(context: Context): StepDecision {
 ```
 
 Example: [examples/typescript/src/primitives/flow/example-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/flow/example-flow.ts)
+
+To test the timeout path with the real timeout, fire it early as in
+[Skip a Timer](/reference/server/runtime-client#skip-a-timer).
 
 ## Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 

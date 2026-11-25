@@ -19,6 +19,7 @@ import {
   maxApprovalTargetBytes,
   messageSequenceKey,
   missingToolTaskPoller,
+  outcomeUnknownThrownErrorToolResult,
   outcomeUnknownToolResult,
   turnCancelledNoteHeader,
   type AgentFrameworkRunner,
@@ -545,7 +546,10 @@ describe("agent session turns with an in-process Worker", () => {
       .filter((message) => message.role === "tool")
       .map((message) => [message.toolName, message.toolOutput]);
     assert.equal(toolOutputs.length, 2);
-    assert.deepEqual(toolOutputs[0], ["sync_inventory", outcomeUnknownToolResult]);
+    assert.deepEqual(toolOutputs[0], [
+      "sync_inventory",
+      outcomeUnknownThrownErrorToolResult.replace("{error}", "inventory service unavailable"),
+    ]);
     assert.equal(toolOutputs[1]?.[0], "check_stock");
     assert.match(toolOutputs[1]?.[1] ?? "", /^The tool call failed: .*stock service unavailable/);
     const finished = (await sessions.listAgentEvents(sessionId))
@@ -1214,7 +1218,10 @@ describe("agent session turns with an in-process Worker", () => {
     // recorded by its effect, after a best-effort cancel in each poll attempt.
     assert.equal(
       (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
-      `asking_publish_task -> ${outcomeUnknownToolResult}`,
+      `asking_publish_task -> ${outcomeUnknownThrownErrorToolResult.replace(
+        "{error}",
+        "the report task cannot take a declined question",
+      )}`,
     );
     assert.deepEqual(finishedStatuses(await sessions.listAgentEvents(sessionId)), ["outcome_unknown"]);
     assert.equal(toolLog("task-runs", sessionId).filter((line) => line.includes(" cancel ")).length, 3);
@@ -1320,7 +1327,10 @@ describe("agent session turns with an in-process Worker", () => {
       (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text ?? ""
     ).split(" | ");
     assert.match(readResult ?? "", /^failing_report_task -> The tool call failed: .*the task server is unreachable/);
-    assert.equal(writeResult, `failing_publish_task -> ${outcomeUnknownToolResult}`);
+    assert.equal(
+      writeResult,
+      `failing_publish_task -> ${outcomeUnknownThrownErrorToolResult.replace("{error}", "the task server is unreachable")}`,
+    );
     assert.equal(brokenResult, "broken_report_task -> The tool call failed: the report failed");
     for (const toolName of ["failing_report_task", "failing_publish_task"]) {
       assert.deepEqual(

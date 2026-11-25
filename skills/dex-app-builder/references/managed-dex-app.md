@@ -21,9 +21,8 @@ rules.
 Record the answer. A Managed Dex App keeps App Builder discovery, Flow design,
 and the language-neutral product constraints: Dex as the store, effects only
 in `Execute`, start identity, and credentials outside the code. Implement the
-TypeScript shape with the [Dex SDK](../../dex-sdk/SKILL.md) TypeScript
-references, and follow the example's `AGENTS.md` for the Flow shapes its check
-accepts. Go FDG authoring applies only to the Go profile. Connectors work on
+TypeScript shape with the [TypeScript SDK references](typescript/typescript.md), and follow the example's `AGENTS.md` for the Flow shapes its check
+accepts. Connectors work on
 every profile; use the connector packages of the application's language. The
 repository shape and the checks come from this file.
 
@@ -112,11 +111,11 @@ Each link has the exact fields and limits.
 These rules collide with two App Builder defaults:
 
 - S1 and S6 always need a web server, `openapi/openapi.yaml`, and
-  `AGENTS.md`. They are target requirements, not a custom UI decision. Dex Web
-  still owns management.
+  `AGENTS.md`, even when the application has no UI of its own and no other
+  caller. They are target requirements, whatever UI the user chose.
 - A Managed Dex App backend follows the example's stack, so it is TypeScript
-  unless the user asked for Go. The Go-only rule applies to applications that
-  run locally only.
+  unless the user asked for Go. Python, Java and Rust are not managed stacks:
+  say so and offer TypeScript, Go, or an application that runs locally.
 
 ## Strict YAML in dex-app.yaml
 

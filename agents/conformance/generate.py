@@ -65,6 +65,9 @@ from dex_agents import (
     MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT,
     MODEL_CALL_REFUSED_ERROR_PREFIX,
     NO_PLAN_NOTE,
+    OUTCOME_UNKNOWN_ERROR_MAX_BYTES,
+    OUTCOME_UNKNOWN_ERROR_TRUNCATION_MARKER,
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     PLANNING_TURN_INSTRUCTION,
     PLANNING_TURN_TOOL_REJECTION,
@@ -470,6 +473,9 @@ def full_tool_call(**changes: Any) -> AgentToolCall:
             summary='Calls bank transfer with connection checking; amount: 5, memo: "Grüße".',
             preview=TRICKY_TEXT,
         ),
+        # Every field is set for the round trip, even where the status rules it out:
+        # a real record sets tool_step_threw only when its status is OUTCOME_UNKNOWN.
+        tool_step_threw=True,
     )
     return replace(record, **changes)
 
@@ -1797,6 +1803,7 @@ def build_names() -> dict[str, Any]:
             "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
             "default_retained_message_limit": DEFAULT_RETAINED_MESSAGE_LIMIT,
             "tool_call_note_max_output_bytes": TOOL_CALL_NOTE_MAX_OUTPUT_BYTES,
+            "outcome_unknown_error_max_bytes": OUTCOME_UNKNOWN_ERROR_MAX_BYTES,
             "session_terminal_lease_maximum_ttl_seconds": (
                 SESSION_TERMINAL_LEASE_MAXIMUM_TTL_SECONDS
             ),
@@ -2013,6 +2020,38 @@ def long_outcome_note_records() -> list[list[AgentToolCall]]:
     ]
 
 
+def thrown_error_outcome_records() -> list[AgentToolCall]:
+    """Return outcome_unknown records with and without an error the last attempt raised."""
+    budget = OUTCOME_UNKNOWN_ERROR_MAX_BYTES
+
+    def thrown(error: str | None) -> AgentToolCall:
+        return final_record(ToolCallStatus.OUTCOME_UNKNOWN, 0, error=error, tool_step_threw=True)
+
+    return [
+        # Dex ended the attempt: the error is Dex's text, and the model sees the fixed text.
+        final_record(
+            ToolCallStatus.OUTCOME_UNKNOWN,
+            0,
+            error="Worker disconnected during pull dispatch: Worker stream disconnected",
+        ),
+        thrown(error='side-effect service 400: {"error":"charge_already_refunded"}'),
+        thrown(error="fetch failed"),
+        # No error to show: the fixed text.
+        thrown(error=None),
+        # "$&" and braces stay literal.
+        thrown(error="price $& {total} " + TRICKY_TEXT),
+        # Exactly at the budget: kept whole.
+        thrown(error="a" * budget),
+        # Long: cut at the budget with the marker.
+        thrown(error="x" + "\u00e9" * budget),
+        # A 4-byte emoji crosses the budget.
+        thrown(error="a" * (budget - 2) + "\U0001f600"),
+        # Lone surrogates become U+FFFD, 3 bytes each.
+        thrown(error="bad \ud800 \udc00"),
+        thrown(error="a" * (budget - 2) + "\udc00" + "b"),
+    ]
+
+
 def record_json(record: AgentToolCall) -> Any:
     return json.loads(encode("AgentToolCall", record))
 
@@ -2103,6 +2142,8 @@ def build_texts() -> dict[str, Any]:
     plan = full_plan()
     constants = {
         "outcome_unknown_tool_result": OUTCOME_UNKNOWN_TOOL_RESULT,
+        "outcome_unknown_thrown_error_tool_result": OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
+        "outcome_unknown_error_truncation_marker": OUTCOME_UNKNOWN_ERROR_TRUNCATION_MARKER,
         "default_rejection_tool_result": DEFAULT_REJECTION_TOOL_RESULT,
         "approval_deadline_passed": APPROVAL_DEADLINE_PASSED,
         "question_deadline_passed": QUESTION_DEADLINE_PASSED,
@@ -2141,6 +2182,7 @@ def build_texts() -> dict[str, Any]:
                 final_record(ToolCallStatus.REJECTED, 0, rejection_message="not today"),
                 final_record(ToolCallStatus.REJECTED, 0, rejection_message=None),
                 final_record(ToolCallStatus.OUTCOME_UNKNOWN, 0),
+                *thrown_error_outcome_records(),
             ]
         ],
         "turn_failure_note": [

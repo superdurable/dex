@@ -48,10 +48,15 @@ import java.util.Objects;
 public final class Channel<T> extends PersistenceDefinition {
     private final String name;
     private final Class<T> valueType;
+    private final LockRequirement publishLock;
 
-    private Channel(final String name, final Class<T> valueType) {
+    private Channel(
+            final String name,
+            final Class<T> valueType,
+            final LockRequirement publishLock) {
         this.name = Attribute.requirePersistenceDefinitionName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
+        this.publishLock = publishLock;
     }
 
     /**
@@ -65,7 +70,61 @@ public final class Channel<T> extends PersistenceDefinition {
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> Channel<T> define(final String name, final Class<T> valueType) {
-        return new Channel<T>(name, valueType);
+        return new Channel<T>(name, valueType, null);
+    }
+
+    /**
+     * Returns a definition whose every publish requires holding the lock of the singleton
+     * Attribute {@code lockAttribute}.
+     *
+     * <p>Use it when the messages of a Channel must follow from a state change that a lock
+     * protects. For example, only the holder of a conversation lock may publish to a reply
+     * Channel. The Worker enforces the requirement. A {@code waitFor}, {@code execute}, or RPC
+     * invocation that calls {@link #publish(Context, Object)} without holding
+     * {@code AttributeLock.of(lockAttribute)} fails with
+     * {@link io.superdurable.dex.exceptions.MissingAttributeLockException}, and Dex discards the
+     * changes buffered for its result. Waiting on the Channel, reading its messages, and deleting
+     * pending messages are not affected.
+     *
+     * <p>Only the locks a handler registers count: {@link StepOptions.Builder#addWaitForLock} or
+     * {@link StepOptions.Builder#addExecuteLock} in the options that {@link Step#getStepOptions()}
+     * returns, and {@link RPC#lockAttributes} for an RPC. Locks added for one call, such as the
+     * options passed to {@link StepMovement#of(Class, Object, StepOptions)}, do not count. A Flow
+     * timeout handler is not checked. Messages that a Client publishes run no handler and are not
+     * checked.
+     *
+     * <p>{@code lockAttribute} must be registered in the same Flow's {@link PersistenceSchema}.
+     * {@link Registry} construction fails with
+     * {@link io.superdurable.dex.exceptions.FlowDefinitionException} when no Attribute with that
+     * name is registered there, or when the name belongs to an AttributeMap. Register the returned
+     * definition in the schema, not the original one.
+     *
+     * <pre>{@code
+     * final Attribute<Boolean> conversationLock =
+     *         Attribute.define("conversation-lock", Boolean.class);
+     * final Channel<String> replies =
+     *         Channel.define("replies", String.class)
+     *                 .publishesRequireAttributeLock(conversationLock);
+     *
+     * @RPC(lockAttributes = {"conversation-lock"})
+     * public void reply(final Context context, final String text) {
+     *     replies.publish(context, text);
+     * }
+     * }</pre>
+     *
+     * @param lockAttribute the singleton Attribute whose lock every publish requires
+     * @return a new immutable Channel definition whose publishes require the lock of
+     *     {@code lockAttribute}
+     * @throws NullPointerException if {@code lockAttribute} is {@code null}
+     * @since 1.45.4
+     */
+    public Channel<T> publishesRequireAttributeLock(final Attribute<?> lockAttribute) {
+        return new Channel<T>(name, valueType, LockRequirement.attribute(lockAttribute));
+    }
+
+    @Override
+    LockRequirement getLockRequirement() {
+        return publishLock;
     }
 
     String getName() {

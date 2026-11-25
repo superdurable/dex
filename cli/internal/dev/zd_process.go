@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -104,6 +105,16 @@ func zdDevArguments(cfg *Config, dataDirectory string, dexAddress string) []stri
 	}
 	if cfg.AttributeStoreConfigPath != "" {
 		arguments = append(arguments, "--attribute-store-config", cfg.AttributeStoreConfigPath)
+	}
+	// Passed only when set, so dexcli still starts dex-server-zd releases without these flags.
+	if cfg.isExplicit("inject-step-result-loss") {
+		arguments = append(arguments, "--inject-step-result-loss", strconv.FormatFloat(cfg.StepResultLoss, 'g', -1, 64))
+	}
+	if cfg.isExplicit("inject-rpc-result-loss") {
+		arguments = append(arguments, "--inject-rpc-result-loss", strconv.FormatFloat(cfg.RPCResultLoss, 'g', -1, 64))
+	}
+	if cfg.isExplicit("inject-result-loss-seed") {
+		arguments = append(arguments, "--inject-result-loss-seed", strconv.FormatUint(cfg.ResultLossSeed, 10))
 	}
 	return arguments
 }

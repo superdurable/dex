@@ -17,6 +17,8 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::control_patterns;
+use crate::data_storage;
 use crate::patterns;
 use crate::patterns::polling::FakeJobService;
 use crate::primitives;
@@ -50,8 +52,17 @@ pub fn build_router(
             client.clone(),
             polling_jobs,
         ))
-        .merge(patterns::interruptible::controller::mount(client.clone()))
+        .merge(control_patterns::fail_fast::controller::mount(
+            client.clone(),
+        ))
+        .merge(control_patterns::deferred_choice::controller::mount(
+            client.clone(),
+        ))
+        .merge(patterns::control_long_running_work::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::reminders::controller::mount(client.clone()))
+        .merge(data_storage::entity_flow::controller::mount(client.clone()))
         .merge(patterns::entity_store::controller::mount(client.clone()))
         .merge(patterns::sequentially_chunked_attribute_map::controller::mount(client.clone()))
         .merge(patterns::hash_partitioned_attribute_map::controller::mount(
@@ -61,10 +72,14 @@ pub fn build_router(
         .merge(patterns::inactiveness_tracker::controller::mount(
             client.clone(),
         ))
+        .merge(control_patterns::inbound_event_loop::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::parallel::controller::mount(client.clone()))
         .merge(patterns::parallel_subflows::controller::mount(
             client.clone(),
         ))
+        .merge(control_patterns::child_flows_business_identity::controller::mount(client.clone()))
         .merge(patterns::recovery::controller::mount(client.clone()))
         .merge(patterns::drain_channels::controller::mount(client.clone()))
         .merge(patterns::wait_for_step_completion::controller::mount(

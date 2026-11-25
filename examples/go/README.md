@@ -175,16 +175,20 @@ details.
 
 Under [`patterns/`](./patterns):
 
+- [Control Long-Running Work: change the batch size or stop a record backfill](./patterns/control-long-running-work)
 - [Cron schedule](./patterns/cron) (auto-started; no HTTP)
 - [Drain internal / externally published channels](./patterns/drain-channels)
-- [Interruptible execution](./patterns/interruptible)
 - [Manual recovery](./patterns/intervention)
 - [Parallel Steps: static, dynamic, await, and first win](./patterns/parallel)
 - [Parallel SubFlows: basic, long-lived parent, short-lived parent, partitioning, and back pressure](./patterns/parallel-subflows)
 - [Polling an external job in one long-running Step](./patterns/polling)
+- [Failing fast on a permanent provider error](./patterns/fail-fast)
 - [Failure recovery](./patterns/recovery)
 - [Reminders](./patterns/reminders)
 - [Inactiveness Tracker Timer](./patterns/inactiveness-tracker-timer)
+- [Idle Timer with Resolution](./patterns/inbound-event-loop)
+- [Decision with Deadline](./patterns/deferred-choice)
+- [Entity Flow customer accounts](./patterns/entity-flow)
 - [Entity Store user profiles](./patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - [Timeout handling](./patterns/timeout)
 - [Wait for Step completion](./patterns/wait-for-step-completion)

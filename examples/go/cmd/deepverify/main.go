@@ -212,7 +212,7 @@ func runPatternScenarios(
 	}
 	cases := []caseFn{
 		{"pattern/polling", func() result { return verifyPolling(ctx, client, stamp) }},
-		{"pattern/interruptible", func() result { return verifyInterruptible(ctx, client, stamp) }},
+		{"pattern/control-long-running-work", func() result { return verifyControlLongRunningWork(ctx, client, stamp) }},
 		{"pattern/reminder", func() result { return verifyReminder(ctx, client, stamp) }},
 		{"pattern/entity-store", func() result { return verifyEntityStore(ctx, client, stamp) }},
 		{"pattern/manual-recovery-retry", func() result { return verifyManualRecoveryRetry(ctx, client, stamp) }},
@@ -640,38 +640,34 @@ func verifyPolling(ctx context.Context, client *dex.Client, stamp string) result
 	return pass(name, "AwaitJob polled the job until it succeeded")
 }
 
-func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/interruptible"
-	flowID := "dv-interrupt-" + stamp
+func verifyControlLongRunningWork(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/control-long-running-work"
+	flowID := "dv-control-long-running-work-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.Interruptible, flowID, nil, hourStartOptions(),
+		ctx, registry.RecordBackfill, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
 	}
-	time.Sleep(500 * time.Millisecond)
-	if err := client.InvokeRPC(
-		ctx, flowID, registry.Interruptible.Interrupt, nil, nil,
+	if err := client.WaitForStepCompletion(
+		ctx, flowID, dex.StepExecutionID{StepType: "ProcessRecordBatch"}, dex.WaitForStepCompletionOptions{},
 	); err != nil {
-		return fail(name, "interrupt rpc", err)
+		return fail(name, "wait for the first batch", err)
 	}
-	var signal string
 	if err := client.InvokeRPC(
-		ctx,
-		flowID,
-		registry.Interruptible.GetInterruptSignal,
-		nil,
-		&signal,
+		ctx, flowID, registry.RecordBackfill.SetBatchSize, 500, nil,
 	); err != nil {
-		return fail(name, "get interrupt signal", err)
+		return fail(name, "set batch size rpc", err)
 	}
-	if signal != "cancel" {
-		return fail(name, "signal="+signal, nil)
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.RecordBackfill.RequestStop, nil, nil,
+	); err != nil {
+		return fail(name, "request stop rpc", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 60*time.Second); err != nil {
 		return fail(name, "", err)
 	}
-	return pass(name, "Interrupt RPC set cancel; flow completed")
+	return pass(name, "SetBatchSize and RequestStop accepted; flow completed")
 }
 
 func verifyReminder(ctx context.Context, client *dex.Client, stamp string) result {
@@ -963,23 +959,22 @@ func verifyDrainingChannel(ctx context.Context, client *dex.Client, stamp string
 		ctx, registry.DrainExternal, flowID, "first message", hourStartOptions(),
 	)
 	if err != nil {
-		return fail(name, "", err)
-	}
-	time.Sleep(1 * time.Second)
-	var output string
-	if err := client.InvokeRPC(
-		ctx,
-		flowID,
-		registry.DrainExternal.PublishExternalChannelMessage,
-		"second message",
-		&output,
-	); err != nil {
-		return fail(name, "second message", err)
+		return fail(name, "start first message", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
-		return fail(name, "", err)
+		return fail(name, "wait for first message", err)
 	}
-	return pass(name, "start + extra message drained to ForceComplete")
+	restartOptions := hourStartOptions()
+	restartOptions.IDReusePolicy = dex.IDReuseAllowIfNotRunning
+	if _, err := client.StartFlow(
+		ctx, registry.DrainExternal, flowID, "second message", restartOptions,
+	); err != nil {
+		return fail(name, "start second message", err)
+	}
+	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
+		return fail(name, "wait for second message", err)
+	}
+	return pass(name, "start, complete, restart with next message")
 }
 
 func verifyWaitForStepCompletion(

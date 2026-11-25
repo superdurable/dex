@@ -3,9 +3,9 @@
     "all": {
       "natural": "Design and build an event-registration application.\nDiagnose why this Flow retries after the payment Step completes.\nAdd <XYZ> to Dex official connector library",
       "codex-plugin": "@Dex Design and build an event-registration application.\n@Dex Diagnose why this Flow retries after the payment Step completes.\n@Dex Add <XYZ> to Dex official connector library",
-      "codex": "$dex-app-builder Design and build an event-registration application.\n$dex-sdk Diagnose why this Flow retries after the payment Step completes.\n$dex-connector-contributor Add <XYZ> to Dex official connector library",
-      "claude-plugin": "/superdurable-dex:dex-app-builder Design and build an event-registration application.\n/superdurable-dex:dex-sdk Diagnose why this Flow retries after the payment Step completes.\n/superdurable-dex:dex-connector-contributor Add <XYZ> to Dex official connector library",
-      "slash": "/dex-app-builder Design and build an event-registration application.\n/dex-sdk Diagnose why this Flow retries after the payment Step completes.\n/dex-connector-contributor Add <XYZ> to Dex official connector library"
+      "codex": "$dex-app-builder Design and build an event-registration application.\n$dex-app-builder Diagnose why this Flow retries after the payment Step completes.\n$dex-connector-contributor Add <XYZ> to Dex official connector library",
+      "claude-plugin": "/superdurable-dex:dex-app-builder Design and build an event-registration application.\n/superdurable-dex:dex-app-builder Diagnose why this Flow retries after the payment Step completes.\n/superdurable-dex:dex-connector-contributor Add <XYZ> to Dex official connector library",
+      "slash": "/dex-app-builder Design and build an event-registration application.\n/dex-app-builder Diagnose why this Flow retries after the payment Step completes.\n/dex-connector-contributor Add <XYZ> to Dex official connector library"
     },
     "dex-app-builder": {
       "natural": "Design and build an event-registration application.",

@@ -22,6 +22,7 @@ package parallelsubflows
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/superdurable/dex/sdk-go/dex"
@@ -30,7 +31,13 @@ import (
 var (
 	SubFlowCompletedCh = dex.DefineChannel[bool]("SubFlowCompletedCh")
 	AllDoneCh          = dex.DefineChannel[bool]("AllDoneCh")
+	ChildStopOutcomes  = dex.DefineAttributeMap[ChildStopOutcome]("ChildStopOutcomes")
 )
+
+type ChildStopOutcome struct {
+	Status string  `json:"status"`
+	Result *string `json:"result,omitempty"`
+}
 
 type WaitForHalfParentFlow struct {
 	dex.FlowDefaults
@@ -54,7 +61,10 @@ func (flow *WaitForHalfParentFlow) GetSteps() []dex.StepDef {
 }
 
 func (*WaitForHalfParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{SubFlowCompletedCh, AllDoneCh}}
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{ChildStopOutcomes},
+		Channels:   []dex.ChannelDef{SubFlowCompletedCh, AllDoneCh},
+	}
 }
 
 type waitForHalfInit struct {
@@ -106,12 +116,50 @@ func (step subFlow) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error
 	if err != nil {
 		return nil, err
 	}
-	if err := client.StopFlow(context.Background(), flowID, dex.StopOptions{
+	clientContext := context.Background()
+	outcome := ChildStopOutcome{Status: "stopped"}
+	if err := client.StopFlow(clientContext, flowID, dex.StopOptions{
 		Type: dex.CancelFlow, Reason: "enough SubFlows completed",
 	}); err != nil {
+		var notFound *dex.FlowNotFoundError
+		var notActiveOrNotFound *dex.FlowNotActiveOrNotFoundError
+		var closing *dex.FlowClosingError
+		if !errors.As(err, &notFound) && !errors.As(err, &notActiveOrNotFound) && !errors.As(err, &closing) {
+			return nil, err
+		}
+		outcome, err = readChildStopOutcome(clientContext, client, flowID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := ChildStopOutcomes.Set(ctx, flowID, outcome); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete(nil), nil
+}
+
+func readChildStopOutcome(ctx context.Context, client *dex.Client, flowID string) (ChildStopOutcome, error) {
+	info, err := client.DescribeFlow(ctx, flowID)
+	var notFound *dex.FlowNotFoundError
+	if errors.As(err, &notFound) || (err == nil && info.Status == dex.FlowRunning) {
+		return ChildStopOutcome{Status: "unknown"}, nil
+	}
+	if err != nil {
+		return ChildStopOutcome{}, err
+	}
+	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{NeedsResults: true})
+	if err != nil {
+		return ChildStopOutcome{}, err
+	}
+	outcome := ChildStopOutcome{Status: result.Status.String()}
+	if len(result.Completions) > 0 {
+		var output string
+		if err := result.DecodeSingleOutput(&output); err != nil {
+			return ChildStopOutcome{}, err
+		}
+		outcome.Result = &output
+	}
+	return outcome, nil
 }
 
 type waitSubFlows struct{ dex.StepDefaults }

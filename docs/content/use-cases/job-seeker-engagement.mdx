@@ -10,7 +10,7 @@ Keep an employer and a job seeker aligned while the job seeker decides whether t
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
-**Shows:** [Static Parallel Steps](/design-patterns/parallel/static), [Reminder](/design-patterns/durable-timer/reminder), [Interruptible wait](/design-patterns/interruptible), [Responsive Update](/design-patterns/responsive-update), [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match).
+**Shows:** [Static Parallel Steps](/design-patterns/parallel/static), [Reminder](/design-patterns/durable-timer/reminder), [Decision with Deadline](/design-patterns/external-interaction/decision-with-deadline), [Responsive Update](/design-patterns/responsive-update), [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match).
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -47,12 +47,13 @@ It combines these design patterns:
 
 - [**Static parallel Steps**](/design-patterns/parallel/static) separate the deadline, the reminder loop, and the external notification. A slow branch does not block the others.
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves **Reminder** back to itself after each Timer fires.
-- [**Interruptible wait**](/design-patterns/interruptible) uses `AnyOf` so a Channel message can wake a Step before its Timer.
+- [**Decision with Deadline**](/design-patterns/external-interaction/decision-with-deadline) uses `AnyOf` so a Channel message can wake a Step before its Timer.
 - [**Responsive update**](/design-patterns/responsive-update) lets **Accept** and **Decline** RPCs validate and change persisted state while the Flow is waiting.
 - [**Attribute match**](/design-patterns/responsive-update/attribute-match) lets a caller wait until an Attribute reaches the value it expects.
 - **Completion by one branch**: `ProcessTimeout` completes the Flow with **done** or **timeout**. The other branches finish or end as dead ends.
+- [**Critical section**](/design-patterns/parallel/critical-section): **Accept**, **Decline**, and the `RecordReminderOptOut` Step register the same lock on `EngagementStatus`. Each one reads the status and notes and writes them back, so the lock stops one update from overwriting another.
 
-The reminder and deadline branches use separate Channels. Opting out of reminders therefore cannot accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes, so every branch and RPC reads the same values.
+The reminder and deadline branches use separate Channels. Opting out of reminders therefore cannot accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes, so every branch and RPC reads the same values. **Reminder** sends email without the lock. When the job seeker opts out, it moves to `RecordReminderOptOut`, which adds the note under the lock. The lock and `RecordReminderOptOut` apply to the Go, Python, Java, and TypeScript examples. The Rust example has no lock to share: its RPCs only publish the decision, and one later Step writes the status.
 
 Give each external call an [idempotency key](/concepts/step#idempotency-keys), so that a retried Step does not repeat its effect.
 
@@ -89,12 +90,14 @@ class EngagementFlow(Flow[EngagementInput]):
         self.initialize = Initialize(self)
         self.process_timeout = ProcessTimeout(self)
         self.reminder = Reminder(self)
+        self.record_reminder_opt_out = RecordReminderOptOut(self)
         self.notify_external_system = NotifyExternalSystem(self)
 
     def get_steps(self) -> StepList[EngagementInput]:
         return StepList.start_step(self.initialize).other_steps(
             self.process_timeout,
             self.reminder,
+            self.record_reminder_opt_out,
             self.notify_external_system,
         )
 
@@ -149,14 +152,28 @@ class Reminder(Step[None]):
         if status is not Status.INITIATED:
             return dead_end()
         if self.flow.opt_out_reminder.results(context):
-            self.flow.update_status(context, status, "user opted out of reminders")
-            return dead_end()
+            return go_to(RecordReminderOptOut, None)
         self.flow.service.send_email(
             self.flow.job_seeker_id.get(context),
             "Reminder: please respond",
             "Please respond to the engagement.",
         )
         return go_to(Reminder, None)
+
+
+class RecordReminderOptOut(Step[None]):
+    def __init__(self, flow: "EngagementFlow") -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_lock_attributes=(self.flow.engagement_status.lock(),))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        status = self.flow.engagement_status.get(context)
+        if status is not Status.INITIATED:
+            return dead_end()
+        self.flow.update_status(context, status, "user opted out of reminders")
+        return dead_end()
 ```
 
 </SdkSnippet>
@@ -175,9 +192,10 @@ func NewEngagementFlow(applicationService service.MyService) *EngagementFlow {
 func (flow *EngagementFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{}),
-		dex.DefineStep(processTimeoutStep{service: flow.service}),
+		dex.DefineStep(processTimeout{service: flow.service}),
 		dex.DefineStep(reminderStep{service: flow.service}),
-		dex.DefineStep(notifyExternalSystemStep{service: flow.service}),
+		dex.DefineStep(recordReminderOptOut{}),
+		dex.DefineStep(notifyExternalSystem{service: flow.service}),
 	}
 }
 
@@ -196,7 +214,7 @@ func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 ```
 
 ```go
-func (processTimeoutStep) WaitFor(
+func (processTimeout) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {
@@ -241,6 +259,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
     private final Initialize initialize = new Initialize();
     private final ProcessTimeout processTimeout = new ProcessTimeout();
     private final Reminder reminder = new Reminder();
+    private final RecordReminderOptOut recordReminderOptOut = new RecordReminderOptOut();
     private final NotifyExternalSystem notifyExternalSystem = new NotifyExternalSystem();
 
     public EngagementFlow(final MyDependencyService service) {
@@ -250,7 +269,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
     @Override
     public StepList<EngagementInput> getSteps() {
         return StepList.startStep(initialize)
-                .otherSteps(processTimeout, reminder, notifyExternalSystem);
+                .otherSteps(processTimeout, reminder, recordReminderOptOut, notifyExternalSystem);
     }
 
     @Override
@@ -291,19 +310,22 @@ final class Reminder implements Step<Void> {
 <SdkSnippet lang="typescript">
 
 ```typescript
+const engagementStatus = new Attribute("EngagementStatus", statusCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: STATUS_SEARCH_KEY,
+});
+
 export class EngagementFlow implements Flow<EngagementInput> {
   public readonly employerId = new Attribute("EmployerId", stringCodec);
   public readonly jobSeekerId = new Attribute("JobSeekerId", stringCodec);
-  public readonly engagementStatus = new Attribute("EngagementStatus", statusCodec, {
-    type: IndexType.KEYWORD,
-    indexKey: STATUS_SEARCH_KEY,
-  });
+  public readonly engagementStatus = engagementStatus;
   public readonly lastUpdateTimestamp = new Attribute("LastUpdateTimeMillis", int64Codec);
   public readonly notes = new Attribute("notes", optionalCodec(stringCodec));
 
   public readonly initialize = new Initialize(this);
   public readonly processTimeout = new ProcessTimeout(this);
   public readonly reminder = new Reminder(this);
+  public readonly recordReminderOptOut = new RecordReminderOptOut(this);
   public readonly notifyExternalSystem = new NotifyExternalSystem(this);
 
   public constructor(public readonly service: MyDependencyService = myDependencyService) {}
@@ -316,6 +338,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     return StepList.startStep(this.initialize).otherSteps(
       this.processTimeout,
       this.reminder,
+      this.recordReminderOptOut,
       this.notifyExternalSystem,
     );
   }
@@ -433,6 +456,6 @@ The Go, Java, Python, and TypeScript examples implement the full 60-day process.
 ## Next
 
 - [Reminder](/design-patterns/durable-timer/reminder)
-- [Interruptible](/design-patterns/interruptible)
+- [Decision with Deadline](/design-patterns/external-interaction/decision-with-deadline)
 - [Responsive update](/design-patterns/responsive-update)
 - [Attribute match](/design-patterns/responsive-update/attribute-match)

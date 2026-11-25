@@ -18,6 +18,7 @@ package io.superdurable.dex.products.microservices;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.shared.ExampleFlows;
+import io.superdurable.dex.shared.LockConflictRetry;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,11 +57,11 @@ public class MicroserviceController {
     }
 
     @GetMapping("/swap")
-    public ResponseEntity<String> swap(
+    public ResponseEntity<?> swap(
             @RequestParam final String workflowId,
             @RequestParam final String data) {
         final OrchestrationFlow stub = client.newRpcStub(OrchestrationFlow.class, workflowId);
-        return ResponseEntity.ok(client.invokeRPC(stub::swap, data));
+        return LockConflictRetry.invokeAndRespond(() -> client.invokeRPC(stub::swap, data));
     }
 
     @GetMapping("/signal")

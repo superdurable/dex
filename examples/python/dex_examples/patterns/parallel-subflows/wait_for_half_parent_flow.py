@@ -14,14 +14,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 from dex import (
     AsyncClient,
     AsyncContext,
+    AttributeMap,
     Channel,
     Context,
     Flow,
+    FlowClosingError,
+    FlowNotActiveOrNotFoundError,
+    FlowNotFoundError,
     FlowStatus,
     PersistenceSchema,
     Step,
@@ -35,6 +40,15 @@ from dex import (
 )
 
 from dex_examples.patterns.parallel_subflows.example_subflow import ExampleSubFlow
+
+
+@dataclass(frozen=True)
+class ChildStopOutcome:
+    status: str
+    result: str | None = None
+
+
+CHILD_STOP_OUTCOMES = AttributeMap("ChildStopOutcomes", ChildStopOutcome)
 
 
 # dex:group group-id:setup group-label:"Setup"
@@ -76,8 +90,32 @@ class SubFlowStep(Step[str]):
         if result.status is not FlowStatus.RUNNING:
             self.subflow_completed_ch.publish(context, True)
             return graceful_complete()
-        await self.client_provider().stop_flow(SubFlow.get_flow_id(context))
+        client = self.client_provider()
+        child_flow_id = SubFlow.get_flow_id(context)
+        try:
+            await client.stop_flow(child_flow_id)
+        except (FlowNotFoundError, FlowNotActiveOrNotFoundError, FlowClosingError):
+            outcome = await self._read_child_stop_outcome(client, child_flow_id)
+        else:
+            outcome = ChildStopOutcome("stopped")
+        CHILD_STOP_OUTCOMES.set(context, child_flow_id, outcome)
         return graceful_complete()
+
+    @staticmethod
+    async def _read_child_stop_outcome(
+        client: AsyncClient, child_flow_id: str
+    ) -> ChildStopOutcome:
+        try:
+            info = await client.describe_flow(child_flow_id)
+        except FlowNotFoundError:
+            return ChildStopOutcome("unknown")
+        if info.status is FlowStatus.RUNNING:
+            return ChildStopOutcome("unknown")
+        result = await client.wait_for_flow(child_flow_id)
+        return ChildStopOutcome(
+            result.status.value,
+            result.single_output(str) if result.completions else None,
+        )
 
 
 # dex:group group-id:half-done group-label:"Half done"
@@ -121,4 +159,6 @@ class WaitForHalfParentFlow(Flow[list[str]]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.subflow_completed_ch, self.all_done_ch)
+        return PersistenceSchema.of(
+            self.subflow_completed_ch, self.all_done_ch, CHILD_STOP_OUTCOMES
+        )

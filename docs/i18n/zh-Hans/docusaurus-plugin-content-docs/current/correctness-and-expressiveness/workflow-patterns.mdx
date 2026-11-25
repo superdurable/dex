@@ -274,7 +274,7 @@ WCP-18、WCP-20、WCP-23 和 WCP-39 不是汇合，评级原因见各自的那�
 
 **评级**：**+**。`AnyOf` 决定竞争结果，只有一个分支会开始。
 
-**设计模式**：[延迟选择](/design-patterns/deferred-choice)。
+**设计模式**：[带截止时间的决定](/design-patterns/external-interaction/decision-with-deadline)。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DeferredChoiceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
@@ -316,7 +316,7 @@ WCP-18、WCP-20、WCP-23 和 WCP-39 不是汇合，评级原因见各自的那�
 
 **评级**：**+/-**。只用 Client `StopFlow` 会让正在运行的 SubFlow 继续运行，所以示例组合了取消 Channel、显式停止和 `ForceFail`。
 
-**设计模式**：[连同子 Flow 一起取消](/design-patterns/cancel-case)。
+**设计模式**：[连同子 Flow 一起取消](/design-patterns/subflows/cancel-case)。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelCaseFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs)
 
@@ -508,7 +508,7 @@ WCP-18、WCP-20、WCP-23 和 WCP-39 不是汇合，评级原因见各自的那�
 
 **评级**：**+/-**。Attribute lock 只覆盖一个 Step 方法，所以由多个 Step 组成的区段用只含一条消息的 Channel 作为令牌。
 
-**设计模式**：[临界区](/design-patterns/critical-section)。
+**设计模式**：[临界区](/design-patterns/parallel/critical-section)。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CriticalSectionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 

@@ -15,116 +15,121 @@
 # decision.
 
 mappings:
-  - skill: dex-sdk/references/core/flow.md
+  - skill: dex-app-builder/references/core/flow.md
     docs:
       - docs/content/concepts/flow/index.mdx
 
-  - skill: dex-sdk/references/core/step.md
+  - skill: dex-app-builder/references/core/step.md
     docs:
       - docs/content/concepts/step/index.mdx
       - docs/content/concepts/step/advanced-guarantees.mdx
 
-  - skill: dex-sdk/references/core/attribute.md
+  - skill: dex-app-builder/references/core/attribute.md
     docs:
       - docs/content/concepts/primitives/attribute.mdx
 
-  - skill: dex-sdk/references/core/rpc.md
+  - skill: dex-app-builder/references/core/rpc.md
     docs:
       - docs/content/concepts/primitives/rpc.mdx
 
-  - skill: dex-sdk/references/core/channel.md
+  - skill: dex-app-builder/references/core/channel.md
     docs:
       - docs/content/concepts/primitives/channel.mdx
 
-  - skill: dex-sdk/references/core/stream.md
+  - skill: dex-app-builder/references/core/stream.md
     docs:
       - docs/content/concepts/primitives/stream.mdx
 
-  - skill: dex-sdk/references/core/timer.md
+  - skill: dex-app-builder/references/core/timer.md
     docs:
       - docs/content/concepts/primitives/timer.mdx
 
-  - skill: dex-sdk/references/core/subflow.md
+  - skill: dex-app-builder/references/core/subflow.md
     docs:
       - docs/content/concepts/primitives/subflow.mdx
 
-  - skill: dex-sdk/references/core/connector.md
+  - skill: dex-app-builder/references/core/connector.md
     docs:
       - docs/content/concepts/connector.mdx
 
-  - skill: dex-sdk/references/core/client.md
+  - skill: dex-app-builder/references/core/client.md
     docs:
       - docs/content/concepts/client.mdx
 
-  - skill: dex-sdk/references/core/application.md
+  - skill: dex-app-builder/references/core/application.md
     docs:
       - docs/content/components/index.mdx
       - docs/content/components/application.mdx
       - docs/content/components/production.mdx
 
-  - skill: dex-sdk/references/core/server.md
+  - skill: dex-app-builder/references/core/server.md
     docs:
       - docs/content/components/server.mdx
       - docs/content/components/production.mdx
 
-  - skill: dex-sdk/references/core/cli.md
+  - skill: dex-app-builder/references/core/cli.md
     docs:
       - docs/content/components/cli.mdx
       - docs/content/components/run-locally.mdx
 
-  - skill: dex-sdk/references/core/testing.md
+  - skill: dex-app-builder/references/core/testing.md
     docs:
       - docs/content/components/testing.mdx
 
-  - skill: dex-sdk/references/core/data-handling.md
+  - skill: dex-app-builder/references/core/data-handling.md
     docs:
       - docs/content/components/your-database.mdx
+      - docs/content/components/production.mdx
 
-  - skill: dex-sdk/references/core/web.md
+  - skill: dex-app-builder/references/core/web.md
     docs:
       - docs/content/components/web.mdx
 
-  - skill: dex-sdk/references/core/patterns.md
+  - skill: dex-app-builder/references/core/patterns.md
     docs:
-      - docs/content/design-patterns/attribute-map-partitioning.mdx
-      - docs/content/design-patterns/cancel-case.mdx
-      - docs/content/design-patterns/critical-section.mdx
-      - docs/content/design-patterns/deferred-choice.mdx
+      - docs/content/design-patterns/data-storage.mdx
+      - docs/content/design-patterns/data-storage/entity-flow-attribute-sync.mdx
+      - docs/content/design-patterns/data-storage/entity-flow.mdx
+      - docs/content/design-patterns/data-storage/hash-partitioned-attribute-map.mdx
+      - docs/content/design-patterns/data-storage/sequentially-chunked-attribute-map.mdx
       - docs/content/design-patterns/drain-channels.mdx
       - docs/content/design-patterns/drain-internal-channels.mdx
       - docs/content/design-patterns/draining-channel-for-external-publishing.mdx
       - docs/content/design-patterns/durable-timer/cron.mdx
-      - docs/content/design-patterns/durable-timer/inactiveness-tracker-timer.mdx
       - docs/content/design-patterns/durable-timer/index.mdx
+      - docs/content/design-patterns/durable-timer/polling.mdx
       - docs/content/design-patterns/durable-timer/reminder.mdx
-      - docs/content/design-patterns/entity-store.mdx
+      - docs/content/design-patterns/external-interaction.mdx
+      - docs/content/design-patterns/external-interaction/decision-with-deadline.mdx
+      - docs/content/design-patterns/external-interaction/idle-timer-with-resolution.mdx
+      - docs/content/design-patterns/external-interaction/idle-timer.mdx
+      - docs/content/design-patterns/external-interaction/control-long-running-work.mdx
       - docs/content/design-patterns/failure-handling.mdx
       - docs/content/design-patterns/failure-handling/execute-failure-recovery.mdx
+      - docs/content/design-patterns/failure-handling/fail-fast-on-permanent-errors.mdx
       - docs/content/design-patterns/failure-handling/graceful-timeout.mdx
       - docs/content/design-patterns/failure-handling/manual-recovery.mdx
       - docs/content/design-patterns/failure-handling/wait-for-failure-recovery.mdx
-      - docs/content/design-patterns/hash-partitioned-attribute-map.mdx
-      - docs/content/design-patterns/inbound-event-loop.mdx
       - docs/content/design-patterns/index.mdx
-      - docs/content/design-patterns/interruptible.mdx
-      - docs/content/design-patterns/parallel-subflows.mdx
-      - docs/content/design-patterns/parallel-subflows/back-pressure.mdx
-      - docs/content/design-patterns/parallel-subflows/basic.mdx
-      - docs/content/design-patterns/parallel-subflows/long-lived-parent.mdx
-      - docs/content/design-patterns/parallel-subflows/partitioning.mdx
-      - docs/content/design-patterns/parallel-subflows/short-lived-parent.mdx
-      - docs/content/design-patterns/parallel-subflows/wait-for-half.mdx
       - docs/content/design-patterns/parallel.mdx
       - docs/content/design-patterns/parallel/await.mdx
+      - docs/content/design-patterns/parallel/critical-section.mdx
       - docs/content/design-patterns/parallel/dynamic.mdx
       - docs/content/design-patterns/parallel/first-win.mdx
       - docs/content/design-patterns/parallel/static.mdx
-      - docs/content/design-patterns/polling.mdx
       - docs/content/design-patterns/responsive-update.mdx
       - docs/content/design-patterns/responsive-update/attribute-match.mdx
       - docs/content/design-patterns/responsive-update/step-completion.mdx
       - docs/content/design-patterns/responsive-update/stream.mdx
-      - docs/content/design-patterns/sequentially-chunked-attribute-map.mdx
+      - docs/content/design-patterns/subflows.mdx
+      - docs/content/design-patterns/subflows/back-pressure.mdx
+      - docs/content/design-patterns/subflows/basic.mdx
+      - docs/content/design-patterns/subflows/cancel-case.mdx
+      - docs/content/design-patterns/subflows/child-flows-with-business-identity.mdx
+      - docs/content/design-patterns/subflows/long-lived-parent.mdx
+      - docs/content/design-patterns/subflows/partitioning.mdx
+      - docs/content/design-patterns/subflows/short-lived-parent.mdx
+      - docs/content/design-patterns/subflows/wait-for-half.mdx
 
   - skill: dex-app-builder/references/backend-implementation.md
     docs:
@@ -161,24 +166,24 @@ mappings:
       - docs/content/components/managed-dex-app.mdx
 
 unmapped:
-  # Entry points and skill-only guidance.
+  # Entry points and skill-only guidance; dex-sdk is a transition stub.
   - skills/dex-sdk/SKILL.md
-  - skills/dex-sdk/references/core/error-handling.md
-  - skills/dex-sdk/references/core/plugin-version-check.md
-  - skills/dex-sdk/references/core/self-check.md
-  # Language idioms on top of the core rules.
-  - skills/dex-sdk/references/go/*.md
-  - skills/dex-sdk/references/java/*.md
-  - skills/dex-sdk/references/python/*.md
-  - skills/dex-sdk/references/rust/*.md
-  - skills/dex-sdk/references/typescript/*.md
-  # App Builder workflow and n8n import.
   - skills/dex-app-builder/SKILL.md
+  - skills/dex-app-builder/references/core/error-handling.md
+  - skills/dex-app-builder/references/core/plugin-version-check.md
+  - skills/dex-app-builder/references/core/self-check.md
+  # Language idioms on top of the core rules.
+  - skills/dex-app-builder/references/go/*.md
+  - skills/dex-app-builder/references/java/*.md
+  - skills/dex-app-builder/references/python/*.md
+  - skills/dex-app-builder/references/rust/*.md
+  - skills/dex-app-builder/references/typescript/*.md
+  # App Builder workflow.
+  # A short onboarding route; it reuses the SKILL.md mental model and the CLI reference.
+  - skills/dex-app-builder/references/getting-started.md
   - skills/dex-app-builder/references/product-discovery.md
-  - skills/dex-app-builder/references/workflow-import.md
-  - skills/dex-app-builder/references/n8n-semantics.md
   - skills/dex-connector-contributor/SKILL.md
-  # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
+  # The Concepts overview; dex-app-builder/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx
   # The Primitives overview lists the six primitives; each has its own mapping.
   - docs/content/concepts/primitives/index.mdx

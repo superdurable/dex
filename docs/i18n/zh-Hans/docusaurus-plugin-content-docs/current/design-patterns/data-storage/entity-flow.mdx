@@ -1,0 +1,583 @@
+---
+title: 实体 Flow
+sidebar_label: 实体 Flow
+description: "每个业务实体（例如一个客户账户）对应一个长期运行的 Flow。Flow ID 由实体 ID 派生，状态存在 Attribute 里，通过 RPC 修改，用 Client 读取。"
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/entity-flow.json';
+
+# 实体 Flow
+
+每个业务实体（例如一个客户、一个订单或一个账户）对应一个长期运行的 Flow。实体存在多久，这个 Flow 就保存它的状态多久。每次修改都经过这个 Flow，因此 Dex 会持久保存每次修改。
+
+可运行的示例为每个客户账户保留一个 `CustomerAccountFlow`。它保存显示名称、邮箱地址、积分余额，以及账户是否已停用。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里试用它的路由。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## 适用场景 {#when-to-use-this-pattern}
+
+当一个业务实体需要持久的状态，并且多个调用方会长期修改这个状态时，使用实体 Flow。每次修改都要根据当前状态做校验。典型的例子有客户账户、购物车、设备和订阅记录。
+
+如果还需要用 SQL 查询大量实体的最新状态，在这个模式的基础上使用[带 Attribute 同步的实体 Flow](/design-patterns/data-storage/entity-flow-attribute-sync)。
+
+## 工作方式 {#how-it-works}
+
+1. **开户。** 应用启动一个 Flow，Flow ID 由账户 ID 派生，例如 `customer-account-42`。启动请求设置初始的 Attribute，并设置拒绝任何重复 ID 的 ID reuse policy。只要 Dex 还保留这个账户的 Flow，用同一个账户 ID 再次启动就会失败，所以每个账户只有一个 Flow。
+2. **修改联系方式。** `UpdateContactDetails` 先检查账户未停用，再校验新的名称和邮箱地址，然后写入这两个 Attribute。
+3. **调整积分余额。** `AdjustCreditBalance` 先检查账户未停用，再读取余额、加上调整的数额，结果小于零时拒绝。修改账户的三个 RPC 都声明同一把锁。拿到锁的调用逐个执行。遇到锁被占用的调用会以 lock conflict 失败，调用方只对这个错误退避重试。
+4. **读取账户。** 应用用 Client 读取 Attribute。读取时不运行任何 Worker。
+5. **停用账户。** `RetireAccount` 检查余额为零，把账户标记为已停用，然后启动 `CloseAccountStep`。只要 Flow 还接收 RPC，重复停用就不会改变任何东西。`CloseAccountStep` 只归档一次账户，并以 graceful completion 结束 Flow。
+
+在这些调用之间，Flow 没有活动的 Step。它保持运行，但不占用 Worker，因此可以存在几个月甚至几年。
+
+## 核心实现 {#core-implementation}
+
+### 每个实体一个 Flow {#open-one-flow-per-entity}
+
+由实体 ID 派生 Flow ID。启动 Flow 时不设 Flow timeout，并在启动请求中把初始状态设为 Attribute。把 already-started 错误当作"这个账户已存在"处理。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/controller.py', go: 'examples/go/patterns/entity-flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/EntityFlowController.java', typescript: 'examples/typescript/src/patterns/entity-flow/controller.ts', rust: 'examples/rust/src/data_storage/entity_flow/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+flow_id = customer_account_flow_id(account_id)
+options = (
+    StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW)
+    .with_attribute(flow.display_name, contact.display_name)
+    .with_attribute(flow.email, contact.email)
+    .with_attribute(flow.credit_balance, 0)
+    .with_attribute(flow.retired, False)
+)
+run_id = await app_state.client.start_flow(flow, flow_id, None, options)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+flowID := CustomerAccountFlowID(accountRequest.AccountID)
+runID, err := controller.client.StartFlow(
+	request.Request.Context(),
+	controller.flow,
+	flowID,
+	nil,
+	options,
+)
+var alreadyStarted *dex.FlowAlreadyStartedError
+if errors.As(err, &alreadyStarted) {
+	request.JSON(http.StatusConflict, gin.H{"error": "account already exists"})
+	return
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final String flowId = CustomerAccountFlow.customerAccountFlowId(request.requireAccountId());
+final CustomerAccountFlow.ContactDetails contact = request.contactDetails();
+final StartFlowOptions options = StartFlowOptions.newBuilder()
+        .idReusePolicy(IdReusePolicy.DISALLOW)
+        .addAttribute(flow.displayName, contact.displayName)
+        .addAttribute(flow.email, contact.email)
+        .addAttribute(flow.creditBalance, 0L)
+        .addAttribute(flow.retired, false)
+        .build();
+try {
+    final String runId = client.startFlow(flow, flowId, null, options);
+    return ResponseEntity.ok(Map.of("flowID", flowId, "runID", runId));
+} catch (final FlowAlreadyStartedException alreadyStarted) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(Map.of("error", "account already exists"));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const flowId = customerAccountFlowId(accountId);
+try {
+  const runId = await client.startFlow(customerAccountFlow, flowId, undefined, {
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    attributes: [
+      InitialAttribute.of(customerAccountFlow.displayName, contact.displayName),
+      InitialAttribute.of(customerAccountFlow.email, contact.email),
+      InitialAttribute.of(customerAccountFlow.creditBalance, 0n),
+      InitialAttribute.of(customerAccountFlow.retired, false),
+    ],
+  });
+  response.json({ flowID: flowId, runID: runId });
+} catch (error) {
+  if (error instanceof FlowAlreadyStartedError) {
+    response.status(409).json({ error: "account already exists" });
+    return;
+  }
+  throw error;
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub fn open_account_options(contact: ContactDetails) -> StartFlowOptions {
+    StartFlowOptions::new()
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .initial_attribute(&DISPLAY_NAME, contact.display_name)
+        .initial_attribute(&EMAIL, contact.email)
+        .initial_attribute(&CREDIT_BALANCE, 0_i64)
+        .initial_attribute(&RETIRED, false)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### 通过 RPC 修改状态 {#change-state-through-rpcs}
+
+每个 RPC 先检查账户未停用，再根据当前状态校验输入，然后写入 Attribute。`UpdateContactDetails`、`AdjustCreditBalance` 和 `RetireAccount` 都在余额 Attribute 上声明锁。有了这把锁，检查和写入就成为一步，停用之后不会再混进修改，两次调整也不会互相覆盖。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py', go: 'examples/go/patterns/entity-flow/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/CustomerAccountFlow.java', typescript: 'examples/typescript/src/patterns/entity-flow/customer-account-flow.ts', rust: 'examples/rust/src/data_storage/entity_flow/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(name="UpdateContactDetails", lock_attributes=(credit_balance.lock(),))
+def update_contact_details(self, context: Context, input: ContactDetails) -> None:
+    self.require_open_account(context)
+    input.validate()
+    self.display_name.set(context, input.display_name)
+    self.email.set(context, input.email)
+
+@rpc(name="AdjustCreditBalance", lock_attributes=(credit_balance.lock(),))
+def adjust_credit_balance(
+    self, context: Context, input: CreditAdjustment
+) -> RPCResult[int]:
+    self.require_open_account(context)
+    if input.amount == 0:
+        raise ValueError("amount must not be zero")
+    balance = self.credit_balance.get(context) + input.amount
+    if balance < 0:
+        raise ValueError("credit balance cannot go below zero")
+    self.credit_balance.set(context, balance)
+    return RPCResult(balance)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (flow *CustomerAccountFlow) GetRPCs() []dex.RPCDef {
+	accountLock := &dex.RPCOptions{
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(CreditBalance)},
+	}
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+		dex.DefineRPC(flow.UpdateContactDetails, accountLock),
+		dex.DefineRPC(flow.AdjustCreditBalance, accountLock),
+		dex.DefineRPC(flow.RetireAccount, accountLock),
+	}
+}
+
+func (*CustomerAccountFlow) AdjustCreditBalance(
+	ctx dex.Context,
+	adjustment CreditAdjustment,
+) (*dex.RPCResult[int64], error) {
+	if err := requireOpenAccount(ctx); err != nil {
+		return nil, err
+	}
+	if adjustment.Amount == 0 {
+		return nil, errors.New("amount must not be zero")
+	}
+	balance, err := CreditBalance.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	balance += adjustment.Amount
+	if balance < 0 {
+		return nil, errors.New("credit balance cannot go below zero")
+	}
+	if err := CreditBalance.Set(ctx, balance); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[int64]{Output: balance}, nil
+}
+
+func requireOpenAccount(ctx dex.Context) error {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return errors.New("account is retired")
+	}
+	return nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(name = "UpdateContactDetails", lockAttributes = {"credit_balance"})
+public void updateContactDetails(final Context context, final ContactDetails contact) {
+    requireOpenAccount(context);
+    contact.validate();
+    displayName.set(context, contact.displayName);
+    email.set(context, contact.email);
+}
+
+@RPC(name = "AdjustCreditBalance", lockAttributes = {"credit_balance"})
+public RPCResult<Long> adjustCreditBalance(
+        final Context context,
+        final CreditAdjustment adjustment) {
+    requireOpenAccount(context);
+    if (adjustment.amount == 0) {
+        throw new IllegalArgumentException("amount must not be zero");
+    }
+    final long balance = creditBalance.get(context) + adjustment.amount;
+    if (balance < 0) {
+        throw new IllegalArgumentException("credit balance cannot go below zero");
+    }
+    creditBalance.set(context, balance);
+    return RPCResult.of(balance);
+}
+
+private void requireOpenAccount(final Context context) {
+    if (Boolean.TRUE.equals(retired.get(context))) {
+        throw new IllegalStateException("account is retired");
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({
+  name: "UpdateContactDetails",
+  inputCodec: jsonCodec<ContactDetails>(),
+  lockAttributes: [creditBalance.lock()],
+})
+public updateContactDetails(context: Context, contact: ContactDetails): void {
+  this.requireOpenAccount(context);
+  validateContactDetails(contact);
+  this.displayName.set(context, contact.displayName);
+  this.email.set(context, contact.email);
+}
+
+@rpc({
+  name: "AdjustCreditBalance",
+  inputCodec: jsonCodec<CreditAdjustment>(),
+  outputCodec: int64Codec,
+  lockAttributes: [creditBalance.lock()],
+})
+public adjustCreditBalance(
+  context: Context,
+  adjustment: CreditAdjustment,
+): RPCResult<bigint> {
+  this.requireOpenAccount(context);
+  const amount = validateCreditAmount(adjustment.amount);
+  const balance = this.creditBalance.get(context) + BigInt(amount);
+  if (balance < 0n) {
+    throw new Error("credit balance cannot go below zero");
+  }
+  if (balance > MAX_CREDIT_BALANCE) {
+    throw new Error("credit balance cannot exceed the largest safe integer");
+  }
+  this.creditBalance.set(context, balance);
+  return { output: balance };
+}
+
+private requireOpenAccount(context: Context): void {
+  if (this.retired.get(context)) {
+    throw new Error("account is retired");
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn adjust_credit_balance(
+    &self,
+    context: &mut Context,
+    adjustment: CreditAdjustment,
+) -> HandlerResult<RpcResult<i64>> {
+    require_open_account(context)?;
+    if adjustment.amount == 0 {
+        return Err(account_error("amount must not be zero"));
+    }
+    let balance = CREDIT_BALANCE
+        .get_required(context)?
+        .checked_add(adjustment.amount)
+        .ok_or_else(|| account_error("credit balance is out of range"))?;
+    if balance < 0 {
+        return Err(account_error("credit balance cannot go below zero"));
+    }
+    CREDIT_BALANCE.set(context, balance)?;
+    Ok(RpcResult::new(balance))
+}
+
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new()
+        .procedure(
+            UPDATE_CONTACT_DETAILS.lock(CREDIT_BALANCE.lock()),
+            Self::update_contact_details,
+        )
+        .function(
+            ADJUST_CREDIT_BALANCE.lock(CREDIT_BALANCE.lock()),
+            Self::adjust_credit_balance,
+        )
+        .function_without_input(
+            RETIRE_ACCOUNT.lock(CREDIT_BALANCE.lock()),
+            Self::retire_account,
+        )
+}
+
+fn require_open_account(context: &Context) -> HandlerResult<()> {
+    if RETIRED.get(context)?.unwrap_or(false) {
+        return Err(account_error("account is retired"));
+    }
+    Ok(())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+只有拿到锁的调用会执行，并且逐个执行。锁被其他调用占用时，带锁的 RPC 立即以 lock-conflict 错误失败。只对这个错误退避重试，其他错误交给调用方处理。参见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。
+
+### 用 Client 读取状态 {#read-state-with-the-client}
+
+用 Client 的 Attribute read 读取已保存的 Attribute。它返回已提交的值，不运行 Worker。如果读取需要 Flow 代码，例如权限校验或派生视图，改用只读 RPC；参见 [Read-only RPCs](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows)。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/controller.py', go: 'examples/go/patterns/entity-flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/EntityFlowController.java', typescript: 'examples/typescript/src/patterns/entity-flow/controller.ts', rust: 'examples/rust/src/data_storage/entity_flow/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+values = await app_state.client.get_attributes(
+    customer_account_flow_id(account_id),
+    flow.display_name,
+    flow.email,
+    flow.credit_balance,
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+account := AccountView{AccountID: accountID}
+_, err := controller.client.GetAttributes(
+	request.Request.Context(),
+	CustomerAccountFlowID(accountID),
+	dex.ReadAttribute(DisplayName, &account.DisplayName),
+	dex.ReadAttribute(Email, &account.Email),
+	dex.ReadAttribute(CreditBalance, &account.CreditBalance),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final AttributeValues values = client.getAttributes(
+        CustomerAccountFlow.customerAccountFlowId(requireAccountId(accountId)),
+        flow.displayName,
+        flow.email,
+        flow.creditBalance);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const [displayName, email, creditBalance] = await client.getAttributes(
+  customerAccountFlowId(accountId),
+  customerAccountFlow.displayName,
+  customerAccountFlow.email,
+  customerAccountFlow.creditBalance,
+);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.get_attributes(&flow_id, (&DISPLAY_NAME, &EMAIL, &CREDIT_BALANCE))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### 停用实体 {#retire-the-entity}
+
+`RetireAccount` 持有和其他 RPC 相同的锁。它检查余额，设置 `retired` Attribute，然后启动 `CloseAccountStep`。只要 Flow 还接收 RPC，重复停用会发现账户已停用，直接返回，不再启动新的 Step。
+
+`CloseAccountStep` 归档账户并返回 `GracefulComplete`，Flow 随即完成。在 Flow 结束之前，`UpdateContactDetails` 和 `AdjustCreditBalance` 会在锁内读到 `retired`，返回 "account is retired" 错误。归档系统不可用时，这个 Step 失败，Dex 会重试它。重试期间 Flow 保持运行，账户保持停用。
+
+Dex 可能多次运行同一个 Step execution，例如某次尝试已经归档了账户，但结果丢失。归档系统以账户的 Flow ID 作为唯一键，所以重试的尝试会找到已有记录并直接成功，不会重复归档。真实的归档服务用唯一插入或幂等 upsert 做到同样的效果。
+
+Flow 完成后，在 Dex 清除这个 Flow 之前，可以用 Client 读取保留的 Attribute。Dex 会拒绝发给正在关闭或已关闭的 Flow 的带锁 RPC，所以重复请求的调用方要处理这个错误，并读取保留的状态。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py', go: 'examples/go/patterns/entity-flow/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entityflow/CustomerAccountFlow.java', typescript: 'examples/typescript/src/patterns/entity-flow/customer-account-flow.ts', rust: 'examples/rust/src/data_storage/entity_flow/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: None) -> StepDecision:
+    self.archive.archive_account(context.flow_id, context.step_execution_id)
+    return graceful_complete()
+
+@rpc(name="RetireAccount", lock_attributes=(credit_balance.lock(),))
+def retire_account(self, context: Context) -> RPCResult[None]:
+    if self.retired.get(context):
+        return RPCResult(None)
+    if self.credit_balance.get(context) != 0:
+        raise ValueError("spend or refund the credit balance before retiring")
+    self.retired.set(context, True)
+    return RPCResult(None, next_steps=(StepMovement.of(CloseAccountStep, None),))
+
+def require_open_account(self, context: Context) -> None:
+    if self.retired.get(context):
+        raise ValueError("account is retired")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (*CustomerAccountFlow) RetireAccount(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if retired {
+		return &dex.RPCResult[dex.None]{}, nil
+	}
+	balance, err := CreditBalance.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if balance != 0 {
+		return nil, errors.New("spend or refund the credit balance before retiring")
+	}
+	if err := Retired.Set(ctx, true); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{
+		NextSteps: []dex.StepMovement{dex.MovementOf(CloseAccountStep{}, nil)},
+	}, nil
+}
+
+func (step CloseAccountStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if err := step.archive.ArchiveAccount(ctx.FlowID(), ctx.StepExecutionID()); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(name = "RetireAccount", lockAttributes = {"credit_balance"})
+public RPCResult<Void> retireAccount(final Context context) {
+    if (Boolean.TRUE.equals(retired.get(context))) {
+        return RPCResult.of((Void) null);
+    }
+    if (creditBalance.get(context) != 0) {
+        throw new IllegalArgumentException(
+                "spend or refund the credit balance before retiring");
+    }
+    retired.set(context, true);
+    return RPCResult.of((Void) null, StepMovement.of(CloseAccountStep.class, null));
+}
+
+@Override
+public StepDecision execute(final Context context, final Void input) {
+    archive.archiveAccount(context.getFlowId(), context.getStepExecutionId());
+    return StepDecision.gracefulComplete();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public retireAccount(context: Context): RPCResult<void> {
+  if (this.retired.get(context)) {
+    return { output: undefined };
+  }
+  if (this.creditBalance.get(context) !== 0n) {
+    throw new Error("spend or refund the credit balance before retiring");
+  }
+  this.retired.set(context, true);
+  return {
+    output: undefined,
+    nextSteps: [StepMovement.of(CloseAccountStep, undefined)],
+  };
+}
+
+public execute(context: Context, _input: void): StepDecision {
+  this.archive.archiveAccount(context.flowId, context.stepExecutionId);
+  return gracefulComplete();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn retire_account(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> {
+    if RETIRED.get(context)?.unwrap_or(false) {
+        return Ok(RpcResult::new(()));
+    }
+    if CREDIT_BALANCE.get_required(context)? != 0 {
+        return Err(account_error(
+            "spend or refund the credit balance before retiring",
+        ));
+    }
+    RETIRED.set(context, true)?;
+    Ok(RpcResult::new(()).then(StepMovement::to(&self.close_account, ())))
+}
+
+fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    self.archive
+        .archive_account(context.flow_id(), context.step_execution_id())
+        .map_err(|message| account_error(&message))?;
+    Ok(StepDecision::graceful_complete(()))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+实体 Flow 也可以有一个长期等待的 Step，例如等待命令 Channel 的 Step。如果你使用的 SDK 和 Server 提供 graceful completion 条件，就把它加进这个等待；收到完成请求时，这个 Step 会被唤醒。如果不提供，就让停用 RPC 向这个 Channel 发布一条明确的关闭消息，Step 读到这条消息后结束。Server 的支持情况参见 [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition)，所用 SDK 的支持情况参见它的 Waits 参考：[Python](/reference/python/waits#graceful-completion-requests)、[Go](/reference/go/waits#graceful-completion-requests)、[Java](/reference/java/waits#graceful-completion-requests)、[TypeScript](/reference/typescript/waits#graceful-completion-requests) 或 [Rust](/reference/rust/waits#graceful-completion-requests)。
+
+## 控制状态的大小 {#keep-the-state-bounded}
+
+每个 Attribute 保存一个值，每次修改时 Flow 都会重写整个值。实体的当前状态放在普通 Attribute 里。如果实体会积累不断增长的历史，例如订单或审计事件，把这些历史存进[顺序分块 AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)。
+
+## API endpoints {#api-endpoints}
+
+- **POST /patterns/entity-flow/account**：开户
+- **POST /patterns/entity-flow/account/contact**：修改联系方式
+- **POST /patterns/entity-flow/account/credits**：调整积分余额
+- **GET /patterns/entity-flow/account?accountId=...**：用 Client 读取账户
+- **POST /patterns/entity-flow/account/retire?accountId=...**：停用账户
+
+[examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 列出了这些路由和示例请求体。
+
+## 下一步 {#next}
+
+- [带 Attribute 同步的实体 Flow](/design-patterns/data-storage/entity-flow-attribute-sync)
+- [顺序分块 AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
+- [Attribute](/concepts/primitives/attribute)
+- [RPC](/concepts/primitives/rpc)

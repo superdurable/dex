@@ -127,7 +127,7 @@ retries end, the failure policy decides what happens next. If no failure route
 is configured, the Flow fails. See
 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 For a long wait on an external system, see
-[Polling](/design-patterns/polling).
+[Polling](/design-patterns/durable-timer/polling).
 
 ## Heartbeat {#heartbeat}
 
@@ -138,7 +138,7 @@ A Stream message counts as a heartbeat.
 For example, with an **Execute** method timeout of 60 seconds and a
 **HeartbeatTimeout** of 10 seconds, Dex retries a stalled attempt after about
 10 seconds instead of 60. To wait for an external system in
-one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
+one heartbeating Step, use the [Polling](/design-patterns/durable-timer/polling) pattern.
 
 A loop that heartbeats once per round must finish each round inside the window.
 Keep the poll interval plus the external call timeout at or below

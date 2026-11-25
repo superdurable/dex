@@ -1179,6 +1179,15 @@ again`), then `": "` and the recovery detail. The model may call the tool
 again. A call whose tool already asked a question ran before, so it keeps the
 status of its effect.
 
+An `outcome_unknown` record whose last attempt raised an exception sets
+`tool_step_threw`, and the model sees `OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT`:
+the warning of `OUTCOME_UNKNOWN_TOOL_RESULT`, plus the exception's message, cut
+at `OUTCOME_UNKNOWN_ERROR_MAX_BYTES` (1,024 UTF-8 bytes). A crash keeps
+`OUTCOME_UNKNOWN_TOOL_RESULT`, and a passed time limit usually does too. The
+SDK also cancels the handler at the deadline, so when its error, such as
+"Worker task canceled", reaches Dex first, the model reads that error. Changed
+in 0.6.18.
+
 Before calling the runner, the tool Step writes `tool_call_started` and awaits
 a heartbeat. A Worker that disconnects after it received the task fails the
 attempt, and the call records `outcome_unknown`. The heartbeat matters because

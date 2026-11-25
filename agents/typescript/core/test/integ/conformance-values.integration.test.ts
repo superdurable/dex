@@ -101,6 +101,9 @@ import {
   toolCallNotRunErrorPrefix,
   toolTaskAbandonedError,
   isFinalToolCallStatus,
+  outcomeUnknownErrorMaxBytes,
+  outcomeUnknownErrorTruncationMarker,
+  outcomeUnknownThrownErrorToolResult,
   outcomeUnknownToolResult,
   questionDeadlinePassed,
   toolCallCancelledBySteeringResult,
@@ -551,6 +554,7 @@ describe("the conformance suite's names manifest", () => {
       message_rollover_max_bytes_per_commit: messageRolloverMaxBytesPerCommit,
       default_retained_message_limit: defaultRetainedMessageLimit,
       tool_call_note_max_output_bytes: toolCallNoteMaxOutputBytes,
+      outcome_unknown_error_max_bytes: outcomeUnknownErrorMaxBytes,
       session_terminal_lease_maximum_ttl_seconds: sessionTerminalLeaseMaxTtlSeconds,
       session_terminal_lease_maximum_host_name_length: sessionTerminalLeaseMaxHostNameLength,
     });
@@ -625,6 +629,8 @@ describe("the conformance suite's text table", () => {
   test("every constant matches", () => {
     const constants: Readonly<Record<string, string>> = {
       outcome_unknown_tool_result: outcomeUnknownToolResult,
+      outcome_unknown_thrown_error_tool_result: outcomeUnknownThrownErrorToolResult,
+      outcome_unknown_error_truncation_marker: outcomeUnknownErrorTruncationMarker,
       default_rejection_tool_result: defaultRejectionToolResult,
       approval_deadline_passed: approvalDeadlinePassed,
       question_deadline_passed: questionDeadlinePassed,

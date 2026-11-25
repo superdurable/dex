@@ -21,7 +21,11 @@ import json
 
 import pytest
 
-from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, ToolCallStatus
+from dex_agents import (
+    OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT,
+    OUTCOME_UNKNOWN_TOOL_RESULT,
+    ToolCallStatus,
+)
 from tests.conftest import ScriptedAgentHarness
 from tests.connector_agent import STRICT_SEND_SCHEMA_ENVIRONMENT_VARIABLE
 from tests.fake_ledger import FakeLedgerProvider
@@ -166,7 +170,9 @@ async def test_a_single_attempt_write_that_asks_to_retry_is_unknown(
         connector_harness, "post_note", {"accountId": "a-1", "text": words}, None
     )
     # A Retry goes to the Step retry, and a single-attempt Step has none left.
-    assert answer == OUTCOME_UNKNOWN_TOOL_RESULT
+    assert answer == OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(
+        error="connector fake-ledger postNote retry (RATE_LIMIT): rate limited"
+    )
     assert ledger.writes("postNote") == []
     assert len(ledger.sends("rate-limited")) == provider_refusals
 

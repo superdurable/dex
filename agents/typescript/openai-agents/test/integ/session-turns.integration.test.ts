@@ -22,7 +22,7 @@ import {
 import {
   InMemoryMediaStore,
   messageSequenceKey,
-  outcomeUnknownToolResult,
+  outcomeUnknownThrownErrorToolResult,
   type AgentEvent,
   type AgentMessage,
 } from "@superdurable/dex-agents";
@@ -243,9 +243,10 @@ describe("OpenAI Agents SDK sessions in Step mode with an in-process Worker", ()
     const writeSessionId = newSessionId("default-error-write");
     await sessions.startSession(writeSessionId, "call post_update");
     await sessions.waitForCompletedTurns(writeSessionId, 1);
+    const defaultTextError = "tool post_update failed, and the SDK default text replaced its error message";
     assert.equal(
       (await sessions.getAgentSnapshot(writeSessionId)).messages.at(-1)?.text,
-      `post_update -> ${outcomeUnknownToolResult}`,
+      `post_update -> ${outcomeUnknownThrownErrorToolResult.replace("{error}", defaultTextError)}`,
     );
     assert.deepEqual(toolLog("post_update", writeSessionId), [`${writeSessionId} call_1_post_update attempt 1`]);
 

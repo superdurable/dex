@@ -26,6 +26,7 @@ from dex_examples.patterns.resource_control.controller_flow import (
     ControllerFlow,
 )
 from dex_examples.patterns.resource_control.request import Request
+from dex_examples.shared.lock_conflict_retry import invoke_rpc_retrying_lock_conflict
 from dex_examples.shared.query import optional_query, required_query
 
 
@@ -42,10 +43,12 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
         instance_id = random.choice(SPOT_INSTANCE_IDS)
         flow_id = f"controller_flow_{instance_id}"
         try:
-            accepted = await app_state.client.invoke_rpc(
-                app_state.controller.enqueue,
-                flow_id,
-                request,
+            accepted = await invoke_rpc_retrying_lock_conflict(
+                lambda: app_state.client.invoke_rpc(
+                    app_state.controller.enqueue,
+                    flow_id,
+                    request,
+                )
             )
         except FlowNotActiveOrNotFoundError:
             await app_state.client.start_flow(
@@ -68,9 +71,11 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/shutdown")
     async def shutdown() -> str:
         instance_id = required_query("instance_id")
-        await app_state.client.invoke_rpc(
-            app_state.controller.shutdown,
-            f"controller_flow_{instance_id}",
+        await invoke_rpc_retrying_lock_conflict(
+            lambda: app_state.client.invoke_rpc(
+                app_state.controller.shutdown,
+                f"controller_flow_{instance_id}",
+            )
         )
         return "done"
 

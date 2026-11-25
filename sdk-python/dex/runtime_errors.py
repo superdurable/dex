@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
-from typing import Literal
+from typing import Literal, Sequence
 
 import grpc
 
@@ -365,6 +366,135 @@ class InvalidStepResultError(FlowDefinitionError):
         self.step_type = step_type
         self.method = method
         self.detail = detail
+
+
+@dataclass(frozen=True)
+class MissingAttributeLockAccess:
+    """Name one write or publish whose required lock the handler did not register.
+
+    Attributes:
+        kind: ``"Attribute"``, ``"AttributeMap"``, ``"Channel"``, or
+            ``"ChannelMap"``.
+        name: The Attribute, AttributeMap, Channel, or ChannelMap name.
+        instance: The AttributeMap or ChannelMap instance, or ``None`` for a
+            singleton definition.
+        lock_attribute_name: The name of the Attribute or AttributeMap whose
+            lock is required.
+        lock_instance: The AttributeMap instance whose lock is required, or
+            ``None`` when the required lock is a singleton Attribute's lock.
+
+    .. versionadded:: 1.45.18
+    """
+
+    kind: Literal["Attribute", "AttributeMap", "Channel", "ChannelMap"]
+    name: str
+    instance: str | None
+    lock_attribute_name: str
+    lock_instance: str | None = None
+
+
+class MissingAttributeLockError(RuntimeError):
+    """Report a handler that wrote or published without a declared required lock.
+
+    A definition declares its lock requirement with
+    ``Attribute(writes_require_lock=...)``,
+    ``AttributeMap(writes_require_lock=...)``,
+    ``Channel(publishes_require_lock=...)``, or
+    ``ChannelMap(publishes_require_lock=...)``. After a ``wait_for``,
+    ``execute``, or RPC handler returns, the Worker compares each such write
+    and publish with the locks that the handler registered. When a required
+    lock is missing, the Worker raises this error. Dex then discards the
+    Attribute writes, Channel publications, and other changes buffered for
+    the invocation's result. Stream writes that the Step already sent and
+    external side effects stay.
+
+    Dex reports it like any other handler error. It retries a Step method
+    under the Step's retry policy and returns the failure to the RPC caller.
+    A retry runs the same handler with the same registered locks, so it fails
+    again unless the handler takes another path.
+
+    Fix the handler registration. Add the lock to
+    ``StepOptions.wait_for_lock_attributes``,
+    ``StepOptions.execute_lock_attributes``, or
+    ``@rpc(lock_attributes=...)``. Locks added for one call, such as
+    ``RPCInvokeOptions.lock_attribute_map_instances`` or the options of a
+    ``StepMovement``, do not satisfy the requirement.
+
+    The exception exists only inside the Worker. A Client that invokes the RPC
+    receives a ``WorkerInvocationError`` whose ``worker_error_type`` is
+    ``"dex.runtime_errors.MissingAttributeLockError"`` and whose
+    ``worker_error_detail`` is this exception's message.
+
+    Attributes:
+        flow_type: The Flow type whose handler ran.
+        step_type: The Step type, or ``None`` for an RPC.
+        method: ``"wait_for"``, ``"execute"``, or ``"rpc"``.
+        rpc_name: The RPC name, or ``None`` for a Step method.
+        accesses: Every write and publish whose required lock was missing.
+            Attribute writes come first, in the order the handler first wrote
+            each key. Channel publishes follow, in the order the handler first
+            published to each Channel or ChannelMap instance.
+
+    Examples:
+        >>> try:
+        ...     client.invoke_rpc(chat_flow.reply, "chat-1", "hello")
+        ... except WorkerInvocationError as error:
+        ...     if error.worker_error_type == (
+        ...         "dex.runtime_errors.MissingAttributeLockError"
+        ...     ):
+        ...         print(f"register the required lock: {error.worker_error_detail}")
+
+    .. versionadded:: 1.45.18
+    """
+
+    def __init__(
+        self,
+        flow_type: str,
+        step_type: str | None,
+        method: Literal["wait_for", "execute", "rpc"],
+        rpc_name: str | None,
+        accesses: Sequence[MissingAttributeLockAccess],
+    ) -> None:
+        """Create the error for one handler invocation.
+
+        Args:
+            flow_type: The Flow type whose handler ran.
+            step_type: The Step type, or ``None`` for an RPC.
+            method: ``"wait_for"``, ``"execute"``, or ``"rpc"``.
+            rpc_name: The RPC name, or ``None`` for a Step method.
+            accesses: Every write and publish whose required lock was missing.
+        """
+        handler = (
+            f"Flow {flow_type!r} RPC {rpc_name!r}"
+            if method == "rpc"
+            else f"Flow {flow_type!r} Step {step_type!r} {method}"
+        )
+        descriptions = ", ".join(
+            _describe_missing_lock_access(access) for access in accesses
+        )
+        super().__init__(
+            f"{handler} {descriptions}; register the lock in the handler's "
+            "StepOptions or @rpc(lock_attributes=...)"
+        )
+        self.flow_type = flow_type
+        self.step_type = step_type
+        self.method = method
+        self.rpc_name = rpc_name
+        self.accesses = tuple(accesses)
+
+
+def _describe_missing_lock_access(access: MissingAttributeLockAccess) -> str:
+    operation = "published to" if access.kind in ("Channel", "ChannelMap") else "wrote"
+    target = f"{access.kind} {access.name!r}"
+    if access.instance is not None:
+        target += f" instance {access.instance!r}"
+    lock = f"Attribute {access.lock_attribute_name!r}"
+    if access.lock_instance is not None:
+        lock = (
+            f"AttributeMap {access.lock_attribute_name!r} "
+            f"instance {access.lock_instance!r}"
+        )
+    return f"{operation} {target} without the required lock of {lock}"
 
 
 class ValueMappingError(RuntimeError):

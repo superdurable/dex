@@ -89,12 +89,12 @@ export function createJobPostingRouter(client: Client): Router {
 
   router.get("/search", async (request, response) => {
     const query = escapeQuote(String(request.query.query ?? ""));
+    const scope = "FlowType = 'JobPostingFlow'";
+    const scopedQuery = query.trim() ? `(${query}) AND (${scope})` : scope;
+    const page = await client.searchFlows(scopedQuery, 20);
     response.json({
-      message:
-        "Java Client 0.0.3 does not expose SearchFlows; "
-        + "Title uses the text1 FULL_TEXT AttributeIndex; "
-        + "JobDescription is not searchable.",
-      query,
+      flowIDs: page.flows.map((flow) => flow.flowId),
+      nextPageToken: page.nextPageToken,
     });
   });
 

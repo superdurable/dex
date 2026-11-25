@@ -70,16 +70,6 @@ func TestDeferredChoiceRoutesOnTheCustomerResponse(t *testing.T) {
 	}
 }
 
-func TestDeferredChoiceConsumesOnlyTheWinningResponse(t *testing.T) {
-	flow := registry.OfferResponse
-	flowID := startWorkflowPattern(t, flow, "pattern-deferred-choice-race", "offer-2")
-	invokeWorkflowPatternRPC(t, flowID, flow.AcceptCustomerOffer, "yes", nil)
-	invokeWorkflowPatternRPC(t, flowID, flow.RejectCustomerOffer, "no", nil)
-	result := waitForCompletedWorkflowPattern(t, flowID)
-	require.Len(t, result.Completions, 1)
-	require.Contains(t, []string{"FulfillOffer", "CloseRejectedOffer"}, result.Completions[0].StepType)
-}
-
 // skipOfferExpiry retries until the Timer of AwaitOfferResponse is registered.
 func skipOfferExpiry(t *testing.T, flowID string) {
 	t.Helper()

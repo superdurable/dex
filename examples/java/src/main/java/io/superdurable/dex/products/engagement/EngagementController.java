@@ -21,6 +21,7 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.SearchFlowsPage;
 import io.superdurable.dex.WaitForAttributeOptions;
 import io.superdurable.dex.shared.ExampleFlows;
+import io.superdurable.dex.shared.LockConflictRetry;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -79,19 +80,19 @@ public class EngagementController {
     }
 
     @GetMapping("/decline")
-    public ResponseEntity<Status> decline(
+    public ResponseEntity<?> decline(
             @RequestParam final String workflowId,
             @RequestParam(defaultValue = "") final String notes) {
         final EngagementFlow stub = client.newRpcStub(EngagementFlow.class, workflowId);
-        return ResponseEntity.ok(client.invokeRPC(stub::decline, notes));
+        return LockConflictRetry.invokeAndRespond(() -> client.invokeRPC(stub::decline, notes));
     }
 
     @GetMapping("/accept")
-    public ResponseEntity<Status> accept(
+    public ResponseEntity<?> accept(
             @RequestParam final String workflowId,
             @RequestParam(defaultValue = "") final String notes) {
         final EngagementFlow stub = client.newRpcStub(EngagementFlow.class, workflowId);
-        return ResponseEntity.ok(client.invokeRPC(stub::accept, notes));
+        return LockConflictRetry.invokeAndRespond(() -> client.invokeRPC(stub::accept, notes));
     }
 
     @GetMapping("/list")

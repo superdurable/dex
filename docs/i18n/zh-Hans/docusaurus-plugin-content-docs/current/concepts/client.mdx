@@ -19,12 +19,18 @@ slug: /concepts/client
 - **搜索**：按 Flow type、状态或已索引的 Attribute 查找 Flow。
 - <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 Time Travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
 
+## 由 Flow 做决定 {#flow-owns-decisions}
+
+Flow 自己写它的状态；Client 启动 Flow、调用 RPC 和读取，没有直接写入的接口。在这个边界内，建议让这个流程的决定和状态归 Flow 所有。调用方把业务事实作为 start input 或初始 Attribute 传入。Flow 的 Step 和 RPC handler 执行业务规则，并写入得出的状态。初始状态依赖这些规则时，在第一个 Step 里计算。这样规则只在一处，状态变化也和 Flow 的进度一起提交。Dex Web 和之后的读取使用已提交的状态。
+
 ## 保证
 
 - `StartFlow` 返回时，Dex 已经保存了这个 Flow。即使你的进程退出，它也会继续运行。
 - `GetAttributes` 返回的值是 Dex 在同一时刻一起保存的。它不会返回 Dex 还没有保存的修改。
 - 等待检查的是 Flow 已保存的状态。条件满足、Flow 关闭或请求超时到期时，它就返回。之后再调用，会从当前状态重新开始等待。
 - 要判断发生了什么，读取 Flow 结果或业务状态。等待结束只是一个检查点，不是最终结果。
+- 用户要看到的每个结果或状态都有持久的读取路径：Client 读取的结果 Attribute，或等待 Flow 得到的完成输出。报告必须在失败后保留、或在 Flow 运行时可读时，把它放在 Attribute 里。
+- 以 cancel、fail 或 terminate 停止 Flow 时，停止请求一保存，Flow 就关闭。它不会在那个 Flow 里启动新的代码：之后的决策、失败路由和清理都不会运行。它的 Step 收到取消信号。忽略这个信号的 handler 可以继续运行并发起更多外部调用，Dex 丢弃它尚未提交的结果。等待这个 Flow 的另一个 Flow 读取它的终态，并且更早到达的报告只接受一次。
 - 返回“Flow 正在关闭”的错误，不能证明之前的请求已经成功。再次操作前，先读取 Flow 已存储的状态。
 
 ## 示例

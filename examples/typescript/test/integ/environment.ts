@@ -28,8 +28,15 @@ import {
 } from "../../src/config/worker.js";
 import { creditCheckFlow } from "../../src/patterns/cancel-case/credit-check-flow.js";
 import { LoanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
+import { OrderFulfillmentFlow } from "../../src/patterns/child-flows-business-identity/order-fulfillment-flow.js";
+import { ShipmentFlow } from "../../src/patterns/child-flows-business-identity/shipment-flow.js";
+import { recordBackfillFlow } from "../../src/patterns/control-long-running-work/record-backfill-flow.js";
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
+import { customerAccountFlow } from "../../src/patterns/entity-flow/customer-account-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
+import { ExpenseReimbursementFlow } from "../../src/patterns/fail-fast/expense-reimbursement-flow.js";
+import { FakePaymentProvider } from "../../src/patterns/fail-fast/fake-payment-provider.js";
+import { supportTicketFlow } from "../../src/patterns/inbound-event-loop/support-ticket-flow.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
@@ -48,9 +55,17 @@ import {
   cancelCaseOrderProbeFlow,
   deferredChoiceOrderProbeFlow,
 } from "./condition-order-probe-flows.js";
+import {
+  offerDecisionGateProbeFlow,
+  offerResponseWindowProbeFlow,
+} from "./offer-response-window-probe-flow.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
+const paymentProvider = new FakePaymentProvider();
+const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
+const shipmentFlow: ShipmentFlow = new ShipmentFlow(getClient, (): OrderFulfillmentFlow => orderFulfillmentFlow);
+const orderFulfillmentFlow: OrderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 
 export interface IntegEnvironment {
   readonly client: Client;
@@ -67,6 +82,11 @@ export interface IntegEnvironment {
   readonly subscriptionFlow: typeof subscriptionFlow;
   readonly userOnboardingFlow: typeof userOnboardingFlow;
   readonly loanApplicationFlow: typeof loanApplicationFlow;
+  readonly expenseReimbursementFlow: ExpenseReimbursementFlow;
+  readonly paymentProvider: FakePaymentProvider;
+  readonly shipmentFlow: typeof shipmentFlow;
+  readonly orderFulfillmentFlow: typeof orderFulfillmentFlow;
+  readonly customerAccountFlow: typeof customerAccountFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
   close(): Promise<void>;
@@ -108,11 +128,19 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     userOnboardingFlow,
     ...workflowPatternFlows,
     offerResponseFlow,
+    supportTicketFlow,
+    recordBackfillFlow,
     contractEditFlow,
     creditCheckFlow,
     loanApplicationFlow,
+    expenseReimbursementFlow,
+    shipmentFlow,
+    orderFulfillmentFlow,
+    customerAccountFlow,
     deferredChoiceOrderProbeFlow,
     cancelCaseOrderProbeFlow,
+    offerResponseWindowProbeFlow,
+    offerDecisionGateProbeFlow,
   ];
   const registry = new Registry(flows);
   const cacheDirectory = await mkdtemp(join(tmpdir(), "dex-typescript-examples-integ-"));
@@ -145,6 +173,11 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     subscriptionFlow,
     userOnboardingFlow,
     loanApplicationFlow,
+    expenseReimbursementFlow,
+    paymentProvider,
+    shipmentFlow,
+    orderFulfillmentFlow,
+    customerAccountFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;
     },

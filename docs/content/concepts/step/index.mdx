@@ -40,6 +40,21 @@ A Step has one or two methods.
 
 If a Step has no `WaitFor`, `Execute` runs immediately.
 
+Prefer calls that can fail in `Execute`. `WaitFor` never changes an external
+system. Every provider change, including a Connector write operation, runs in
+`Execute`. `WaitFor` may make read-only, idempotent calls with a timeout. For
+example, it can read a due date from a provider and return a Timer for it. The
+Timer is durable once the result of `WaitFor` commits. When the deadline must
+be auditable or visible, or needs its own failure route, read it in the
+previous Step's `Execute` and pass it as the next Step's input instead.
+
+If a read in `WaitFor` gets a permanent error, it
+records the error in a Step execution local value and returns a wait that is
+ready at once. `Execute` then routes on that error. When a provider confirms a
+permanent error, `Execute` routes to a failure-handling Step or fails the Flow
+with `ForceFail`. Retrying a permanent error only repeats it. See
+[Step execution local](/reference/python/step#step-execution-local).
+
 <StepWaitExecuteDiagram markdownDescription="The WaitFor of ExampleStep returns a Wait, and Dex evaluates its Timer, Channel, or SubFlow condition. When the condition is satisfied, Execute returns GoTo(Complete Flow, input + 1). A StepDecision can be GoTo, GracefulComplete, or ForceFail." />
 
 This Step waits for an approval message, then moves to a second Step that
@@ -254,7 +269,7 @@ Flow result. Only a Flow that completes returns outputs. See
 
 A decision can also cancel other active Steps. See the
 [Parallel Steps](/design-patterns/parallel) and
-[Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
+[SubFlows](/design-patterns/subflows) patterns.
 
 ## Guarantees {#guarantees}
 
@@ -320,6 +335,23 @@ A `StepDecision` can override the options for one Step execution.
 Each method uses the server defaults until StepOptions set its own. The
 defaults are the same in every SDK; see
 [StepOptions defaults](/reference/python/step-options#defaults).
+
+The defaults fit short calls, and the default heartbeat timeout is short. If
+the attempt reaches its heartbeat deadline without a heartbeat or a Dex
+Stream write, Dex times out the attempt. Raising only the method timeout
+keeps that deadline. A Step with a call that can stay silent that long sets
+two options itself:
+
+- a heartbeat timeout of at least that call's method timeout. A loop of short
+  calls that heartbeats between them keeps its longest silent interval below
+  the heartbeat timeout instead.
+- a retry total duration chosen for what it bounds. After a failure, Dex
+  uses it only to decide whether to schedule another attempt. Queueing can
+  start a scheduled attempt late, and a running attempt is never cut short.
+  To allow several near-full attempts, size it at about the maximum attempts
+  times the method timeout, plus backoff. That is an estimate: retry delays
+  and queue time also use the budget. A deadline for the whole Flow uses the
+  Flow timeout. A deadline for one wait uses a durable Timer.
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

@@ -38,6 +38,7 @@ const (
 	statusAwaitingManagerRule       = "awaiting-manager-rule"
 	statusAwaitingManagerAgent      = "awaiting-manager-agent"
 	statusAwaitingMessageOK         = "awaiting-message-approval"
+	statusSendingMessage            = "sending-customer-message"
 	statusResolved                  = "resolved"
 	statusDenied                    = "denied"
 	statusRefunded                  = "refunded"
@@ -503,6 +504,9 @@ func (*AgenticCustomerRefundFlow) ConfirmCustomerMessage(
 	if err := agenticMessageApproval.Publish(ctx, gateRequestKey, "confirm"); err != nil {
 		return nil, err
 	}
+	if err := agenticCloseCustomerMessageGate(ctx); err != nil {
+		return nil, err
+	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
@@ -528,7 +532,15 @@ func (*AgenticCustomerRefundFlow) EditCustomerMessage(
 	if err := agenticMessageApproval.Publish(ctx, gateRequestKey, "edited"); err != nil {
 		return nil, err
 	}
+	if err := agenticCloseCustomerMessageGate(ctx); err != nil {
+		return nil, err
+	}
 	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// agenticCloseCustomerMessageGate freezes the confirmed draft: later Confirm or Edit calls fail validation.
+func agenticCloseCustomerMessageGate(ctx dex.Context) error {
+	return agenticCaseStatus.Set(ctx, statusSendingMessage)
 }
 
 // dex:group group-id:intake group-label:"Intake"

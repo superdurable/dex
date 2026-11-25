@@ -53,6 +53,7 @@ type goAnalyzer struct {
 	registeredStepNodeIDs map[string]string
 	resources             map[types.Object]string
 	resourceVars          map[string]string
+	resourceDefinitions   map[string]*ast.CallExpr
 	connectorFactories    map[string]goConnectorFactoryStep
 	isApplicationLint     bool
 	registeredSteps       []string
@@ -201,6 +202,7 @@ func newGoAnalyzer(
 		registeredStepNodeIDs: make(map[string]string),
 		resources:             make(map[types.Object]string),
 		resourceVars:          make(map[string]string),
+		resourceDefinitions:   make(map[string]*ast.CallExpr),
 		connectorFactories:    make(map[string]goConnectorFactoryStep),
 		isApplicationLint:     isApplicationLint,
 		registeredSteps:       make([]string, 0),
@@ -275,6 +277,7 @@ func (analyzer *goAnalyzer) reportStateLoadsAndApplicationLints(getSteps *ast.Fu
 		analyzer.analyzeVisualizationV2(flowName)
 	}
 	rpcLocks.reportUnresolved()
+	newGoDeclaredLockChecker(analyzer, evaluator, checker.sources).report()
 	newGoStartFlowInputChecker(analyzer).report()
 	if analyzer.isApplicationLint {
 		newGoApplicationLinter(analyzer, evaluator, checker.sources).report()
@@ -508,6 +511,7 @@ func (analyzer *goAnalyzer) analyzeResources() {
 				}
 				analyzer.graph.AddNode(Node{ID: nodeID, Kind: kind, Name: resourceName, Span: analyzer.span(valueSpec), Resource: &resource})
 				analyzer.resourceVars[name.Name] = nodeID
+				analyzer.resourceDefinitions[nodeID] = call
 				if object := analyzer.typeInfo.Defs[name]; object != nil {
 					analyzer.resources[object] = nodeID
 				}
@@ -936,7 +940,7 @@ func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, meth
 	}
 	returns := make([]waitReturn, 0)
 	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) bool {
-		call, ok := expression.(*ast.CallExpr)
+		call, ok := ast.Unparen(expression).(*ast.CallExpr)
 		if !ok || goWaitType(analyzer.callName(call)) == "" {
 			return false
 		}
@@ -966,7 +970,7 @@ func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, meth
 		position := analyzer.fileSet.Position(result.call.Pos())
 		waitID := fmt.Sprintf("wait:%s:%d:%d", stepType, position.Line, position.Column)
 		waitType := goWaitType(analyzer.callName(result.call))
-		conditions := analyzer.goWaitConditions(waitID, result.call)
+		conditions := analyzer.goWaitConditions(waitID, result.call, method)
 		analyzer.graph.AddNode(Node{
 			ID: waitID, Kind: "wait", Name: waitType, ParentID: ownerID, Condition: result.condition,
 			Phase: "wait_for", Span: analyzer.span(result.call), Wait: &WaitDetails{Type: waitType, Conditions: conditions},
@@ -1159,9 +1163,13 @@ func (analyzer *goAnalyzer) checkedChannels(expression ast.Expr) []string {
 	return channels
 }
 
-func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallExpr) []WaitCondition {
-	collector := &goWaitConditionCollector{analyzer: analyzer, waitID: waitID, conditions: make([]WaitCondition, 0)}
+func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallExpr, method *ast.FuncDecl) []WaitCondition {
+	collector := &goWaitConditionCollector{analyzer: analyzer, waitID: waitID, method: method, conditions: make([]WaitCondition, 0)}
 	for index, argument := range waitCall.Args {
+		if waitCall.Ellipsis.IsValid() && index == len(waitCall.Args)-1 {
+			collector.collectSpread(waitCall, argument, index)
+			continue
+		}
 		collector.collect(argument, index, nil, goMaximumHelperDepth, goCallReach{})
 	}
 	return collector.conditions
@@ -1572,7 +1580,7 @@ func (analyzer *goAnalyzer) expressionTypeName(expression ast.Expr) string {
 }
 
 func (analyzer *goAnalyzer) callName(call *ast.CallExpr) string {
-	function := unwrapCallFun(call.Fun)
+	function := unwrapCallFun(ast.Unparen(call.Fun))
 	switch current := function.(type) {
 	case *ast.Ident:
 		if object := analyzer.typeInfo.Uses[current]; object != nil && object.Pkg() != nil && object.Pkg().Path() == goSDKPackage {
@@ -1752,7 +1760,7 @@ func unwrapCallFun(expression ast.Expr) ast.Expr {
 func (analyzer *goAnalyzer) resourceDetails(call *ast.CallExpr) ResourceDetails {
 	details := ResourceDetails{ValueType: "unknown"}
 	name := analyzer.callName(call)
-	details.Map = name == "DefineAttributeMap" || name == "DefineChannelMap" || name == "DefineJoin"
+	details.Map = goResourceConstructors[name].isMap
 	switch function := call.Fun.(type) {
 	case *ast.IndexExpr:
 		details.ValueType = analyzer.expressionString(function.Index)
@@ -1842,17 +1850,26 @@ func appendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
+type goResourceConstructor struct {
+	kind               string
+	isMap              bool
+	acceptsLockOptions bool
+}
+
+// goResourceConstructors lists every SDK function that defines a resource.
+var goResourceConstructors = map[string]goResourceConstructor{
+	"DefineAttribute":             {kind: "attribute", acceptsLockOptions: true},
+	"DefineAttributeMap":          {kind: "attribute", isMap: true, acceptsLockOptions: true},
+	"DefineChannel":               {kind: "channel"},
+	"DefineChannelWithOptions":    {kind: "channel", acceptsLockOptions: true},
+	"DefineChannelMap":            {kind: "channel", isMap: true},
+	"DefineChannelMapWithOptions": {kind: "channel", isMap: true, acceptsLockOptions: true},
+	"DefineJoin":                  {kind: "channel", isMap: true},
+	"DefineStream":                {kind: "stream"},
+}
+
 func goResourceKind(name string) string {
-	switch name {
-	case "DefineAttribute", "DefineAttributeMap":
-		return "attribute"
-	case "DefineChannel", "DefineChannelMap", "DefineJoin":
-		return "channel"
-	case "DefineStream":
-		return "stream"
-	default:
-		return ""
-	}
+	return goResourceConstructors[name].kind
 }
 
 func goResourceEdgeKind(method string, phase string) string {

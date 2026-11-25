@@ -70,6 +70,10 @@ function setExampleFlowId(exampleId, flowId) {
       input.value = flowId;
     }
   });
+  // Derived fields follow the Flow ID until someone types their own value.
+  document.querySelectorAll(`[data-derived-from="${exampleId}"]:not([data-edited])`).forEach((input) => {
+    input.value = flowId + input.dataset.derivedSuffix;
+  });
   renderExampleLinks(exampleId);
 }
 
@@ -193,8 +197,17 @@ function extractIds(payload, text, endpoint) {
 }
 
 function renderField(example, field) {
-  const defaultValue = field.role === "flowId" ? exampleFlowId(example) : (field.default ?? "");
-  const flowAttr = field.role === "flowId" ? ` data-flow-id-for="${example.id}"` : "";
+  const derived = field.deriveFromFlowId !== undefined;
+  let defaultValue = field.default ?? "";
+  if (field.role === "flowId") {
+    defaultValue = exampleFlowId(example);
+  } else if (derived) {
+    defaultValue = exampleFlowId(example) + field.deriveFromFlowId;
+  }
+  let flowAttr = field.role === "flowId" ? ` data-flow-id-for="${example.id}"` : "";
+  if (derived) {
+    flowAttr = ` data-derived-from="${example.id}" data-derived-suffix="${escapeAttr(field.deriveFromFlowId)}"`;
+  }
   if (field.in === "raw-json") {
     return `<label class="field field-wide"><span>${field.name}</span><textarea name="${field.name}" rows="10">${escapeHtml(defaultValue)}</textarea></label>`;
   }
@@ -386,6 +399,10 @@ function onClick(event) {
 
 function onInput(event) {
   const input = event.target;
+  if (input instanceof HTMLInputElement && input.dataset.derivedFrom) {
+    input.dataset.edited = "true";
+    return;
+  }
   if (!(input instanceof HTMLInputElement) || !input.dataset.flowIdFor) {
     return;
   }

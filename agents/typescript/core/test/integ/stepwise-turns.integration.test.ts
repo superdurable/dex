@@ -19,7 +19,7 @@ import { createAiSdkModelClient } from "../../src/ai-sdk/index.js";
 import {
   ToolExecutionError,
   createAgentSessionFlow,
-  outcomeUnknownToolResult,
+  outcomeUnknownThrownErrorToolResult,
   type AgentEvent,
   type AgentMessage,
   type AgentSnapshot,
@@ -664,7 +664,10 @@ describe("Stepwise agent turns with an in-process Worker", () => {
     await preparedToolSessions.startSession(sessionId, "send-unclassified");
     await preparedToolSessions.waitForCompletedTurns(sessionId, 1);
     const snapshot = await preparedToolSessions.getAgentSnapshot(sessionId);
-    assert.equal(snapshot.messages.at(-1)?.text, `done: ${outcomeUnknownToolResult}`);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `done: ${outcomeUnknownThrownErrorToolResult.replace("{error}", "connection reset after send")}`,
+    );
     // The tool declares idempotent_write, so only the policy's unclassified lets its error propagate.
     assert.deepEqual(await executedStepTypes(sessionId), [
       "StartAgentSession",

@@ -21,7 +21,10 @@
 package httputil
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,6 +70,50 @@ func RespondString(request *gin.Context, value string, err error) {
 		return
 	}
 	request.String(http.StatusOK, value)
+}
+
+const (
+	lockConflictAttempts = 5
+	lockConflictBackoff  = 200 * time.Millisecond
+)
+
+// InvokeRPCRetryingLockConflict invokes an RPC and retries a lock conflict with bounded backoff.
+// Retrying is safe: a conflicting call committed nothing.
+// It returns nil on success, the last RPCLockConflictError when every attempt conflicts,
+// the context error when the request ends, or the first other error.
+func InvokeRPCRetryingLockConflict(
+	ctx context.Context,
+	client *sdk.Client,
+	flowID string,
+	rpc any,
+	input any,
+	output any,
+) error {
+	var err error
+	for attempt := 1; attempt <= lockConflictAttempts; attempt++ {
+		err = client.InvokeRPC(ctx, flowID, rpc, input, output)
+		var lockConflict *sdk.RPCLockConflictError
+		if !errors.As(err, &lockConflict) || attempt == lockConflictAttempts {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		// Jitter spreads out callers that conflicted at the same time.
+		case <-time.After(time.Duration(attempt)*lockConflictBackoff + rand.N(lockConflictBackoff)):
+		}
+	}
+	return err
+}
+
+// RespondRPC writes the RPC output, a 409 when the RPC still lost its lock race, or a 500.
+func RespondRPC(request *gin.Context, value any, err error) {
+	var lockConflict *sdk.RPCLockConflictError
+	if errors.As(err, &lockConflict) {
+		request.JSON(http.StatusConflict, gin.H{"error": "the Flow is busy with another update; retry the request"})
+		return
+	}
+	Respond(request, value, err)
 }
 
 func StartFlow(

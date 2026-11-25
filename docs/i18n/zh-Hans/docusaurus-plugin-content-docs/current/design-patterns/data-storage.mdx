@@ -1,0 +1,19 @@
+---
+title: 数据存储
+sidebar_label: 数据存储
+---
+
+# 数据存储
+
+这些模式把业务数据保存在 Flow 中。按数据的读取方式和增长方式选择。
+
+<a id="对比"></a>
+
+## 选择模式 {#comparison}
+
+| 需要做的事 | 使用 |
+|---|---|
+| 保存一个业务实体（例如一个客户账户）的持久状态，由调用方通过 RPC 修改 | [实体 Flow](/design-patterns/data-storage/entity-flow) |
+| 用 SQL 查询许多实体（例如用户或订单）的最新状态 | [带 Attribute 同步的实体 Flow](/design-patterns/data-storage/entity-flow-attribute-sync) |
+| 追加有序历史，并按页读取 | [顺序分块 AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map) |
+| 按稳定 key 查找或更新一条记录 | [Hash 分区 AttributeMap](/design-patterns/data-storage/hash-partitioned-attribute-map) |

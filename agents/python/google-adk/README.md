@@ -266,7 +266,7 @@ recorded result instead of running the tool:
 | `succeeded` | The tool's response. A bare string result is `{"result": "<text>"}`. |
 | `failed` | `{"error": "The tool call failed: <error>"}`, where `<error>` is the `ToolExecutionError` message, the failure of a read whose attempts ran out, or `TOOL_CALL_NOT_RUN_ERROR_PREFIX`, `": "`, and the failure for a call whose tool never ran |
 | `rejected` | `{"error": "<rejection message>"}` |
-| `outcome_unknown` | `{"error": "<OUTCOME_UNKNOWN_TOOL_RESULT>"}` |
+| `outcome_unknown` | `{"error": "<OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT>"}` with the message when the tool raised an exception (`tool_step_threw`); otherwise, such as after a crash, `{"error": "<OUTCOME_UNKNOWN_TOOL_RESULT>"}` |
 
 A deploy can rename or remove a tool while its call is paused, for example
 when a Worker restarts during the tool Step or the next `RunModel`. ADK
@@ -278,7 +278,8 @@ plugin answers the call from its record, as in the table above, and the next
 model call uses the new tool list. A single-attempt call that was in flight
 keeps its `outcome_unknown` record and never runs again. A retry of an
 `idempotent_write` whose tool is gone fails its attempts, so the record
-becomes `outcome_unknown`.
+becomes `outcome_unknown`, and the model reads the `LookupError` message with
+it.
 
 Raise `dex_agents.ToolExecutionError` from a tool to report a failure the
 model should see without a retry; the record becomes `failed`. Any other

@@ -29,8 +29,8 @@ from dex import (
     open_blob_cache,
 )
 
-from dex_examples.patterns.interruptible.interruptible_execution_flow import (
-    InterruptibleFlow,
+from dex_examples.patterns.control_long_running_work.record_backfill_flow import (
+    RecordBackfillFlow,
 )
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
 from dex_examples.primitives.step.step_flow import StepFlow
@@ -62,7 +62,7 @@ class SyncExampleApp:
         self.customer_refund = new_refund_flow("normal", config.customer_refund_ledger_path)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
-        self.interruptible = InterruptibleFlow()
+        self.record_backfill = RecordBackfillFlow()
         self.child_flow = ChildFlow()
         self.parent_flow_v2 = ParentFlowV2(client_provider, self.child_flow)
 
@@ -73,7 +73,7 @@ class SyncExampleApp:
             self.customer_refund,
             self.engagement,
             self.subscription,
-            self.interruptible,
+            self.record_backfill,
             self.child_flow,
             self.parent_flow_v2,
         ]

@@ -20,8 +20,12 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.patterns.cancelcase.CreditCheckFlow;
 import io.superdurable.dex.patterns.cancelcase.LoanApplicationFlow;
+import io.superdurable.dex.patterns.childflowsbusinessidentity.OrderFulfillmentFlow;
+import io.superdurable.dex.patterns.childflowsbusinessidentity.ShipmentFlow;
+import io.superdurable.dex.patterns.controllongrunningwork.RecordBackfillFlow;
 import io.superdurable.dex.patterns.criticalsection.ContractEditFlow;
 import io.superdurable.dex.patterns.deferredchoice.OfferResponseFlow;
+import io.superdurable.dex.patterns.inboundeventloop.SupportTicketConversationFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BackgroundCheckFlow;
 import io.superdurable.dex.patterns.workflowpatterns.ArbitraryCyclesFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BlockingPartialJoinFlow;
@@ -73,6 +77,7 @@ final class WorkflowPatternFlows {
     private final Map<Class<?>, Flow<?>> flowsByClass = new LinkedHashMap<Class<?>, Flow<?>>();
 
     WorkflowPatternFlows(final ObjectProvider<Client> clientProvider) {
+        final ShipmentFlow shipmentFlow = new ShipmentFlow(clientProvider);
         for (final Flow<?> flow : List.<Flow<?>>of(
                 new SequenceFlow(),
                 new ParallelSplitSynchronizationFlow(),
@@ -111,9 +116,13 @@ final class WorkflowPatternFlows {
                 new TransientTriggerFlow(),
                 new PersistentTriggerFlow(),
                 new OfferResponseFlow(),
+                new SupportTicketConversationFlow(),
+                new RecordBackfillFlow(),
                 new ContractEditFlow(),
                 new LoanApplicationFlow(clientProvider),
-                new CreditCheckFlow())) {
+                new CreditCheckFlow(),
+                new OrderFulfillmentFlow(clientProvider, shipmentFlow),
+                shipmentFlow)) {
             flowsByClass.put(flow.getClass(), flow);
         }
     }

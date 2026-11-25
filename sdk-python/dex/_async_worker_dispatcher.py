@@ -16,6 +16,10 @@ from inspect import isawaitable, isgenerator
 from typing import Any, Callable
 
 from dex._async_value_hydrator import AsyncValueHydrator
+from dex._attribute_lock_requirement import (
+    check_rpc_required_locks,
+    check_step_required_locks,
+)
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._server_protocol import NegotiatedServerProtocol
 from dex._value_mapper import ValueMapper
@@ -138,6 +142,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 wait = await wait
             if not isinstance(wait, Wait):
                 raise TypeError("wait_for must return Wait")
+            check_step_required_locks(flow, step, "wait_for", context)
             response = pb.InvokeWaitForMethodResponse(
                 upsert_attributes=self._result_attribute_writes(context),
                 action_permission_mappings=self._result_action_permission_mappings(
@@ -248,6 +253,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 decision = await decision
             if not isinstance(decision, StepDecision):
                 raise TypeError("execute must return StepDecision")
+            check_step_required_locks(flow, step, "execute", context)
             response = pb.InvokeExecuteMethodResponse(
                 step_decision=self._map_decision(flow, decision),
                 upsert_attributes=self._result_attribute_writes(context),
@@ -390,6 +396,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         returned: Any = rpc.method(*arguments)
         if isawaitable(returned):
             returned = await returned
+        check_rpc_required_locks(flow, rpc, context)
         try:
             response = pb.InvokeWorkerRPCResponse(
                 upsert_attributes=self._result_attribute_writes(context),

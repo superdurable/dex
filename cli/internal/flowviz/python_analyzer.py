@@ -9,6 +9,7 @@
 import ast
 import json
 import sys
+from collections import deque
 
 # Each of these builtins can run code or read and write attributes by computed name.
 DYNAMIC_BUILTIN_CALLS = {"getattr", "setattr", "delattr", "__import__", "import_module", "exec", "eval", "globals", "locals"}
@@ -56,6 +57,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         self.node_ids = set()
         self.actions = []
         self.rpc_lock_errors = []
+        self.lock_handlers = []
+        self.declared_lock_missing_severity = "warning"
         self.view_rpcs = []
         self.start_input = None
         self.initialize_connectors()
@@ -90,6 +93,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
         self.analyze_flow_handlers(flow_class)
+        self.check_declared_locks()
         if len(self.flow_classes) > 1:
             self.persistence_resource_ids = self.persistence_resources(flow_class)
         return self.graph
@@ -554,9 +558,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             return
         self.analyze_decisions(node_id, execute, rpc=False)
         self.analyze_resources(node_id, execute, "execute")
+        step_locks = self.registration_step_locks(step_class, node_id)
+        self.record_lock_handler(node_id, execute, "execute", f"Step {step_name} execute", step_locks["execute_lock_attributes"])
         wait_for = self.method(step_class, "wait_for")
         if wait_for is not None:
             self.analyze_wait(node_id, step_name, wait_for)
+            self.record_lock_handler(node_id, wait_for, "wait_for", f"Step {step_name} wait_for", step_locks["wait_for_lock_attributes"])
         options = self.method(step_class, "get_step_options")
         if options is not None:
             self.analyze_step_options(node_id, options, self.current_frame)
@@ -605,6 +612,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 self.add_node({"id": node_id, "kind": "timeout_handler", "name": "handleTimeout", "span": self.span(statement)})
                 self.analyze_decisions(node_id, statement, rpc=False)
                 self.analyze_resources(node_id, statement, "timeout")
+                self.record_lock_handler(node_id, statement, "timeout", "handle_timeout", None)
             elif any(self.is_dex_reference(decorator.func if isinstance(decorator, ast.Call) else decorator, "rpc") for decorator in statement.decorator_list):
                 node_id = f"rpc:{statement.name}"
                 protocol_name = self.rpc_protocol_name(statement)
@@ -620,6 +628,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 self.analyze_decisions(node_id, statement, rpc=True)
                 self.analyze_resources(node_id, statement, "rpc")
                 self.analyze_rpc_state_loads(node_id, statement.decorator_list)
+                self.record_lock_handler(node_id, statement, "rpc", f"RPC {rpc_name}", self.registration_rpc_locks(statement))
 
     # Dex Web invokes an Action RPC, so its Action fields and lock list must be read statically.
     PYTHON_ACTION_VALUE_TYPES = {"str": "string", "int": "int64", "float": "double", "bool": "bool", "datetime": "datetime", "datetime.datetime": "datetime"}
@@ -891,6 +900,381 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             metadata={"phase": "rpc"},
         )
 
+    # Registration locks of a Step: get_step_options must return StepOptions(...) calls whose lock lists dexcli can read.
+    def registration_step_locks(self, step_class, owner_id):
+        fields = ("execute_lock_attributes", "wait_for_lock_attributes")
+        locks = {field: {"locks": [], "unresolved": None} for field in fields}
+        method = self.method(step_class, "get_step_options")
+        if method is None:
+            return locks
+        returns = self.function_returns(method)
+        for statement in returns or [None]:
+            value = statement.value if statement is not None else None
+            if not isinstance(value, ast.Call) or not self.is_dex_reference(value.func, "StepOptions") or value.args:
+                for field in fields:
+                    locks[field]["unresolved"] = locks[field]["unresolved"] or "get_step_options"
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in value.keywords}
+            for field in fields:
+                if None in keywords:
+                    locks[field]["unresolved"] = locks[field]["unresolved"] or "**options"
+                elif field in keywords:
+                    self.merge_lock_list(locks[field], keywords[field], owner_id, scope_method=method)
+        return locks
+
+    # The outermost @rpc registers the method; an unknown decorator outside it may replace the registration.
+    def registration_rpc_locks(self, method):
+        locks = {"locks": [], "unresolved": None}
+        for decorator in method.decorator_list:
+            function = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if not self.is_dex_reference(function, "rpc"):
+                locks["unresolved"] = locks["unresolved"] or self.unparse(decorator)
+                continue
+            if not isinstance(decorator, ast.Call):
+                return locks
+            for keyword in decorator.keywords:
+                if keyword.arg is None:
+                    locks["unresolved"] = locks["unresolved"] or "**options"
+                elif keyword.arg == "lock_attributes":
+                    self.merge_lock_list(locks, keyword.value, f"rpc:{method.name}", class_call=decorator)
+            return locks
+        return locks
+
+    def merge_lock_list(self, locks, expression, owner_id, scope_method=None, class_call=None):
+        is_named = isinstance(expression, ast.Name)
+        if is_named:
+            # A named list may be rebound or changed elsewhere; its locks count as held but cannot prove one missing.
+            locks["notLiteral"] = locks.get("notLiteral") or f"the lock list {expression.id} is a variable"
+            expression = self.module_assignment(expression.id) or expression
+        if not isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
+            locks["unresolved"] = locks["unresolved"] or self.unparse(expression)
+            return
+        for lock in expression.elts:
+            is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
+            resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
+            keywords = {keyword.arg: keyword.value for keyword in lock.keywords} if is_lock_call else {}
+            if not resource_id or len(lock.args) + len(keywords) > 1 or (keywords and "instance" not in keywords):
+                locks["unresolved"] = locks["unresolved"] or self.unparse(lock)
+                continue
+            proven_id = None if is_named else self.registration_lock_resource(lock.func.value, owner_id, scope_method, class_call)
+            if proven_id is not None:
+                resource_id = proven_id
+            elif not is_named:
+                locks["notLiteral"] = locks.get("notLiteral") or f"the lock {self.unparse(lock)} is not proven in its registration scope"
+            instance = lock.args[0] if lock.args else keywords.get("instance")
+            locks["locks"].append((resource_id, self.constant_instance(instance), instance is not None))
+
+    # Resolves a registration lock in its own scope: a method body sees module names, a class body sees earlier class bindings.
+    def registration_lock_resource(self, expression, owner_id, scope_method, class_call):
+        if class_call is not None and isinstance(expression, ast.Name) and self.flow_class is not None:
+            module_id = self.proven_resource_reference(expression, owner_id, set())
+            return self.class_body_binding(self.flow_class.name, expression.id, class_call, module_id)
+        local_names = self.locally_bound_names(scope_method) if scope_method is not None else set()
+        return self.proven_resource_reference(expression, owner_id, local_names)
+
+    def constant_instance(self, expression):
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            return expression.value
+        return None
+
+    # Records one handler's resolved resource accesses; the frame that resolves self fields is current here.
+    def record_lock_handler(self, owner_id, method, phase, label, locks):
+        accesses = []
+        local_resources = self.local_resource_aliases(owner_id, method)
+        executed = self.surely_reached_nodes(method)
+        local_names = self.locally_bound_names(method)
+        for call in ast.walk(method):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                continue
+            resource_id = local_resources.get(call.func.value.id) if isinstance(call.func.value, ast.Name) else None
+            resource_id = resource_id or self.resource_for(call.func.value, owner_id)
+            if not resource_id:
+                continue
+            instance = None
+            if resource_id in self.resource_declarations and self.resource_details(self.resource_declarations[resource_id][0])["map"]:
+                instance = call.args[1] if len(call.args) > 1 else next((keyword.value for keyword in call.keywords if keyword.arg == "instance"), None)
+            unproven = None
+            if call not in executed:
+                unproven = "the write is in a nested function or a branch that may not run"
+            elif self.proven_resource_reference(call.func.value, owner_id, local_names) != resource_id:
+                unproven = "the receiver is not a module or Flow class resource"
+            accesses.append({
+                "resourceId": resource_id,
+                "method": call.func.attr,
+                "instance": self.constant_instance(instance),
+                "span": self.span(call),
+                "unproven": unproven,
+            })
+        self.lock_handlers.append({"ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses})
+
+    # Nodes that run whenever the function body runs past them: no nested scopes and no constant-false branches.
+    def surely_reached_nodes(self, function):
+        reached = set()
+        pending = list(function.body)
+        while pending:
+            node = pending.pop()
+            reached.add(node)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(node, (ast.If, ast.While)) and isinstance(node.test, ast.Constant):
+                pending.append(node.test)
+                pending.extend(node.body if node.test.value else node.orelse)
+                continue
+            # Short-circuit and conditional expressions may skip every operand after the first.
+            if isinstance(node, ast.BoolOp):
+                pending.append(node.values[0])
+                continue
+            if isinstance(node, ast.IfExp):
+                pending.append(node.test)
+                continue
+            pending.extend(ast.iter_child_nodes(node))
+        return reached
+
+    def locally_bound_names(self, function):
+        names = {argument.arg for argument in [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]}
+        for node in ast.walk(function):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                names.add(node.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                names.update((alias.asname or alias.name).split(".", 1)[0] for alias in node.names)
+        return names
+
+    # Resolves a resource reference only through module names, Flow class attributes, and self of a Flow method or wired Step.
+    def proven_resource_reference(self, expression, owner_id, local_names):
+        rebound = self.rebound_references()
+        if isinstance(expression, ast.Name):
+            if expression.id in local_names or expression.id in rebound:
+                return None
+            return next((f"resource:{kind}:{expression.id}" for kind in ("attribute", "channel", "stream") if f"resource:{kind}:{expression.id}" in self.resource_declarations), None)
+        if not isinstance(expression, ast.Attribute) or not isinstance(expression.value, ast.Name):
+            return None
+        owner = expression.value.id
+        if owner in self.flow_classes and owner not in local_names:
+            key = f"{owner}.{expression.attr}"
+            return None if key in rebound else self.resources.get(key)
+        if owner != "self":
+            return None
+        if owner_id.startswith("step:"):
+            return self.step_resources.get(owner_id.split(":", 1)[1], {}).get(expression.attr)
+        flow_class = self.flow_class
+        key = f"{flow_class.name}.{expression.attr}" if flow_class is not None else ""
+        if flow_class is None or key in rebound or self.assigns_self_attribute(flow_class, expression.attr):
+            return None
+        return self.resources.get(key)
+
+    # In a class body, a bare name refers to the class binding executed before the call, else to the module binding.
+    def class_body_binding(self, owner, name, call, module_resource_id):
+        class_node = next((statement for statement in self.tree.body if isinstance(statement, ast.ClassDef) and statement.name == owner), None)
+        if class_node is None:
+            return None
+        binding = None
+        for member in class_node.body:
+            if member.lineno >= call.lineno:
+                break
+            targets = member.targets if isinstance(member, ast.Assign) else [member.target] if isinstance(member, (ast.AnnAssign, ast.AugAssign)) else []
+            if any(isinstance(target, ast.Name) and target.id == name for target in targets) or (isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and member.name == name):
+                binding = member
+        if binding is None:
+            return module_resource_id
+        class_resource_id = self.resources.get(f"{owner}.{name}")
+        declaration = self.resource_declarations.get(class_resource_id, (None, None))[1] if class_resource_id else None
+        if declaration is binding and f"{owner}.{name}" not in self.rebound_references():
+            return class_resource_id
+        return None
+
+    # Module names and Flow class attributes that the module binds more than once, so they may not hold their resource.
+    def rebound_references(self):
+        if getattr(self, "_rebound_references", None) is not None:
+            return self._rebound_references
+        counts = {}
+        rebound = set()
+
+        def count(key):
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] > 1:
+                rebound.add(key)
+
+        def targets_of(node):
+            if isinstance(node, ast.Assign):
+                return node.targets
+            if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                return [node.target]
+            if isinstance(node, ast.Delete):
+                return node.targets
+            return []
+
+        for statement in self.tree.body:
+            for target in targets_of(statement):
+                if isinstance(target, ast.Name):
+                    count(target.id)
+            if isinstance(statement, ast.ClassDef) and statement.name in self.flow_classes:
+                for member in statement.body:
+                    for target in targets_of(member):
+                        if isinstance(target, ast.Name):
+                            count(f"{statement.name}.{target.id}")
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Global):
+                rebound.update(node.names)
+            for target in targets_of(node):
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id in self.flow_classes:
+                    rebound.add(f"{target.value.id}.{target.attr}")
+        self._rebound_references = rebound
+        return rebound
+
+    def assigns_self_attribute(self, class_node, attribute):
+        for node in ast.walk(class_node):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, (ast.AnnAssign, ast.AugAssign)) else []
+            for target in targets:
+                if isinstance(target, ast.Attribute) and target.attr == attribute and isinstance(target.value, ast.Name) and target.value.id == "self":
+                    return True
+        return False
+
+    # Binds a constructor argument by keyword or by its position in the SDK signature.
+    def resource_argument(self, call, keyword_name, position):
+        for keyword in call.keywords:
+            if keyword.arg == keyword_name:
+                return keyword.value
+        return call.args[position] if len(call.args) > position else None
+
+    # Reads writes_require_lock and publishes_require_lock; returns (requirement, readable) for one resource.
+    # Unpacked arguments may or may not declare a lock, so the resource is neither checked nor nudged.
+    def declared_lock_requirement(self, resource_id):
+        call, _ = self.resource_declarations[resource_id]
+        is_map = self.resource_details(call)["map"]
+        if any(keyword.arg is None for keyword in call.keywords) or any(isinstance(argument, ast.Starred) for argument in call.args):
+            return None, False
+        short = self.symbol(call.func).rsplit(".", 1)[-1]
+        if short in {"Attribute", "AttributeMap"}:
+            value = self.resource_argument(call, "writes_require_lock", 6)
+        elif short in {"Channel", "ChannelMap"}:
+            value = self.resource_argument(call, "publishes_require_lock", 2)
+        else:
+            return None, True
+        if value is None or (isinstance(value, ast.Constant) and value.value in (None, False)):
+            return None, True
+        if short.startswith("Attribute") and isinstance(value, ast.Constant) and value.value is True:
+            return {"lock": resource_id, "sameInstance": is_map}, True
+        lock_id = self.proven_resource_reference(value, "", set())
+        owner = resource_id.split(":", 2)[-1].rpartition(".")[0]
+        if isinstance(value, ast.Name) and owner:
+            lock_id = self.class_body_binding(owner, value.id, call, lock_id)
+        lock_call = self.resource_declarations.get(lock_id, (None, None))[0] if lock_id else None
+        if not lock_id or not lock_id.startswith("resource:attribute:") or lock_call is None or self.resource_details(lock_call)["map"]:
+            return {"unresolved": self.unparse(value)}, False
+        return {"lock": lock_id, "sameInstance": False}, True
+
+    def check_declared_locks(self):
+        requirements = {}
+        readable = {}
+        for resource_id in self.resource_declarations:
+            requirement, readable[resource_id] = self.declared_lock_requirement(resource_id)
+            if requirement is not None:
+                requirements[resource_id] = requirement
+        writers = {}
+        rpc_writers = set()
+        unlocked_writers = {}
+        unlocked_read_writers = {}
+        for handler in self.lock_handlers:
+            reads = set()
+            writes = set()
+            for access in handler["accesses"]:
+                resource_id = access["resourceId"]
+                edge_kind = self.resource_edge_kind(access["method"], handler["phase"])
+                is_attribute = resource_id.startswith("resource:attribute:")
+                if is_attribute and edge_kind == "resource_read":
+                    reads.add(resource_id)
+                if is_attribute and edge_kind == "resource_write":
+                    writes.add(resource_id)
+                is_guarded = (is_attribute and access["method"] in {"set", "delete"}) or (resource_id.startswith("resource:channel:") and access["method"] == "publish")
+                if is_guarded and resource_id in requirements and handler["phase"] != "timeout":
+                    self.check_declared_lock(handler, access, requirements[resource_id])
+            # A writer that registers the Attribute's own lock cannot lose an update; unreadable locks count as held.
+            locks = handler["locks"]
+            is_lock_unknown = locks is None or locks["unresolved"] is not None
+            held = set() if is_lock_unknown else {lock[0] for lock in locks["locks"]}
+            # Only writes that can overlap count: an RPC can run beside any handler, while Steps alone may run in sequence.
+            is_rpc = handler["phase"] == "rpc"
+            for resource_id in writes:
+                writers.setdefault(resource_id, set()).add(handler["label"])
+                if is_rpc:
+                    rpc_writers.add(resource_id)
+                if is_lock_unknown or resource_id in held:
+                    continue
+                unlocked_writers.setdefault(resource_id, set()).add(handler["label"])
+                if resource_id in reads and is_rpc:
+                    unlocked_read_writers.setdefault(resource_id, set()).add(handler["label"])
+        for resource_id in sorted(writers):
+            if resource_id in requirements or not readable.get(resource_id, False):
+                continue
+            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in unlocked_writers:
+                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", and " + ", ".join(sorted(unlocked_writers[resource_id])) + " registers no lock of it"
+            elif resource_id in unlocked_read_writers:
+                reason = "is both read and written without its lock by " +", ".join(sorted(unlocked_read_writers[resource_id]))
+            else:
+                continue
+            call, _ = self.resource_declarations[resource_id]
+            name = self.node_name(resource_id)
+            self.warning("lock_requirement_not_declared", f"attribute {name} {reason}; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock", self.span(call))
+
+    def node_name(self, node_id):
+        for node in self.graph["nodes"]:
+            if node["id"] == node_id:
+                return node.get("name") or node_id
+        return node_id.rsplit(":", 1)[-1]
+
+    # Writes the lock as code that the registration scope can evaluate, or describes it when no binding is visible there.
+    def registration_lock_text(self, lock_id, phase, same_instance, instance):
+        key = lock_id.split(":", 2)[-1]
+        owner, _, attribute = key.rpartition(".")
+        if not owner:
+            reference = key
+        elif phase == "rpc" and self.flow_class is not None and owner == self.flow_class.name:
+            reference = attribute
+        else:
+            reference = key
+        if not reference.isidentifier() and not all(part.isidentifier() for part in reference.split(".")):
+            return f"the lock of {self.node_name(lock_id)}"
+        if not same_instance:
+            return f"{reference}.lock()"
+        return f"{reference}.lock({instance!r})" if instance is not None else f"{reference}.lock(<written instance>)"
+
+    def check_declared_lock(self, handler, access, requirement):
+        resource_id = access["resourceId"]
+        name = self.node_name(resource_id)
+        action = "publishes to channel" if resource_id.startswith("resource:channel:") else "writes attribute"
+        subject = f"{handler['label']} {action} {name}"
+        if "unresolved" in requirement:
+            self.warning("declared_lock_unresolved", f"{subject}, but dexcli cannot read the lock requirement of its declaration ({requirement['unresolved']})", access["span"])
+            return
+        lock_id = requirement["lock"]
+        is_write_key_known = not requirement["sameInstance"] or access["instance"] is not None
+        lock_text = self.registration_lock_text(lock_id, handler["phase"], requirement["sameInstance"], access["instance"] if is_write_key_known else None)
+        locks = handler["locks"]
+        reason = locks["unresolved"] or locks.get("notLiteral")
+        is_uncertain = reason is not None
+        for held_id, held_instance, has_instance in locks["locks"]:
+            if held_id != lock_id:
+                continue
+            if not requirement["sameInstance"]:
+                return
+            if (held_instance is None and has_instance) or not is_write_key_known:
+                is_uncertain = True
+                if reason is None and not is_write_key_known:
+                    reason = "the written instance key is dynamic"
+                continue
+            if held_instance == access["instance"]:
+                return
+        if is_uncertain:
+            reason = reason or "a lock with a dynamic instance key"
+            self.warning("declared_lock_unresolved", f"{subject}, which requires {lock_text}, but dexcli cannot prove that the registration locks include it ({reason})", access["span"])
+            return
+        field = {"execute": "execute_lock_attributes", "wait_for": "wait_for_lock_attributes"}.get(handler["phase"], "the rpc lock_attributes")
+        if access["unproven"]:
+            self.warning("declared_lock_unresolved", f"{subject}, which requires {lock_text}, but dexcli cannot prove the write ({access['unproven']})", access["span"])
+            return
+        report = self.error if self.declared_lock_missing_severity == "error" else self.warning
+        report("declared_lock_missing", f"{subject} without the lock its declaration requires; add {lock_text} to {field}", access["span"])
+
     def analyze_locks(self, owner_id, expressions, phases, extra_metadata=None):
         seen = set()
         for expression in expressions:
@@ -1014,7 +1398,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             source_span = self.span(call)
             wait_id = f"wait:{step_name}:{source_span['startLine']}:{source_span['startColumn']}:{index}"
             wait_type = self.wait_type(call)
-            conditions = self.wait_conditions(owner_id, wait_id, call, outcome.get("resourceOverride"))
+            conditions = self.wait_conditions(owner_id, wait_id, call, outcome["conditionExpressions"], outcome.get("resourceOverride"))
             self.add_node({
                 "id": wait_id, "kind": "wait", "name": wait_type, "parentId": owner_id,
                 "condition": outcome.get("condition", ""), "phase": "wait_for", "span": source_span,
@@ -1095,17 +1479,19 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             )
         if not isinstance(expression, ast.Call) or not self.wait_type(expression):
             return []
-        conditional_resource = self.conditional_wait_resource(expression)
+        condition_expressions = list(self.wait_condition_expressions(expression))
+        outcome = {"call": expression, "condition": condition, "conditionExpressions": condition_expressions}
+        conditional_resource = self.conditional_wait_resource(condition_expressions)
         if conditional_resource is None:
-            return [{"call": expression, "condition": condition}]
+            return [outcome]
         return [
             {
-                "call": expression,
+                **outcome,
                 "condition": self.combine(condition, self.unparse(conditional_resource.test)),
                 "resourceOverride": conditional_resource.body,
             },
             {
-                "call": expression,
+                **outcome,
                 "condition": self.combine(condition, self.negate(self.unparse(conditional_resource.test))),
                 "resourceOverride": conditional_resource.orelse,
             },
@@ -1122,24 +1508,27 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             "any_combination_of": "anyComboOf",
         }.get(call.func.attr)
 
-    def conditional_wait_resource(self, wait_call):
-        for node in ast.walk(wait_call):
+    def conditional_wait_resource(self, condition_expressions):
+        for node in condition_expressions:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.IfExp):
                 if node.func.attr in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
                     return node.func.value
         return None
 
-    def wait_conditions(self, owner_id, wait_id, wait_call, resource_override):
+    def wait_conditions(self, owner_id, wait_id, wait_call, condition_expressions, resource_override):
         conditions = []
-        for call in [node for node in ast.walk(wait_call) if isinstance(node, ast.Call) and node is not wait_call]:
-            if isinstance(call.func, ast.Attribute) and call.func.attr == "by_duration" and self.is_dex_reference(call.func.value, "Timer"):
+        for call in condition_expressions:
+            if not isinstance(call, ast.Call):
+                conditions.append(self.unsupported_wait_condition(call))
+                continue
+            if self.is_dex_method_call(call, "Timer", "by_duration"):
                 expression = self.unparse(call.args[0]) if call.args else "duration"
                 conditions.append({
                     "kind": "timer", "label": f"{self.humanize_duration(call.args[0] if call.args else None)} timer",
                     "expression": expression, "span": self.span(call),
                 })
                 continue
-            if isinstance(call.func, ast.Attribute) and call.func.attr == "run" and self.is_dex_reference(call.func.value, "SubFlow"):
+            if self.is_dex_method_call(call, "SubFlow", "run"):
                 name = self.unparse(call.args[0]) if call.args else "SubFlow"
                 subflow_id = f"subflow:{name}:{call.lineno}"
                 self.add_node({"id": subflow_id, "kind": "subflow", "name": name, "external": True, "span": self.span(call)})
@@ -1147,6 +1536,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 conditions.append({"kind": "subflow", "label": name, "subFlowId": subflow_id, "span": self.span(call)})
                 continue
             if not isinstance(call.func, ast.Attribute) or call.func.attr not in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
+                if (
+                    self.is_direct_wait_condition_argument(call, wait_call)
+                    and not self.is_dex_method_call(call, "ConditionCombination", "of")
+                    and not self.is_dex_reference(call.func, "graceful_completion_requested")
+                ):
+                    conditions.append(self.unsupported_wait_condition(call))
                 continue
             resource_expression = resource_override if isinstance(call.func.value, ast.IfExp) and resource_override is not None else call.func.value
             resource_id = self.resource_for(resource_expression, owner_id)
@@ -1159,6 +1554,271 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             })
             self.add_edge("wait_condition", resource_id, wait_id, label=label, span=self.span(call))
         return conditions
+
+    def unsupported_wait_condition(self, argument):
+        span = self.span(argument)
+        expression = self.unparse(argument)
+        message = "Pass Wait conditions as individual arguments or unpack a SubFlow.run comprehension with a fixed child Flow"
+        self.error("dynamic_wait_condition", message, span)
+        return {"kind": "unknown", "label": expression, "expression": expression, "span": span}
+
+    def wait_condition_expressions(self, wait_call):
+        accepts_subflow_unpacking = self.wait_type(wait_call) in {"allOf", "anyOf"}
+        pending = deque(ast.iter_child_nodes(wait_call))
+        while pending:
+            node = pending.popleft()
+            parent = self.parents[node]
+            if isinstance(node, ast.Starred):
+                inline_comprehension = isinstance(node.value, (ast.ListComp, ast.GeneratorExp))
+                if inline_comprehension and self.is_dex_method_call(node.value.elt, "Timer", "by_duration"):
+                    pending.append(node.value)
+                    continue
+                if parent is wait_call:
+                    subflow_run = self.comprehension_subflow_run(node.value) if accepts_subflow_unpacking else None
+                    if inline_comprehension and subflow_run is not None:
+                        pending.append(node.value)
+                        continue
+                    if subflow_run is not None:
+                        yield subflow_run
+                        continue
+            if self.is_direct_wait_condition_argument(node, wait_call):
+                if isinstance(node, ast.Name):
+                    subflow_run = self.bound_wait_subflow_run(node)
+                    if subflow_run is not None:
+                        node = subflow_run
+                known_conditions = self.classify_unsupported_wait_argument(node)
+                if known_conditions is not None:
+                    if known_conditions:
+                        self.warning("dynamic_wait_condition", f"The graph may omit conditions from the Wait argument {self.unparse(node)}", self.span(node))
+                        pending.extend(ast.iter_child_nodes(node))
+                        continue
+                    yield node
+                    continue
+            if isinstance(node, ast.Call):
+                yield node
+            pending.extend(ast.iter_child_nodes(node))
+
+    def is_direct_wait_condition_argument(self, argument, wait_call):
+        parent = self.parents[argument]
+        call = self.parents[parent] if isinstance(parent, ast.keyword) and parent.arg is not None else parent
+        return (
+            (call is wait_call or self.is_dex_method_call(call, "ConditionCombination", "of"))
+            and argument is not call.func
+        )
+
+    def classify_unsupported_wait_argument(self, argument):
+        """Return whether an unsupported argument can only hold non-SubFlow conditions, or None for other arguments."""
+        if isinstance(argument, ast.Starred):
+            return self.is_known_non_subflow_condition_sequence(argument.value, frozenset())
+        if isinstance(argument, ast.keyword) and argument.arg is None:
+            return self.is_known_non_subflow_condition_sequence(argument.value, frozenset(), keyword_unpacking=True)
+        if isinstance(argument, (ast.List, ast.Tuple, ast.ListComp, ast.GeneratorExp, ast.Name, ast.Attribute, ast.Subscript)):
+            return (
+                self.is_known_non_subflow_condition_sequence(argument, frozenset())
+                or self.is_known_non_subflow_condition(argument, frozenset())
+            )
+        return None
+
+    def bound_wait_subflow_run(self, reference):
+        _, assignment = self.local_wait_assignment(reference)
+        if assignment is None or not self.is_dex_method_call(assignment.value, "SubFlow", "run"):
+            return None
+        run = assignment.value
+        flow_reference = self.argument_value(run, "flow", 0)
+        return run if self.is_fixed_subflow_reference(flow_reference) else None
+
+    def is_known_non_subflow_condition_sequence(self, expression, bindings, keyword_unpacking=False):
+        if keyword_unpacking and isinstance(expression, ast.Dict):
+            return all(
+                self.is_known_non_subflow_condition(value, bindings) if key is not None
+                else self.is_known_non_subflow_condition_sequence(value, bindings, keyword_unpacking=True)
+                for key, value in zip(expression.keys, expression.values)
+            )
+        if isinstance(expression, (ast.List, ast.Tuple)):
+            return not keyword_unpacking and all(self.is_known_non_subflow_condition_argument(element, bindings) for element in expression.elts)
+        if isinstance(expression, (ast.ListComp, ast.GeneratorExp)):
+            return not keyword_unpacking and self.is_known_non_subflow_condition(expression.elt, bindings)
+        if isinstance(expression, ast.IfExp):
+            return all(
+                self.is_known_non_subflow_condition_sequence(branch, bindings, keyword_unpacking)
+                for branch in (expression.body, expression.orelse)
+            )
+        if isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Add):
+            return not keyword_unpacking and all(
+                self.is_known_non_subflow_condition_sequence(part, bindings) for part in (expression.left, expression.right)
+            )
+        if isinstance(expression, ast.Name):
+            scope = self.binding_scope(expression)
+            assignments = self.local_wait_sequence_assignments(expression, scope)
+            if not assignments or bindings.intersection(assignments):
+                return False
+            bindings = bindings.union(assignments)
+            if not all(
+                self.is_known_non_subflow_condition_sequence(assignment.value, bindings, keyword_unpacking)
+                for assignment in assignments
+            ):
+                return False
+            return all(
+                self.is_known_condition_list_use(node, bindings)
+                for node in ast.walk(scope)
+                if isinstance(node, ast.Name) and node is not expression and node.id == expression.id
+                and isinstance(node.ctx, ast.Load) and self.binding_scope(node) is scope
+            )
+        return False
+
+    def local_wait_sequence_assignments(self, reference, scope):
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)) or reference.id in self.declared_global_names:
+            return []
+        assignments = []
+        has_initialization = False
+        for target in self.scope_bindings.get(scope, {}).get(reference.id, []):
+            assignment = self.parents.get(target)
+            if self.assignment_statement(scope, target) is not None:
+                has_initialization = has_initialization or not self.is_used_before_binding(reference, assignment, scope)
+            elif not (
+                isinstance(assignment, ast.AugAssign) and assignment.target is target and isinstance(assignment.op, ast.Add)
+            ):
+                return []
+            assignments.append(assignment)
+        return assignments if has_initialization else []
+
+    def is_known_condition_list_use(self, reference, bindings):
+        parent = self.parents[reference]
+        if isinstance(parent, ast.Starred):
+            call = self.parents[parent]
+            return bool(self.wait_type(call) or self.is_dex_method_call(call, "ConditionCombination", "of"))
+        if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) and parent.func.id == "len":
+            return "len" not in self.scope_bindings.get(self.binding_scope(parent.func), {})
+        if not isinstance(parent, ast.Attribute) or parent.value is not reference:
+            return False
+        call = self.parents[parent]
+        if not isinstance(call, ast.Call) or call.func is not parent or call.keywords or any(isinstance(arg, ast.Starred) for arg in call.args):
+            return False
+        if parent.attr == "append" and len(call.args) == 1:
+            return self.is_known_non_subflow_condition(call.args[0], bindings)
+        if parent.attr == "insert" and len(call.args) == 2:
+            return self.is_known_non_subflow_condition(call.args[1], bindings)
+        if parent.attr == "extend" and len(call.args) == 1:
+            return self.is_known_non_subflow_condition_sequence(call.args[0], bindings)
+        return False
+
+    def is_known_non_subflow_condition_argument(self, expression, bindings):
+        if isinstance(expression, ast.Starred):
+            return self.is_known_non_subflow_condition_sequence(expression.value, bindings)
+        return self.is_known_non_subflow_condition(expression, bindings)
+
+    def is_known_non_subflow_condition(self, expression, bindings):
+        if isinstance(expression, ast.IfExp):
+            return all(self.is_known_non_subflow_condition(branch, bindings) for branch in (expression.body, expression.orelse))
+        if isinstance(expression, ast.Name):
+            _, assignment = self.local_wait_assignment(expression)
+            return (
+                assignment is not None and assignment not in bindings
+                and self.is_known_non_subflow_condition(assignment.value, bindings | {assignment})
+            )
+        if self.is_dex_method_call(expression, "Timer", "by_duration"):
+            return True
+        if isinstance(expression, ast.Call) and self.is_dex_reference(expression.func, "graceful_completion_requested"):
+            return True
+        if self.is_dex_method_call(expression, "ConditionCombination", "of"):
+            return not expression.keywords and all(
+                self.is_known_non_subflow_condition_argument(argument, bindings) for argument in expression.args
+            )
+        if not isinstance(expression, ast.Call) or not isinstance(expression.func, ast.Attribute):
+            return False
+        if expression.func.attr not in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
+            return False
+        resource, _ = self.resolved_value(expression.func.value, self.current_frame)
+        return self.resource_calls.get(resource, "").startswith("resource:channel:")
+
+    def comprehension_subflow_run(self, expression):
+        if isinstance(expression, ast.Name):
+            expression = self.local_wait_list_comprehension(expression)
+        if not isinstance(expression, (ast.ListComp, ast.GeneratorExp)) or any(generator.is_async for generator in expression.generators):
+            return None
+        subflow_run = expression.elt
+        if not self.is_dex_method_call(subflow_run, "SubFlow", "run"):
+            return None
+        if any(isinstance(argument, ast.Starred) for argument in subflow_run.args) or any(keyword.arg is None for keyword in subflow_run.keywords):
+            return None
+        if any(isinstance(node, ast.NamedExpr) for node in ast.walk(expression)):
+            return None
+        flow_reference = self.argument_value(subflow_run, "flow", 0)
+        generator_names = {
+            target.id for generator in expression.generators for target in ast.walk(generator.target)
+            if isinstance(target, ast.Name) and isinstance(target.ctx, ast.Store)
+        }
+        for reference in (flow_reference, subflow_run.func.value):
+            while isinstance(reference, ast.Attribute):
+                reference = reference.value
+            if not isinstance(reference, ast.Name) or reference.id in generator_names:
+                return None
+        return subflow_run if self.is_fixed_subflow_reference(flow_reference) else None
+
+    def local_wait_list_comprehension(self, reference):
+        scope, assignment = self.local_wait_assignment(reference)
+        if assignment is None or not isinstance(assignment.value, ast.ListComp):
+            return None
+        # Another load could mutate the list or let it escape.
+        if any(
+            isinstance(node, ast.Name) and node is not reference and node.id == reference.id and isinstance(node.ctx, ast.Load)
+            for node in ast.walk(scope)
+        ):
+            return None
+        return assignment.value
+
+    def local_wait_assignment(self, reference):
+        scope = self.binding_scope(reference)
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return scope, None
+        binding = self.static_binding(scope, reference.id)
+        assignment = self.assignment_statement(scope, binding)
+        if assignment is not None and self.is_used_before_binding(reference, assignment, scope):
+            return scope, None
+        return scope, assignment
+
+    def is_fixed_subflow_reference(self, reference):
+        value, frame = self.resolved_value(reference, self.current_frame)
+        if self.is_external_flow_import(value, frame):
+            return True
+        if isinstance(value, ast.Call):
+            declaration = self.constructed_class(value, frame)
+            return self.is_local_flow_declaration(declaration) and self.has_modeled_construction(declaration, "Flow")
+        if not isinstance(value, ast.Name) or value is reference:
+            return False
+        constructor = self.binding_scope(value)
+        if constructor is not self.method(self.flow_class, "__init__"):
+            return False
+        parameter = self.static_binding(constructor, value.id)
+        if not isinstance(parameter, ast.arg) or parameter in (constructor.args.vararg, constructor.args.kwarg):
+            return False
+        declared_type, annotation_frame = self.resolved_value(parameter.annotation, EvaluationFrame())
+        return self.is_local_flow_declaration(declared_type) or self.is_external_flow_import(declared_type, annotation_frame)
+
+    def is_local_flow_declaration(self, declaration):
+        return isinstance(declaration, ast.ClassDef) and self.flow_classes.get(declaration.name) is declaration
+
+    def is_external_flow_import(self, reference, frame):
+        if isinstance(reference, ast.Attribute):
+            root = reference.value
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            declaration, _ = self.resolved_value(root, frame)
+            if not isinstance(self.parents.get(declaration), ast.Import):
+                return False
+            module = declaration.name
+        else:
+            statement = self.parents.get(reference)
+            if not isinstance(reference, ast.alias) or not isinstance(statement, ast.ImportFrom):
+                return False
+            module = statement.module or ""
+        return module not in {"dex", "typing"} and not module.startswith("dex.")
+
+    def is_dex_method_call(self, call, owner, method):
+        return (
+            isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == method
+            and self.is_dex_reference(call.func.value, owner)
+        )
 
     def channel_condition_label(self, resource_id, call):
         resource = next((node for node in self.graph["nodes"] if node["id"] == resource_id), {})
@@ -1776,6 +2436,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
 def main():
     request = json.load(sys.stdin)
     analyzer = Analyzer(request["path"], request["source"], request.get("flowType", ""))
+    analyzer.declared_lock_missing_severity = request.get("declaredLockMissingSeverity", "warning")
     graph = analyzer.analyze()
     result = analyzer.connector_analysis_result(graph)
     result.update(analyzer.metadata_analysis_result())

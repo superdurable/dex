@@ -18,6 +18,7 @@ from quart import Blueprint, Response
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.shared.lock_conflict_retry import invoke_rpc_retrying_lock_conflict
 from dex_examples.shared.query import (
     accepted,
     required_query,
@@ -41,10 +42,10 @@ def create_microservice_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/swap")
     async def swap() -> str:
-        return await app_state.client.invoke_rpc(
-            app_state.orchestration.swap,
-            required_query("workflowId"),
-            required_query("data"),
+        flow_id = required_query("workflowId")
+        data = required_query("data")
+        return await invoke_rpc_retrying_lock_conflict(
+            lambda: app_state.client.invoke_rpc(app_state.orchestration.swap, flow_id, data)
         )
 
     @blueprint.get("/signal")

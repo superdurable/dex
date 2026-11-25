@@ -21,6 +21,7 @@ use dexzd_protocol::dexzd::v1::{
 use dexzd_protocol::history_window::record_unlimited_sub_flow_history_windows;
 use dexzd_request_validation::{ValidationConfig, WorkerResponse, validate_worker_response};
 
+use super::attempt_failure::AttemptFailure;
 use crate::effects::{EffectError, HardDeleteObjectOwner, HardDeleteObjects, HardDeleteUploads};
 use crate::engine_id_source::EngineIdSource;
 
@@ -117,8 +118,52 @@ pub(crate) enum WorkerResultCheck {
     },
 }
 
+/// Checks the final frame of a `method` attempt served by `app_worker_id`.
+///
+/// Returns the valid result to record. Otherwise returns the failure to propose: the invalid
+/// result's failure, or a Worker disconnect when `injected_result_loss` drops a valid result.
+pub(crate) fn accept_worker_result(
+    frame: PollWorkerTaskFrame,
+    method: i32,
+    validation_config: &ValidationConfig,
+    flow_config: &FlowConfig,
+    max_value_bytes: u64,
+    app_worker_id: &str,
+    injected_result_loss: Option<&str>,
+) -> Result<MethodResult, Box<AttemptFailure>> {
+    let check = check_worker_result(
+        frame,
+        method,
+        validation_config,
+        flow_config,
+        max_value_bytes,
+    );
+    match (check, injected_result_loss) {
+        (WorkerResultCheck::Valid(_), Some(detail)) => {
+            Err(Box::new(AttemptFailure::worker_disconnected(detail)))
+        }
+        (WorkerResultCheck::Valid(result), None) => Ok(*result),
+        (
+            WorkerResultCheck::Invalid {
+                kind,
+                detail,
+                is_non_retryable,
+            },
+            _,
+        ) => Err(Box::new(AttemptFailure {
+            kind,
+            worker_error: None,
+            server_detail: detail,
+            is_non_retryable,
+            served_by_app_worker_id: app_worker_id.to_owned(),
+            omitted_value_slots: None,
+            is_not_run: false,
+        })),
+    }
+}
+
 /// Checks the final frame of a `method` attempt.
-pub(crate) fn check_worker_result(
+fn check_worker_result(
     frame: PollWorkerTaskFrame,
     method: i32,
     validation_config: &ValidationConfig,

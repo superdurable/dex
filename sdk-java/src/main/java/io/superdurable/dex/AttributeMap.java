@@ -38,18 +38,21 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     private final AttributeIndex index;
     private final boolean syncToAttributeStore;
     private final boolean hardDeleteOnNull;
+    private final LockRequirement writeLock;
 
     private AttributeMap(
             final String name,
             final Class<T> valueType,
             final AttributeIndex index,
             final boolean syncToAttributeStore,
-            final boolean hardDeleteOnNull) {
+            final boolean hardDeleteOnNull,
+            final LockRequirement writeLock) {
         this.name = Attribute.requirePersistenceDefinitionName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
         this.index = index;
         this.syncToAttributeStore = syncToAttributeStore;
         this.hardDeleteOnNull = hardDeleteOnNull;
+        this.writeLock = writeLock;
     }
 
     /**
@@ -63,7 +66,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> AttributeMap<T> define(final String name, final Class<T> valueType) {
-        return new AttributeMap<T>(name, valueType, null, false, false);
+        return new AttributeMap<T>(name, valueType, null, false, false, null);
     }
 
     /**
@@ -81,7 +84,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
             final String name,
             final Class<T> valueType,
             final AttributeIndex index) {
-        return new AttributeMap<T>(name, valueType, index, false, false);
+        return new AttributeMap<T>(name, valueType, index, false, false, null);
     }
 
     /**
@@ -99,7 +102,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
             throw new IllegalStateException(
                     "hard-delete Attribute " + name + " cannot use syncToAttributeStore");
         }
-        return new AttributeMap<T>(name, valueType, index, true, false);
+        return new AttributeMap<T>(name, valueType, index, true, false, writeLock);
     }
 
     /**
@@ -211,7 +214,103 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     public AttributeMap<T> hardDeleteOnNull() {
         HardDeleteAttributes.requireDefinitionSupport(
                 name, valueType, index, syncToAttributeStore);
-        return new AttributeMap<T>(name, valueType, index, false, true);
+        return new AttributeMap<T>(name, valueType, index, false, true, writeLock);
+    }
+
+    /**
+     * Returns a definition whose every instance write requires holding that instance's own lock.
+     *
+     * <p>A write of instance {@code key} with {@link #set(Context, String, Object)} or
+     * {@link #delete(Context, String)} requires {@code AttributeLock.of(map, key)} for the same
+     * instance. A {@code waitFor}, {@code execute}, or RPC invocation that writes an instance
+     * without that lock fails with
+     * {@link io.superdurable.dex.exceptions.MissingAttributeLockException}, and Dex discards the
+     * changes buffered for its result. The other rules of {@link Attribute#writesRequireLock()}
+     * apply: only registration-time locks count, Flow timeout handlers and Flow start values are
+     * not checked, and reads are not checked.
+     *
+     * <p>Registered locks are fixed, so this declaration accepts writes only to the instances whose
+     * locks a handler registers. It suits a map with a known set of instances. A lock added for one
+     * RPC call with {@link RPCInvokeOptions.Builder#addLockAttributeMapInstance} does not satisfy
+     * it. For instances chosen at run time, use {@link #writesRequireAttributeLock(Attribute)} with
+     * a coordination Attribute instead. When both methods are chained, the last call wins. The
+     * declaration is kept by {@link #syncToAttributeStore()} and {@link #hardDeleteOnNull()}.
+     *
+     * <pre>{@code
+     * final AttributeMap<Integer> regionTotals =
+     *         AttributeMap.define("region-totals", Integer.class).writesRequireLock();
+     *
+     * // A Step that writes the "us" instance registers that instance's lock:
+     * return StepOptions.newBuilder()
+     *         .addExecuteLock(AttributeLock.of(regionTotals, "us"))
+     *         .build();
+     *
+     * // An RPC that reads and writes the "eu" instance loads it and registers its lock:
+     * @RPC(
+     *     lockAttributeMaps = {
+     *         @RPCAttributeMapLock(attribute = "region-totals", instance = "eu")
+     *     },
+     *     loadAttributeMapInstances = {"region-totals/eu"})
+     * public void addEuSale(final Context context, final Integer amount) {
+     *     regionTotals.set(context, "eu", regionTotals.get(context, "eu") + amount);
+     * }
+     * }</pre>
+     *
+     * @return a new immutable Attribute-map definition whose instance writes require the written
+     *     instance's own lock
+     * @since 1.45.4
+     */
+    public AttributeMap<T> writesRequireLock() {
+        return new AttributeMap<T>(
+                name, valueType, index, syncToAttributeStore, hardDeleteOnNull,
+                LockRequirement.ownKey());
+    }
+
+    /**
+     * Returns a definition whose every instance write requires holding the lock of the singleton
+     * Attribute {@code lockAttribute}.
+     *
+     * <p>Use it to protect an invariant across the whole map, or to require a lock for instances
+     * chosen at run time. Every writer of any instance must register
+     * {@code AttributeLock.of(lockAttribute)}, so all writers of the map run one at a time within
+     * the Flow. A write without the lock fails the invocation with
+     * {@link io.superdurable.dex.exceptions.MissingAttributeLockException}. The other rules of
+     * {@link Attribute#writesRequireLock()} apply. An instance's own lock does not satisfy this
+     * requirement.
+     *
+     * <p>{@code lockAttribute} must be registered in the same Flow's {@link PersistenceSchema}.
+     * {@link Registry} construction fails with
+     * {@link io.superdurable.dex.exceptions.FlowDefinitionException} when no Attribute with that
+     * name is registered there, or when the name belongs to an AttributeMap. The coordination
+     * Attribute needs no stored value. When both methods are chained, the last call wins.
+     *
+     * <pre>{@code
+     * final Attribute<Boolean> cartLock = Attribute.define("cart-lock", Boolean.class);
+     * final AttributeMap<Integer> cartItems =
+     *         AttributeMap.define("cart-items", Integer.class).writesRequireAttributeLock(cartLock);
+     *
+     * // In every Step that writes any cart item:
+     * return StepOptions.newBuilder()
+     *         .addExecuteLock(AttributeLock.of(cartLock))
+     *         .build();
+     * }</pre>
+     *
+     * @param lockAttribute the singleton coordination Attribute whose lock every instance write
+     *     requires
+     * @return a new immutable Attribute-map definition whose instance writes require the lock of
+     *     {@code lockAttribute}
+     * @throws NullPointerException if {@code lockAttribute} is {@code null}
+     * @since 1.45.4
+     */
+    public AttributeMap<T> writesRequireAttributeLock(final Attribute<?> lockAttribute) {
+        return new AttributeMap<T>(
+                name, valueType, index, syncToAttributeStore, hardDeleteOnNull,
+                LockRequirement.attribute(lockAttribute));
+    }
+
+    @Override
+    LockRequirement getLockRequirement() {
+        return writeLock;
     }
 
     String getName() {
@@ -267,9 +366,59 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     /**
      * Reads one map instance from the current invocation.
      *
+     * <p>The invocation must load the instance, or the whole map, through its load options.
+     * Reading an instance outside that scope throws {@link
+     * io.superdurable.dex.exceptions.AttributeMapNotLoadedException}, whether or not the instance
+     * has a value.
+     *
+     * <p>Reading a loaded instance that has no value does not throw. It returns the same fallback
+     * as {@link Attribute#get(Context)}: {@code false} or zero for the fourteen primitive and
+     * wrapper types listed there, and {@code null} for every other value type.
+     *
+     * <p>A read-modify-write also locks the instance, so concurrent invocations do not overwrite
+     * each other's changes.
+     *
+     * <pre>{@code
+     * public final class NotebookFlow implements Flow<Void> {
+     *     public final AttributeMap<Note> notes = AttributeMap.define("notes", Note.class);
+     *
+     *     @Override
+     *     public StepList<Void> getSteps() {
+     *         return StepList.empty();
+     *     }
+     *
+     *     @Override
+     *     public PersistenceSchema getPersistenceSchema() {
+     *         return PersistenceSchema.of(notes);
+     *     }
+     *
+     *     @RPC(
+     *             lockAttributeMaps = {@RPCAttributeMapLock(attribute = "notes", instance = "n1")},
+     *             loadAttributeMapInstances = {"notes/n1"})
+     *     public RPCResult<Void> appendNote(final Context context, final String text) {
+     *         Note note = notes.get(context, "n1");
+     *         if (note == null) {
+     *             note = new Note();
+     *         }
+     *         note.lines.add(text);
+     *         notes.set(context, "n1", note);
+     *         return RPCResult.of(null);
+     *     }
+     * }
+     * }</pre>
+     *
      * @param context the Step or RPC invocation context
-     * @param instance the instance key within this map
-     * @return the current typed value, or {@code null} when the instance is absent
+     * @param instance the non-blank instance key within this map; it must not contain {@code /}
+     * @return the current typed value; when the loaded instance has no value, {@code false} or zero
+     *     for the fourteen primitive and wrapper types listed on {@link Attribute#get(Context)},
+     *     and {@code null} for any other value type
+     * @throws io.superdurable.dex.exceptions.AttributeMapNotLoadedException if the invocation did
+     *     not load this instance or the whole map
+     * @throws IllegalArgumentException if {@code instance} is {@code null}, blank, or contains
+     *     {@code /}, or if this definition is not registered in the current Flow's {@link
+     *     PersistenceSchema}
+     * @throws io.superdurable.dex.exceptions.ValueMappingException if the stored value cannot be
+     *     decoded as the value type
      */
     public T get(final Context context, final String instance) {
         return context.getAttribute(this, instance);

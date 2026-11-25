@@ -130,6 +130,8 @@ fi
 
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
+# Tests read Step lock waits from the Dex Web API.
+export DEX_WEB_ADDRESS="127.0.0.1:${web_port}"
 DEX_SERVER_ADDRESS="$dex_address" make integTests
 DEX_SERVER_ADDRESS="$dex_address" make workflowPatternsTests
 DEX_SERVER_ADDRESS="$dex_address" make controlStructurePatternsTests

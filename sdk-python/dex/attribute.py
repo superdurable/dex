@@ -202,17 +202,47 @@ class Attribute(Generic[ValueT]):
             a value for any other column type, and the writer gets no error.
 
             .. versionadded:: 1.45.16
+        writes_require_lock: Which lock every write of this Attribute
+            requires. ``False``, the default, declares no requirement.
+            ``True`` requires the Attribute's own lock, :meth:`lock`. Another
+            singleton ``Attribute`` requires that Attribute's lock instead,
+            for example a coordination Attribute shared by several values.
+            The Worker enforces the requirement: a ``wait_for``, ``execute``,
+            or RPC invocation that writes the Attribute with :meth:`set` or
+            :meth:`delete` without holding the lock raises
+            ``MissingAttributeLockError``, and Dex discards the changes
+            buffered for its result. Only the locks a handler registers count:
+            ``StepOptions.wait_for_lock_attributes`` or
+            ``StepOptions.execute_lock_attributes`` for a Step method, and
+            ``@rpc(lock_attributes=...)`` for an RPC. Locks added for one call,
+            ``RPCInvokeOptions.lock_attribute_map_instances`` and the options
+            of a ``StepMovement``, do not count. A Flow timeout handler is not
+            checked, because its locks come from the start options. A lock
+            Attribute must be the same definition object registered in the
+            Flow's ``PersistenceSchema``; ``Registry`` raises
+            ``FlowDefinitionError`` otherwise. Every Client and Worker must
+            register the same definition. The check compares writes with the
+            registered locks, not with the locks Dex acquires for the call:
+            the options of a ``StepMovement`` replace the Step's options, and
+            an RPC takes its locks from the Client's definition. Keep the
+            required lock in such options.
+
+            .. versionadded:: 1.45.18
 
     Raises:
         ValueError: If ``name`` is invalid, or if ``hard_delete_on_null`` is
             combined with ``index`` or ``sync_to_attribute_store``.
         TypeError: If ``hard_delete_on_null`` is set for an ``int``, ``bool``,
-            or ``float`` value type.
+            or ``float`` value type, or if ``writes_require_lock`` is not a
+            ``bool`` or an ``Attribute``.
 
     Examples:
         >>> status = Attribute("status", str, sync_to_attribute_store=True)
         >>> review_state = Attribute("review-state", str, plaintext=True)
         >>> status.set(context, "paid")
+        >>> order_total = Attribute("order-total", int, writes_require_lock=True)
+        >>> # The Step that writes it registers the lock:
+        >>> options = StepOptions(execute_lock_attributes=(order_total.lock(),))
         >>> status.get(context)
         'paid'
 
@@ -252,23 +282,56 @@ class Attribute(Generic[ValueT]):
     sync_to_attribute_store: bool = False
     hard_delete_on_null: bool = False
     plaintext: bool = False
+    writes_require_lock: bool | Attribute[Any] = False
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
         _validate_hard_delete_on_null(self)
+        _validate_writes_require_lock(self.writes_require_lock)
 
     def get(self, context: Context) -> ValueT:
         """Return the current value from a Step or RPC Context.
+
+        The read includes writes staged earlier in the same handler. Reading an
+        Attribute that has no value does not raise. It returns ``False`` for a
+        ``bool`` value type, ``0`` for ``int``, ``0.0`` for ``float``, and
+        ``None`` for every other value type. A value that was deleted, or set to
+        ``None``, reads the same way.
+
+        A numeric or Boolean read therefore cannot tell an unset value from a
+        stored zero or ``False``. When that difference matters, use a ``str`` or
+        dataclass value type, or keep a separate Attribute that records whether
+        the value was set.
+
+        Example::
+
+            class OrderFlow(Flow[None]):
+                review_status = Attribute("review-status", str)
+
+                def get_steps(self) -> StepList[None]:
+                    return StepList.empty()
+
+                def get_persistence_schema(self) -> PersistenceSchema:
+                    return PersistenceSchema.of(self.review_status)
+
+                @rpc
+                def get_review_status(self, context: Context) -> RPCResult[str]:
+                    status = self.review_status.get(context)
+                    return RPCResult("pending" if status is None else status)
 
         Args:
             context: The current handler Context.
 
         Returns:
-            The decoded value.
+            The decoded value. When the Attribute has no value, the zero value
+            of a ``bool``, ``int``, or ``float`` value type, or ``None`` for any
+            other value type.
 
         Raises:
-            KeyError: If the Attribute has no value.
-            TypeError: If the stored value cannot be decoded as ``value_type``.
+            ValueError: If this definition is not registered in the current
+                Flow's ``PersistenceSchema``.
+            ValueMappingError: If the stored value cannot be decoded as
+                ``value_type``.
         """
         return context._get_attribute(self, None)
 
@@ -350,14 +413,27 @@ class AttributeMap(Generic[ValueT]):
             declare it.
 
             .. versionadded:: 1.45.16
+        writes_require_lock: Which lock every write of an instance
+            requires. ``False``, the default, declares no requirement.
+            ``True`` requires the written instance's own lock,
+            :meth:`lock` with the same instance. A singleton ``Attribute``
+            requires that Attribute's lock for every instance, for example a
+            coordination Attribute that protects an invariant across the
+            whole map. The rest of the rule is the same as for
+            ``Attribute.writes_require_lock``.
+
+            .. versionadded:: 1.45.18
 
     Raises:
         ValueError: If ``name`` is invalid, or if ``hard_delete_on_null`` is
             combined with ``index`` or ``sync_to_attribute_store``.
         TypeError: If ``hard_delete_on_null`` is set for an ``int``, ``bool``,
-            or ``float`` value type.
+            or ``float`` value type, or if ``writes_require_lock`` is not a
+            ``bool`` or an ``Attribute``.
 
     Examples:
+        >>> cart_lock = Attribute("cart-lock", bool)
+        >>> cart_items = AttributeMap("cart-items", int, writes_require_lock=cart_lock)
         >>> balances = AttributeMap("balance", int, sync_to_attribute_store=True)
         >>> balances.set(context, "merchant-7", 1200)
         >>> balances.get(context, "merchant-7")
@@ -409,10 +485,12 @@ class AttributeMap(Generic[ValueT]):
     sync_to_attribute_store: bool = False
     hard_delete_on_null: bool = False
     plaintext: bool = False
+    writes_require_lock: bool | Attribute[Any] = False
 
     def __post_init__(self) -> None:
         require_persistence_definition_name(self.name)
         _validate_hard_delete_on_null(self)
+        _validate_writes_require_lock(self.writes_require_lock)
 
     def load(self, instance: str) -> AttributeMapLoad:
         """Select one instance for an RPC snapshot.
@@ -464,16 +542,61 @@ class AttributeMap(Generic[ValueT]):
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.
 
+        The handler must load the instance, or the whole map, through its load
+        options. Reading an instance outside that scope raises
+        ``AttributeMapNotLoadedError``, whether or not the instance has a value.
+
+        Reading a loaded instance that has no value does not raise. Like
+        :meth:`Attribute.get`, it returns ``False``, ``0``, or ``0.0`` for a
+        ``bool``, ``int``, or ``float`` value type, and ``None`` for every other
+        value type.
+
+        A read-modify-write also locks the instance, so concurrent handlers do
+        not overwrite each other's changes.
+
+        Example::
+
+            @dataclass
+            class Note:
+                lines: list[str]
+
+            class NotebookFlow(Flow[None]):
+                notes = AttributeMap("notes", Note)
+
+                def get_steps(self) -> StepList[None]:
+                    return StepList.empty()
+
+                def get_persistence_schema(self) -> PersistenceSchema:
+                    return PersistenceSchema.of(self.notes)
+
+                @rpc(
+                    lock_attributes=(notes.lock("n1"),),
+                    load_attribute_map_instances=(notes.load("n1"),),
+                )
+                def append_note(self, context: Context, text: str) -> None:
+                    note = self.notes.get(context, "n1")
+                    if note is None:
+                        note = Note(lines=[])
+                    note.lines.append(text)
+                    self.notes.set(context, "n1", note)
+
         Args:
             context: The current handler Context.
             instance: The map instance. Slash is prohibited because it is a reserved character.
 
         Returns:
-            The decoded instance value.
+            The decoded instance value. When the loaded instance has no value,
+            the zero value of a ``bool``, ``int``, or ``float`` value type, or
+            ``None`` for any other value type.
 
         Raises:
-            KeyError: If the instance has no value.
-            ValueError: If ``instance`` is empty or contains ``/``.
+            AttributeMapNotLoadedError: If the handler did not load this
+                instance or the whole map.
+            ValueError: If ``instance`` is empty, contains only whitespace, or
+                contains ``/``, or if this definition is not registered in the
+                current Flow's ``PersistenceSchema``.
+            ValueMappingError: If the stored value cannot be decoded as
+                ``value_type``.
         """
         return context._get_attribute(self, instance)
 
@@ -589,6 +712,24 @@ class AttributeLock:
     def __post_init__(self) -> None:
         if self.instance is not None:
             require_map_instance(self.instance)
+
+
+def _validate_writes_require_lock(requirement: object) -> None:
+    if isinstance(requirement, (bool, Attribute)):
+        return
+    raise TypeError("writes_require_lock must be a bool or an Attribute")
+
+
+def _required_write_lock_key(
+    definition: Attribute[Any] | AttributeMap[Any], physical_name: str
+) -> str | None:
+    """Return the lock key a write of ``physical_name`` requires, or ``None``."""
+    requirement = definition.writes_require_lock
+    if requirement is True:
+        return physical_name
+    if isinstance(requirement, Attribute):
+        return requirement.name
+    return None
 
 
 def _apply_attribute_store_sync(

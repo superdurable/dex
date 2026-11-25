@@ -8,7 +8,7 @@ import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-proc
 
 引导新用户完成账号创建、邮箱验证和两个必需的设置任务。
 
-**展示：**[提醒](/design-patterns/durable-timer/reminder)、[可中断等待](/design-patterns/interruptible)、[响应式更新](/design-patterns/responsive-update)。
+**展示：**[提醒](/design-patterns/durable-timer/reminder)、[带截止时间的决定](/design-patterns/external-interaction/decision-with-deadline)、[响应式更新](/design-patterns/responsive-update)。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -45,7 +45,7 @@ Go、Java、Python、TypeScript 和 Rust 示例都实现了完整路径：邮箱
 它组合了以下设计模式：
 
 - [**持久提醒**](/design-patterns/durable-timer/reminder)在 Timer 触发后把等待 Step 移回自身。
-- [**可中断等待**](/design-patterns/interruptible)使用 `AnyOf`，让 Channel 消息可以在提醒 Timer 之前唤醒 Step。
+- [**带截止时间的决定**](/design-patterns/external-interaction/decision-with-deadline)使用 `AnyOf`，让 Channel 消息可以在提醒 Timer 之前唤醒 Step。
 - [**响应式更新**](/design-patterns/responsive-update)使用 RPC 校验当前阶段，并在 Flow 等待期间发布对应的 Channel 消息。
 - **顺序阶段**：Step 按固定顺序运行，后面的任务不能跳过前面的任务。
 - **用 Attribute 记录阶段**：每个 Step 在 `WaitFor` 方法里设置 **Status** Attribute。Dex 在 Step 开始等待时保存这个值，所以 RPC 和运维人员看到的就是 Flow 实际在等待的阶段。

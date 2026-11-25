@@ -19,6 +19,7 @@ import { Router } from "express";
 import { AttributeMatch, type Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
+import { invokeRPCRetryingLockConflict, respondLockConflict } from "../../service-errors.js";
 import { engagementFlow } from "./engagement-flow.js";
 import type { EngagementInput } from "./models.js";
 
@@ -60,23 +61,27 @@ export function createEngagementRouter(client: Client): Router {
   router.get("/decline", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const notes = String(request.query.notes ?? "");
-    const status = await client.invokeRPC(
-      engagementFlow.decline,
-      workflowId,
-      notes,
-    );
-    response.json(status);
+    try {
+      const status = await invokeRPCRetryingLockConflict(() =>
+        client.invokeRPC(engagementFlow.decline, workflowId, notes),
+      );
+      response.json(status);
+    } catch (error) {
+      if (!respondLockConflict(response, error)) throw error;
+    }
   });
 
   router.get("/accept", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const notes = String(request.query.notes ?? "");
-    const status = await client.invokeRPC(
-      engagementFlow.accept,
-      workflowId,
-      notes,
-    );
-    response.json(status);
+    try {
+      const status = await invokeRPCRetryingLockConflict(() =>
+        client.invokeRPC(engagementFlow.accept, workflowId, notes),
+      );
+      response.json(status);
+    } catch (error) {
+      if (!respondLockConflict(response, error)) throw error;
+    }
   });
 
   router.get("/list", async (request, response) => {

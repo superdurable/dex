@@ -69,6 +69,8 @@ final class InvocationContext implements Context {
     private final NegotiatedServerProtocol serverProtocol;
     private final io.grpc.Context requestContext;
     private final io.grpc.Context.CancellationListener cancellationListener;
+    // Guards buffered writes, publications, deletions, and Channel sizes; handlers may use threads.
+    private final Object bufferedChangesLock = new Object();
     private final Map<String, AttributeWrite> attributeWrites =
             new LinkedHashMap<String, AttributeWrite>();
     private final Map<String, KV> localWrites = new LinkedHashMap<String, KV>();
@@ -577,7 +579,45 @@ final class InvocationContext implements Context {
     }
 
     List<AttributeWrite> getAttributeWrites() {
-        return new ArrayList<AttributeWrite>(attributeWrites.values());
+        synchronized (bufferedChangesLock) {
+            return new ArrayList<AttributeWrite>(attributeWrites.values());
+        }
+    }
+
+    /** Copies the buffered writes, publications, and message deletions at one instant. */
+    BufferedChanges snapshotBufferedChanges() {
+        synchronized (bufferedChangesLock) {
+            return new BufferedChanges(
+                    attributeWrites.isEmpty()
+                            ? Collections.<AttributeWrite>emptyList()
+                            : Collections.unmodifiableList(
+                                    new ArrayList<AttributeWrite>(attributeWrites.values())),
+                    publications.isEmpty()
+                            ? Collections.<io.superdurable.gen.ChannelMessage>emptyList()
+                            : Collections.unmodifiableList(
+                                    new ArrayList<io.superdurable.gen.ChannelMessage>(
+                                            publications)),
+                    channelDeletions.isEmpty()
+                            ? Collections.<ChannelMessageDeletion>emptyList()
+                            : Collections.unmodifiableList(
+                                    new ArrayList<ChannelMessageDeletion>(channelDeletions)));
+        }
+    }
+
+    /** One consistent copy of an invocation's buffered changes, shared by the check and result. */
+    static final class BufferedChanges {
+        final List<AttributeWrite> attributeWrites;
+        final List<io.superdurable.gen.ChannelMessage> publications;
+        final List<ChannelMessageDeletion> channelDeletions;
+
+        BufferedChanges(
+                final List<AttributeWrite> attributeWrites,
+                final List<io.superdurable.gen.ChannelMessage> publications,
+                final List<ChannelMessageDeletion> channelDeletions) {
+            this.attributeWrites = attributeWrites;
+            this.publications = publications;
+            this.channelDeletions = channelDeletions;
+        }
     }
 
     List<String> attributeMapKeys(final AttributeMap<?> attribute) {
@@ -594,14 +634,14 @@ final class InvocationContext implements Context {
                 physicalKeys.add(key);
             }
         }
-        for (Map.Entry<String, AttributeWrite> entry : attributeWrites.entrySet()) {
-            if (!entry.getKey().startsWith(prefix)) {
+        for (AttributeWrite write : getAttributeWrites()) {
+            if (!write.getKey().startsWith(prefix)) {
                 continue;
             }
-            if (entry.getValue().getValue().getKindCase() == Value.KindCase.NULL_VALUE) {
-                physicalKeys.remove(entry.getKey());
+            if (write.getValue().getKindCase() == Value.KindCase.NULL_VALUE) {
+                physicalKeys.remove(write.getKey());
             } else {
-                physicalKeys.add(entry.getKey());
+                physicalKeys.add(write.getKey());
             }
         }
         return sortedInstanceKeys(prefix, physicalKeys);
@@ -611,9 +651,11 @@ final class InvocationContext implements Context {
         requireRegistered(channel);
         final String prefix = channel.getName() + "/";
         final Set<String> physicalKeys = new HashSet<String>();
-        for (Map.Entry<String, ChannelInfo> entry : channelInfos.entrySet()) {
-            if (entry.getValue().getSize() > 0 && entry.getKey().startsWith(prefix)) {
-                physicalKeys.add(entry.getKey());
+        synchronized (bufferedChangesLock) {
+            for (Map.Entry<String, ChannelInfo> entry : channelInfos.entrySet()) {
+                if (entry.getValue().getSize() > 0 && entry.getKey().startsWith(prefix)) {
+                    physicalKeys.add(entry.getKey());
+                }
             }
         }
         return sortedInstanceKeys(prefix, physicalKeys);
@@ -644,11 +686,17 @@ final class InvocationContext implements Context {
     }
 
     List<io.superdurable.gen.ChannelMessage> getPublications() {
-        return Collections.unmodifiableList(publications);
+        synchronized (bufferedChangesLock) {
+            return Collections.unmodifiableList(
+                    new ArrayList<io.superdurable.gen.ChannelMessage>(publications));
+        }
     }
 
     List<ChannelMessageDeletion> getChannelDeletions() {
-        return Collections.unmodifiableList(channelDeletions);
+        synchronized (bufferedChangesLock) {
+            return Collections.unmodifiableList(
+                    new ArrayList<ChannelMessageDeletion>(channelDeletions));
+        }
     }
 
     private <T> T getAttributeValue(
@@ -663,7 +711,10 @@ final class InvocationContext implements Context {
             throw new AttributeMapNotLoadedException(
                     "AttributeMap instance was not loaded for this invocation: " + key);
         }
-        final AttributeWrite write = attributeWrites.get(key);
+        final AttributeWrite write;
+        synchronized (bufferedChangesLock) {
+            write = attributeWrites.get(key);
+        }
         if (write != null) {
             if (write.getValue().getKindCase() == Value.KindCase.NULL_VALUE) {
                 return defaultValue(valueType);
@@ -691,7 +742,13 @@ final class InvocationContext implements Context {
         }
         applyAttributeSync(write, definition);
         HardDeleteAttributes.applyHardDeleteOnNull(write, definition);
-        attributeWrites.put(key, write.build());
+        bufferAttributeWrite(key, write.build());
+    }
+
+    private void bufferAttributeWrite(final String key, final AttributeWrite write) {
+        synchronized (bufferedChangesLock) {
+            attributeWrites.put(key, write);
+        }
     }
 
     private void deleteAttributeValue(
@@ -710,7 +767,7 @@ final class InvocationContext implements Context {
         }
         applyAttributeSync(write, definition);
         HardDeleteAttributes.applyHardDeleteOnNull(write, definition);
-        attributeWrites.put(key, write.build());
+        bufferAttributeWrite(key, write.build());
     }
 
     private static void applyAttributeSync(
@@ -727,13 +784,17 @@ final class InvocationContext implements Context {
             final Object value) {
         requireRegistered(definition);
         final String name = physicalName(definition, instance);
-        publications.add(io.superdurable.gen.ChannelMessage.newBuilder()
-                .setChannelName(name)
-                .setValue(values.encode(value))
-                .build());
-        final ChannelInfo existing = channelInfos.get(name);
-        final int size = existing == null ? 0 : existing.getSize();
-        channelInfos.put(name, ChannelInfo.newBuilder().setSize(size + 1).build());
+        final io.superdurable.gen.ChannelMessage publication =
+                io.superdurable.gen.ChannelMessage.newBuilder()
+                        .setChannelName(name)
+                        .setValue(values.encode(value))
+                        .build();
+        synchronized (bufferedChangesLock) {
+            publications.add(publication);
+            final ChannelInfo existing = channelInfos.get(name);
+            final int size = existing == null ? 0 : existing.getSize();
+            channelInfos.put(name, ChannelInfo.newBuilder().setSize(size + 1).build());
+        }
     }
 
     private void deleteChannelMessageValue(
@@ -742,15 +803,18 @@ final class InvocationContext implements Context {
             final String messageId) {
         requireRegistered(definition);
         final String name = physicalName(definition, instance);
-        channelDeletions.add(ChannelMessageDeletion.newBuilder()
+        final ChannelMessageDeletion deletion = ChannelMessageDeletion.newBuilder()
                 .setChannelName(name)
                 .setMessageId(Attribute.requireName(messageId))
-                .build());
-        final ChannelInfo existing = channelInfos.get(name);
-        if (existing != null && existing.getSize() > 0) {
-            channelInfos.put(
-                    name,
-                    ChannelInfo.newBuilder().setSize(existing.getSize() - 1).build());
+                .build();
+        synchronized (bufferedChangesLock) {
+            channelDeletions.add(deletion);
+            final ChannelInfo existing = channelInfos.get(name);
+            if (existing != null && existing.getSize() > 0) {
+                channelInfos.put(
+                        name,
+                        ChannelInfo.newBuilder().setSize(existing.getSize() - 1).build());
+            }
         }
     }
 
@@ -758,7 +822,11 @@ final class InvocationContext implements Context {
             final PersistenceDefinition definition,
             final String instance) {
         requireRegistered(definition);
-        final ChannelInfo info = channelInfos.get(physicalName(definition, instance));
+        final String name = physicalName(definition, instance);
+        final ChannelInfo info;
+        synchronized (bufferedChangesLock) {
+            info = channelInfos.get(name);
+        }
         return info == null ? 0 : info.getSize();
     }
 

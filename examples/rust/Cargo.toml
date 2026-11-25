@@ -6,10 +6,11 @@ publish = false
 rust-version = "1.97"
 
 [dependencies]
-dex-sdk = "=1.44.0"
+dex-sdk = "=1.45.8"
 fastrand = "2.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"

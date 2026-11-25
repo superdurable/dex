@@ -17,6 +17,7 @@ mod old_log_replay;
 mod older_backend_error;
 mod older_run_window;
 mod pre_offload_choice_log;
+mod pre_rpc_publication_rejection_log;
 mod recording;
 mod removed_flow_config_fields;
 mod scripted_clock;

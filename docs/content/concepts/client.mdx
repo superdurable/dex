@@ -29,6 +29,17 @@ Use a Client at the boundary between your application and its Flows:
   Timer, update its configuration, or time travel it. See
   [Stop a Flow](/reference/server/runtime-client#stop-a-flow).
 
+## The Flow owns decisions {#flow-owns-decisions}
+
+The Flow writes its own state; a Client starts Flows, calls RPCs, and reads,
+and has no direct write. Within that boundary, prefer that
+the Flow owns the decisions and status of its process. The caller passes
+business facts as start input or initial Attributes. The Flow's Steps and RPC
+handlers apply the business rules and write the resulting state. When an
+initial status depends on those rules, compute it in the first Step. Then the
+rules live in one place, and status changes commit together with the Flow's
+progress. Dex Web and later reads use the committed state.
+
 ## Guarantees
 
 - When `StartFlow` returns, Dex has stored the Flow. It runs even if your
@@ -40,6 +51,16 @@ Use a Client at the boundary between your application and its Flows:
   from the current state.
 - Treat a finished wait as a checkpoint, not a final result. Read the Flow result or the business state to
   decide what happened.
+- Every result or status a user must see has a durable read path: a result
+  Attribute that a Client reads, or the Flow's completion output from a wait
+  for the Flow. Keep a report in an Attribute when it must survive a failure
+  or be readable while the Flow runs.
+- A stop that cancels, fails, or terminates a Flow closes it when the stop is
+  saved. It starts no new code in that Flow: no later decision, failure
+  route, or cleanup runs. Its Steps get a cancellation signal. A handler that
+  ignores it can keep running and make more external calls, and Dex discards
+  its uncommitted result. A Flow waiting for the stopped
+  one reads its terminal state, and accepts an earlier report only once.
 - An error that says the Flow is closing does not prove that an earlier request
   succeeded. Read the Flow's stored state before you act again.
 

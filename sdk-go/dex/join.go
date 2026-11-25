@@ -458,6 +458,11 @@ func (Join[T]) channelIsMap() bool {
 	return true
 }
 
+// A Join's ChannelMap carries no publish lock requirement.
+func (Join[T]) channelPublishLock() lockRequirement {
+	return lockRequirement{}
+}
+
 func (join Join[T]) newRoundCondition(
 	round JoinRound,
 	count int,

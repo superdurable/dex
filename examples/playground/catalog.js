@@ -272,12 +272,66 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
-    id: "interruptible",
-    title: "Interruptible",
-    flowIdPrefix: "interruptible",
+    id: "control-long-running-work",
+    title: "Control Long-Running Work",
+    flowIdPrefix: "control-long-running-work",
     endpoints: [
-      endpoint("GET", "/patterns/interruptible/start", "Start", [flowId()]),
-      endpoint("GET", "/patterns/interruptible/cancel", "Cancel", [flowId()]),
+      endpoint("GET", "/patterns/control-long-running-work/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/control-long-running-work/set-batch-size", "Set batch size", [
+        flowId(),
+        query("batchSize", { default: "100" }),
+      ]),
+      endpoint("GET", "/patterns/control-long-running-work/stop", "Request stop", [flowId()]),
+    ],
+  },
+  {
+    group: "patterns",
+    id: "entity-flow",
+    title: "Entity Flow",
+    endpoints: [
+      endpoint("POST", "/patterns/entity-flow/account", "Open account", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              accountId: "account-001",
+              displayName: "Alice Example",
+              email: "alice@example.com",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/contact", "Update contact details", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify(
+            {
+              accountId: "account-001",
+              displayName: "Alice Example",
+              email: "alice@example.org",
+            },
+            null,
+            2,
+          ),
+        },
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/credits", "Adjust credit balance", [
+        {
+          name: "body",
+          in: "raw-json",
+          default: JSON.stringify({ accountId: "account-001", amount: 25 }, null, 2),
+        },
+      ]),
+      endpoint("GET", "/patterns/entity-flow/account", "Get account", [
+        query("accountId", { default: "account-001" }),
+      ]),
+      endpoint("POST", "/patterns/entity-flow/account/retire", "Retire account", [
+        query("accountId", { default: "account-001" }),
+      ]),
     ],
   },
   {
@@ -367,12 +421,42 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
+    id: "child-flows-business-identity",
+    title: "Child Flows with Business Identity",
+    flowIdPrefix: "order",
+    endpoints: [
+      endpoint("GET", "/patterns/child-flows-business-identity/start", "Start order", [flowId()]),
+      endpoint("GET", "/patterns/child-flows-business-identity/shipment", "Look up shipment", [
+        query("shipmentNumber", { deriveFromFlowId: "-2" }),
+      ]),
+      endpoint("GET", "/patterns/child-flows-business-identity/cancel-shipment", "Cancel shipment", [
+        query("shipmentNumber", { deriveFromFlowId: "-2" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
     id: "polling",
     title: "Polling",
     flowIdPrefix: "pattern-polling",
     endpoints: [
       endpoint("GET", "/patterns/polling/start", "Start", [flowId()]),
       endpoint("GET", "/patterns/polling/complete-job", "Complete job", [flowId()]),
+    ],
+  },
+  {
+    group: "patterns",
+    id: "fail-fast",
+    title: "Fail Fast on Permanent Errors",
+    flowIdPrefix: "pattern-fail-fast",
+    note: "bankAccount must be eight ASCII digits; any other value is rejected at once.",
+    endpoints: [
+      endpoint("GET", "/patterns/fail-fast/start", "Start", [
+        flowId(),
+        query("amountCents", { type: "number", default: "12000" }),
+        query("bankAccount", { default: "12345678" }),
+      ]),
+      endpoint("GET", "/patterns/fail-fast/get-outcome", "Get outcome", [flowId()]),
     ],
   },
   {
@@ -407,6 +491,44 @@ window.PLAYGROUND_CATALOG = [
     endpoints: [
       endpoint("GET", "/patterns/inactiveness-tracker-timer/start", "Start", [flowId()]),
       endpoint("GET", "/patterns/inactiveness-tracker-timer/activity", "Record activity", [flowId()]),
+    ],
+  },
+  {
+    group: "patterns",
+    id: "deferred-choice",
+    title: "Decision with Deadline",
+    flowIdPrefix: "deferred-choice",
+    endpoints: [
+      endpoint("GET", "/patterns/deferred-choice/start", "Start", [
+        flowId(),
+        query("offerId", { default: "offer-1" }),
+      ]),
+      endpoint("GET", "/patterns/deferred-choice/accept", "Accept offer", [
+        flowId(),
+        query("note", { default: "looks good" }),
+      ]),
+      endpoint("GET", "/patterns/deferred-choice/reject", "Reject offer", [
+        flowId(),
+        query("note", { default: "too expensive" }),
+      ]),
+    ],
+  },
+  {
+    group: "patterns",
+    id: "inbound-event-loop",
+    title: "Idle Timer with Resolution",
+    flowIdPrefix: "inbound-event-loop",
+    endpoints: [
+      endpoint("GET", "/patterns/inbound-event-loop/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/inbound-event-loop/reply", "Send reply", [
+        flowId(),
+        query("text", { default: "printer is offline" }),
+      ]),
+      endpoint("GET", "/patterns/inbound-event-loop/resolve", "Resolve", [
+        flowId(),
+        query("reason", { default: "replaced the network cable" }),
+      ]),
+      endpoint("GET", "/patterns/inbound-event-loop/transcript", "Get current transcript chunk", [flowId()]),
     ],
   },
   {

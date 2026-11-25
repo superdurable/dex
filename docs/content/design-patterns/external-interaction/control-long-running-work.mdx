@@ -1,0 +1,381 @@
+---
+title: Control Long-Running Work
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/control-long-running-work.json';
+
+# Control Long-Running Work
+
+Control Long-Running Work, formerly Stop Long-Running Work and Interruptible execution, changes or stops a loop while it runs.
+
+Use this pattern for work that loops for a long time, such as a backfill or batch processing. A caller can change how the loop works, such as how many items each iteration loads. A caller can also ask the loop to stop. To wait for an external system, use [Polling](/design-patterns/durable-timer/polling) instead.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## Control a running loop {#control-a-running-loop}
+
+1. An RPC writes control Attributes, such as a batch size and a stop request.
+2. The loop Step waits between iterations, for example on a Timer.
+3. Each iteration reads the control Attributes at the start of `Execute`.
+4. When a stop is requested, `Execute` completes. Otherwise it processes one unit with the current controls.
+5. `Execute` moves back to the same Step with the next position as its input.
+
+## Rules {#rules}
+
+- Keep the loop position in the Step input. Keep the controls in Attributes.
+- A new control value applies from the next iteration. The running iteration keeps the values it read.
+- The RPC validates each value before it writes it. The loop then reads only valid controls.
+- Apply the default when a control is unset, at read time. A default that the start Step writes could overwrite an RPC that arrives first.
+
+## Choose an Attribute or a Channel {#attribute-or-channel}
+
+| Control | Primitive | Why |
+| --- | --- | --- |
+| A parameter, such as a batch size, a rate, or a pause flag | Attribute | The latest value wins. The loop needs only the current value. |
+| A command for one item, such as skip or retry | Channel | Accepted commands queue in FIFO order, and one consumer takes them in that order. A later command does not replace an earlier one. |
+
+To take commands from a Channel, the loop waits on the Timer and the Channel together with `AnyOf`. `AnyOf` consumes messages only for the Channel branch that wins. `Execute` checks which branch won: it handles the consumed commands when the Channel won, and processes the next batch when the Timer won. Commands that arrive later stay queued for a later iteration.
+
+When every accepted command must be handled before the loop stops, drain the Channel before the Flow closes. When outside callers can publish at the same time, close with an atomic complete-if-empty decision, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing).
+
+## Choose how to stop {#choose-how-to-stop}
+
+Dex has three built-in ways to stop work. Choose by what must stop and what must still run.
+
+| Way | What stops | Use it when |
+| --- | --- | --- |
+| StopFlow | The whole run, at once | The run must end now, and no Step needs to report or clean up. |
+| Graceful completion | Steps that wait on the graceful completion Condition; the Flow completes once no Step is active | The Flow should finish its current work and then complete. |
+| Step cancellation | Chosen running Steps | One branch must stop while the rest of the Flow keeps running. |
+
+<a id="finish-the-current-unit-then-stop"></a>
+
+The example below keeps its stop request in a control Attribute, next to its other controls. The loop reads it and stops before its next unit. Graceful completion also stops such a loop when its wait includes the graceful completion Condition, and then no stop Attribute is needed.
+
+### Stop the whole run with StopFlow {#stopflow}
+
+A client calls `StopFlow` to cancel, fail, or terminate the run. Each type records a different terminal status. The run closes as soon as the stop commits.
+
+After the stop commits, only handlers that were already running can still run. No later Step decision, failure route, or cleanup runs. Running Steps get a cancellation signal. A handler that ignores it keeps running, and its calls to external systems still take effect. Dex discards its uncommitted result. Whoever waits for the stopped Flow reads its terminal state instead of waiting for a report.
+
+Use StopFlow when nothing in the Flow needs to finish its work or run cleanup. See [Stop a Flow](/reference/server/runtime-client#stop-a-flow) for every stop type.
+
+### Ask the Flow to complete gracefully {#graceful-completion}
+
+The Flow is asked to complete gracefully: a client calls `StopFlow` with graceful complete, or a Step returns `GracefulComplete`. Active Steps keep running, and their decisions still apply. The Flow completes once no Step is active.
+
+A waiting Step that includes the graceful completion Condition stops waiting when the request arrives. Its `Execute` handles any message it consumed first. Otherwise it ends its branch. Steps whose wait lacks the Condition keep running and keep the Flow open. A loop that moves to its next unit through a Timer and `GoTo` keeps looping until it checks for the request itself.
+
+Use graceful completion when each branch should finish its current unit and then stop. Add the Condition to every wait that would otherwise keep a branch alive. Every SDK has the graceful completion Condition: Go, Python, Java, TypeScript, and Rust. See [Wait for a completion request](/reference/server/step-and-flow-close#graceful-completion-condition).
+
+### Cancel running Steps {#cancel-running-steps}
+
+A Step decision or an RPC cancels chosen active Steps, for example by Step type. The rest of the Flow keeps running. The SDK passes a cancellation signal to each canceled handler. The handler checks the signal and returns. Dex discards the canceled Step's later result.
+
+Use Step cancellation to stop one branch, such as one job that the user no longer needs. Keep each handler idempotent, because a canceled Step's consumed messages normally return to their Channels. See [Step cancellation](/reference/server/step-and-flow-close#step-cancellation).
+
+## Example {#example}
+
+<a id="core-implementation"></a>
+
+`RecordBackfillFlow` processes 1000 records in batches. `StartRecordBackfill` moves to `ProcessRecordBatch` at the first record. `ProcessRecordBatch` waits one second between batches. Each `Execute` reads the `stopRequested` and `batchSize` Attributes first. The batch size is 10 until the batch size RPC sets it.
+
+The example prints each batch to simulate processing. Each committed `GoTo` moves the position past the processed range, so a new batch size never skips or repeats a range. A retried `Execute` can process the same range again. Real processing must therefore be idempotent by each record's business ID.
+
+The batch size RPC rejects a size below 1 or above 1000. The stop RPC sets `stopRequested`. The loop then completes gracefully before its next batch. The Flow completes once the loop has stopped.
+
+The RPCs write the controls:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/control-long-running-work/record_backfill_flow.py',
+    go: 'examples/go/patterns/control-long-running-work/record_backfill_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/controllongrunningwork/RecordBackfillFlow.java',
+    typescript: 'examples/typescript/src/patterns/control-long-running-work/record-backfill-flow.ts',
+    rust: 'examples/rust/src/patterns/control_long_running_work/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc
+def set_batch_size(self, context: Context, size: int) -> None:
+    """Changes how many records each later batch processes."""
+    if size < 1 or size > MAX_BATCH_SIZE:
+        raise ValueError(f"batch size must be between 1 and {MAX_BATCH_SIZE}")
+    BATCH_SIZE.set(context, size)
+
+@rpc
+def request_stop(self, context: Context) -> None:
+    """Asks the loop to stop before its next batch."""
+    STOP_REQUESTED.set(context, True)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// SetBatchSize changes how many records each later batch processes.
+func (*RecordBackfillFlow) SetBatchSize(ctx dex.Context, size int) (*dex.RPCResult[dex.None], error) {
+	if size < 1 || size > MaxBatchSize {
+		return nil, fmt.Errorf("batch size must be between 1 and %d", MaxBatchSize)
+	}
+	if err := BatchSize.Set(ctx, size); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// RequestStop asks the loop to stop before its next batch.
+func (*RecordBackfillFlow) RequestStop(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	if err := StopRequested.Set(ctx, true); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+/** Changes how many records each later batch processes. */
+@RPC
+public void setBatchSize(final Context context, final int size) {
+    if (size < 1 || size > MAX_BATCH_SIZE) {
+        throw new IllegalArgumentException(
+                "batch size must be between 1 and " + MAX_BATCH_SIZE);
+    }
+    batchSize.set(context, size);
+}
+
+/** Asks the loop to stop before its next batch. */
+@RPC
+public void requestStop(final Context context) {
+    stopRequested.set(context, true);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+/** Changes how many records each later batch processes. */
+@rpc({ inputCodec: jsonCodec<number>() })
+public setBatchSize(context: Context, size: number): void {
+  if (!Number.isInteger(size) || size < 1 || size > MAX_BATCH_SIZE) {
+    throw new Error(`batch size must be between 1 and ${MAX_BATCH_SIZE}`);
+  }
+  batchSize.set(context, size);
+}
+
+/** Asks the loop to stop before its next batch. */
+@rpc()
+public requestStop(context: Context): void {
+  stopRequested.set(context, true);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl RecordBackfillFlow {
+    /// Changes how many records each later batch processes.
+    fn set_batch_size(&self, context: &mut Context, size: i64) -> HandlerResult<()> {
+        if !(1..=MAX_BATCH_SIZE).contains(&size) {
+            return Err(HandlerError::new(
+                "RecordBackfillFlow",
+                format!("batch size must be between 1 and {MAX_BATCH_SIZE}"),
+            ));
+        }
+        BATCH_SIZE.set(context, size)
+    }
+
+    /// Asks the loop to stop before its next batch.
+    fn request_stop(&self, context: &mut Context) -> HandlerResult<()> {
+        STOP_REQUESTED.set(context, true)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop Step reads the controls at the start of each `Execute`:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/control-long-running-work/record_backfill_flow.py',
+    go: 'examples/go/patterns/control-long-running-work/record_backfill_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/controllongrunningwork/RecordBackfillFlow.java',
+    typescript: 'examples/typescript/src/patterns/control-long-running-work/record-backfill-flow.ts',
+    rust: 'examples/rust/src/patterns/control_long_running_work/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class ProcessRecordBatch(Step[BackfillProgress]):
+    def wait_for(self, context: Context, progress: BackfillProgress) -> Wait:
+        return Wait.until(Timer.by_duration(BATCH_INTERVAL))
+
+    def execute(self, context: Context, progress: BackfillProgress) -> StepDecision:
+        if STOP_REQUESTED.get(context):
+            return graceful_complete(f"stopped before record {progress.next_record}")
+        # An unset int Attribute reads as 0, and a set batch size is at least 1.
+        size = BATCH_SIZE.get(context) or DEFAULT_BATCH_SIZE
+        last = min(progress.next_record + size - 1, progress.last_record)
+        print(f"processing records {progress.next_record} to {last}")
+        if last == progress.last_record:
+            return graceful_complete(f"processed {last} records")
+        return go_to(ProcessRecordBatch, BackfillProgress(last + 1, progress.last_record))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type ProcessRecordBatch struct {
+	dex.StepDefaults
+}
+
+func (ProcessRecordBatch) WaitFor(dex.Context, BackfillProgress) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(BatchInterval)), nil
+}
+
+func (ProcessRecordBatch) Execute(ctx dex.Context, progress BackfillProgress) (*dex.StepDecision, error) {
+	stop, err := StopRequested.Get(ctx)
+	if err != nil && !isAttributeNotFound(err) {
+		return nil, err
+	}
+	if stop {
+		return dex.GracefulComplete(fmt.Sprintf("stopped before record %d", progress.NextRecord)), nil
+	}
+	size, err := BatchSize.Get(ctx)
+	if isAttributeNotFound(err) {
+		size, err = DefaultBatchSize, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	last := min(progress.NextRecord+size-1, progress.LastRecord)
+	fmt.Printf("processing records %d to %d\n", progress.NextRecord, last)
+	if last == progress.LastRecord {
+		return dex.GracefulComplete(fmt.Sprintf("processed %d records", last)), nil
+	}
+	next := BackfillProgress{NextRecord: last + 1, LastRecord: progress.LastRecord}
+	return dex.GoTo(ProcessRecordBatch{}, next), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+static final class ProcessRecordBatch implements Step<BackfillProgress> {
+    @Override
+    public Class<BackfillProgress> getInputType() {
+        return BackfillProgress.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final BackfillProgress progress) {
+        return Wait.until(Timer.byDuration(BATCH_INTERVAL));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final BackfillProgress progress) {
+        if (stopRequested.get(context)) {
+            return StepDecision.gracefulComplete(
+                    "stopped before record " + progress.nextRecord);
+        }
+        // An unset Integer Attribute reads as 0, and a set batch size is at least 1.
+        final int storedSize = batchSize.get(context);
+        final int size = storedSize == 0 ? DEFAULT_BATCH_SIZE : storedSize;
+        final int last = Math.min(progress.nextRecord + size - 1, progress.lastRecord);
+        System.out.printf("processing records %d to %d%n", progress.nextRecord, last);
+        if (last == progress.lastRecord) {
+            return StepDecision.gracefulComplete("processed " + last + " records");
+        }
+        return StepDecision.goTo(
+                ProcessRecordBatch.class, new BackfillProgress(last + 1, progress.lastRecord));
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class ProcessRecordBatch implements Step<BackfillProgress> {
+  public getStepType(): string {
+    return "ProcessRecordBatch";
+  }
+
+  public waitFor(_context: Context, _progress: BackfillProgress): Wait {
+    return Wait.until(Timer.byDuration(BATCH_INTERVAL_MS));
+  }
+
+  public execute(context: Context, progress: BackfillProgress): StepDecision {
+    if (stopRequested.get(context) === true) {
+      return gracefulComplete(`stopped before record ${progress.nextRecord}`);
+    }
+    const size = batchSize.get(context) ?? DEFAULT_BATCH_SIZE;
+    const last = Math.min(progress.nextRecord + size - 1, progress.lastRecord);
+    console.log(`processing records ${progress.nextRecord} to ${last}`);
+    if (last === progress.lastRecord) {
+      return gracefulComplete(`processed ${last} records`);
+    }
+    return goTo(ProcessRecordBatch, {
+      nextRecord: last + 1,
+      lastRecord: progress.lastRecord,
+    });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for ProcessRecordBatch {
+    type Input = BackfillProgress;
+
+    fn wait_for(&self, _context: &mut Context, _progress: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(BATCH_INTERVAL)))
+    }
+
+    fn execute(&self, context: &mut Context, progress: Self::Input) -> HandlerResult<StepDecision> {
+        if STOP_REQUESTED.get(context)? == Some(true) {
+            return Ok(StepDecision::graceful_complete(format!(
+                "stopped before record {}",
+                progress.next_record
+            )));
+        }
+        let size = BATCH_SIZE.get(context)?.unwrap_or(DEFAULT_BATCH_SIZE);
+        let last = (progress.next_record + size - 1).min(progress.last_record);
+        println!("processing records {} to {last}", progress.next_record);
+        if last == progress.last_record {
+            return Ok(StepDecision::graceful_complete(format!(
+                "processed {last} records"
+            )));
+        }
+        Ok(StepDecision::go_to(
+            &ProcessRecordBatch,
+            BackfillProgress {
+                next_record: last + 1,
+                last_record: progress.last_record,
+            },
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The start Step, the HTTP controller, and the tests are in the example folders. Run the HTTP sample from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
+
+## Next
+
+- [Responsive Update](/design-patterns/responsive-update)
+- [Durable Timer](/design-patterns/durable-timer)

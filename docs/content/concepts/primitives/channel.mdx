@@ -30,12 +30,20 @@ To wait for parallel branches to finish, use a **Join**; see
 - Dex stores every message durably with the Flow.
 - Messages stay in arrival order.
 - One wait consumes a message. Dex does not copy it to other waiting Steps.
+  So let at most one waiting Step consume a Channel at any moment; then which
+  Step receives a message never depends on timing. Different Step types may
+  consume the same Channel in different phases of the Flow. For an event that
+  every waiter must receive, use one ChannelMap key per waiter.
 - A message can arrive before a Step starts waiting. Dex keeps it until a later
   wait consumes it.
 - Dex publishes a message only when the Step method or RPC that published it
   succeeds. See [Step guarantees](/concepts/step#guarantees).
 - A repeated publish request stores the message twice. Put a business key in
   the message and skip keys already handled.
+- Drain a Channel before the Flow closes when its late messages must still be
+  handled. A cancel or withdrawal Channel stays undrained once the decision is
+  final, so a late cancel cannot override the decision. See
+  [Cancel a case](/design-patterns/subflows/cancel-case).
 
 A canceled Step can return its consumed messages to the Channel, so a message
 can reach `Execute` twice; a Flow close drops them instead. Waits for one and

@@ -37,6 +37,7 @@ import {
   type RPCResult,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "@superdurable/dex";
 
 import { DAY_MS } from "../../config/env.js";
@@ -58,20 +59,22 @@ const REMINDER_MS = 5_000;
 
 export const optOutReminder = new Channel("OptOutReminder", voidCodec);
 export const completeProcess = new Channel("CompleteProcess", voidCodec);
+const engagementStatus = new Attribute("EngagementStatus", statusCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: STATUS_SEARCH_KEY,
+});
 
 export class EngagementFlow implements Flow<EngagementInput> {
   public readonly employerId = new Attribute("EmployerId", stringCodec);
   public readonly jobSeekerId = new Attribute("JobSeekerId", stringCodec);
-  public readonly engagementStatus = new Attribute("EngagementStatus", statusCodec, {
-    type: IndexType.KEYWORD,
-    indexKey: STATUS_SEARCH_KEY,
-  });
+  public readonly engagementStatus = engagementStatus;
   public readonly lastUpdateTimestamp = new Attribute("LastUpdateTimeMillis", int64Codec);
   public readonly notes = new Attribute("notes", optionalCodec(stringCodec));
 
   public readonly initialize = new Initialize(this);
   public readonly processTimeout = new ProcessTimeout(this);
   public readonly reminder = new Reminder(this);
+  public readonly recordReminderOptOut = new RecordReminderOptOut(this);
   public readonly notifyExternalSystem = new NotifyExternalSystem(this);
 
   public constructor(public readonly service: MyDependencyService = myDependencyService) {}
@@ -84,6 +87,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     return StepList.startStep(this.initialize).otherSteps(
       this.processTimeout,
       this.reminder,
+      this.recordReminderOptOut,
       this.notifyExternalSystem,
     );
   }
@@ -111,7 +115,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     optOutReminder.publish(context, undefined);
   }
 
-  @rpc({ inputCodec: stringCodec })
+  @rpc({ inputCodec: stringCodec, lockAttributes: [engagementStatus.lock()] })
   public decline(context: Context, note: string): RPCResult<Status> {
     const status = this.engagementStatus.get(context);
     if (status !== Status.INITIATED) {
@@ -126,7 +130,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     };
   }
 
-  @rpc({ inputCodec: stringCodec })
+  @rpc({ inputCodec: stringCodec, lockAttributes: [engagementStatus.lock()] })
   public accept(context: Context, note: string): RPCResult<Status> {
     const status = this.engagementStatus.get(context);
     if (status !== Status.INITIATED && status !== Status.DECLINED) {
@@ -227,8 +231,7 @@ class Reminder implements Step<void> {
       return deadEnd();
     }
     if (optOutReminder.results(context).length > 0) {
-      this.flow.updateStatus(context, status, "user opted out of reminders");
-      return deadEnd();
+      return goTo(RecordReminderOptOut, undefined);
     }
     const seekerId = this.flow.jobSeekerId.get(context);
     this.flow.service.sendEmail(
@@ -237,6 +240,28 @@ class Reminder implements Step<void> {
       "Please respond to the engagement.",
     );
     return goTo(Reminder, undefined);
+  }
+}
+
+// Shares the accept and decline lock, so neither update is lost.
+class RecordReminderOptOut implements Step<void> {
+  public constructor(private readonly flow: EngagementFlow) {}
+
+  public getStepType(): string {
+    return "RecordReminderOptOut";
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeLockAttributes: [engagementStatus.lock()] };
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const status = this.flow.engagementStatus.get(context);
+    if (status !== Status.INITIATED) {
+      return deadEnd();
+    }
+    this.flow.updateStatus(context, status, "user opted out of reminders");
+    return deadEnd();
   }
 }
 

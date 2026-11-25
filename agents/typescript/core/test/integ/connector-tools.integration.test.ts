@@ -20,6 +20,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 
 import { connectorResultTruncatedNote } from "../../src/connectors/index.js";
 import {
+  outcomeUnknownThrownErrorToolResult,
   outcomeUnknownToolResult,
   toolCallNotRunErrorPrefix,
   toolCallSkippedAfterWriteDetail,
@@ -51,6 +52,7 @@ const execFileAsync = promisify(execFile);
 const workerEntryModulePath = fileURLToPath(new URL("../fixtures/connector-test-agent-worker.js", import.meta.url));
 const skippedError = `${toolCallNotRunErrorPrefix}: ${toolCallSkippedAfterWriteDetail}`;
 const failed = "The tool call failed: ";
+const thrownOutcome = (error: string): string => outcomeUnknownThrownErrorToolResult.replace("{error}", error);
 // ToolEffect as dex-agents 0.6.11 decodes it, a pinned copy of that release's contract.
 const released0611ToolEffects: readonly string[] = ["read", "idempotent_write", "non_idempotent_write", "unclassified"];
 
@@ -231,7 +233,7 @@ describe("connector tools on a Dex engine", () => {
     const words = "retry-after-send";
     let [, lines] = await runTurn([["post_note", { accountId: "a-1", text: words }]]);
     // A single attempt: a Retry goes to the Step, whose one attempt then fails.
-    assert.deepEqual(lines, [`post_note: ${outcomeUnknownToolResult}`]);
+    assert.deepEqual(lines, [`post_note: ${thrownOutcome("connector fake-ledger postNote retry (RATE_LIMIT): rate limited")}`]);
     assert.equal(harness.ledger.sends("postNote").length, 1);
 
     [, lines] = await runTurn([["post_note_retried", { accountId: "a-1", text: words }]]);
@@ -254,7 +256,9 @@ describe("connector tools on a Dex engine", () => {
     const harness = newHarness();
     await harness.startWorker();
     const [, lines] = await runTurn([["create_payout", { accountId: "a-1", amount: 5, memo: "retry-always" }]]);
-    assert.deepEqual(lines, [`create_payout: ${outcomeUnknownToolResult}`]);
+    assert.deepEqual(lines, [
+      `create_payout: ${thrownOutcome("connector fake-ledger createPayout retry (RATE_LIMIT): rate limited")}`,
+    ]);
     assert.deepEqual(harness.ledger.writes("createPayout"), []);
   });
 
@@ -323,7 +327,9 @@ describe("connector tools on a Dex engine", () => {
     assert.equal(record.effect, "non_idempotent_write");
     assert.equal(JSON.parse(record.toolSourceReference ?? "{}").reference, '{"tool": "send_message_unreviewed"}');
     assert.equal(record.status, "outcome_unknown");
-    assert.deepEqual(lines, [`send_message_unreviewed: ${outcomeUnknownToolResult}`]);
+    assert.deepEqual(lines, [
+      `send_message_unreviewed: ${thrownOutcome("connector fake-ledger sendMessage retry (TRANSPORT): response lost")}`,
+    ]);
     assert.equal(harness.ledger.writes("sendMessage").length, 1);
   });
 
@@ -434,7 +440,7 @@ describe("connector tools on a Dex engine", () => {
       ["create_payout", { accountId: "a-1", amount: 5 }],
     ]);
     assert.deepEqual(lines, [
-      `post_note: ${outcomeUnknownToolResult}`,
+      `post_note: ${thrownOutcome("connector fake-ledger postNote retry (RATE_LIMIT): rate limited")}`,
       `create_payout: ${failed}${skippedError}`,
     ]);
     assert.deepEqual(harness.ledger.writes(), []);
@@ -552,7 +558,9 @@ describe("connector tools on a Dex engine", () => {
     await harness.startWorker({ [connectorAgentDroppedToolsVariable]: "approved_payout" });
     assert.equal(await sessions.resolveInterrupt(sessionId, "call-0", true), true);
     // approved_payout is idempotent_write: retries run out and the write may have run.
-    assert.deepEqual(await answerLines(sessionId, 1), [`approved_payout: ${outcomeUnknownToolResult}`]);
+    assert.deepEqual(await answerLines(sessionId, 1), [
+      `approved_payout: ${thrownOutcome("connector tool approved_payout is not configured on this Worker")}`,
+    ]);
     assert.deepEqual(harness.ledger.sends(), []);
   });
 
@@ -725,7 +733,7 @@ describe("connector tools on a Dex engine", () => {
         const harness = newHarness();
         const answer = await writeWithKill(harness, "post_note", { accountId: "a-1", text: words }, undefined);
         // A Retry goes to the Step retry, and a single-attempt Step has none left.
-        assert.equal(answer, outcomeUnknownToolResult);
+        assert.equal(answer, thrownOutcome("connector fake-ledger postNote retry (RATE_LIMIT): rate limited"));
         assert.deepEqual(harness.ledger.writes("postNote"), []);
         assert.equal(harness.ledger.sends("rate-limited").length, 1);
       });

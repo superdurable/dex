@@ -312,15 +312,19 @@ test("design-pattern polling streams job progress and completes with the job res
   assert.equal(result.singleOutput(stringCodec), `artifact for ${workflowId}`);
 });
 
-test("design-pattern interruptible start cancel", async () => {
-  const workflowId = id("interrupt");
+test("design-pattern control long-running work start, set batch size, stop", async () => {
+  const workflowId = id("control-long-running-work");
   requireOk(
-    await get("/patterns/interruptible/start", { workflowId }),
-    "interrupt start",
+    await get("/patterns/control-long-running-work/start", { workflowId }),
+    "record backfill start",
   );
   requireOk(
-    await get("/patterns/interruptible/cancel", { workflowId }),
-    "interrupt cancel",
+    await get("/patterns/control-long-running-work/set-batch-size", { workflowId, batchSize: "50" }),
+    "record backfill set batch size",
+  );
+  requireOk(
+    await get("/patterns/control-long-running-work/stop", { workflowId }),
+    "record backfill stop",
   );
 });
 
@@ -381,6 +385,42 @@ test("design-pattern entity store profile lifecycle", async () => {
   );
 });
 
+test("design-pattern entity flow account lifecycle", async () => {
+  const accountId = id("account");
+  requireOk(
+    await post("/patterns/entity-flow/account", {
+      accountId,
+      displayName: "Ada Lovelace",
+      email: "ada@example.com",
+    }),
+    "entity flow open",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/contact", {
+      accountId,
+      displayName: "Ada Byron",
+      email: "ada.byron@example.com",
+    }),
+    "entity flow update contact",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/credits", { accountId, amount: 25 }),
+    "entity flow add credits",
+  );
+  requireOk(
+    await get("/patterns/entity-flow/account", { accountId }),
+    "entity flow get",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/credits", { accountId, amount: -25 }),
+    "entity flow spend credits",
+  );
+  requireOk(
+    await post("/patterns/entity-flow/account/retire", undefined, { accountId }),
+    "entity flow retire",
+  );
+});
+
 test("design-pattern manual recovery start", async () => {
   requireOk(
     await get("/patterns/manual-recovery/start", { workflowId: id("manual-recovery") }),
@@ -398,6 +438,20 @@ test("design-pattern inactiveness tracker timer start activity", async () => {
     await get("/patterns/inactiveness-tracker-timer/activity", { workflowId }),
     "record activity",
   );
+});
+
+test("design-pattern inbound event loop start reply resolve transcript", async () => {
+  const workflowId = id("inbound-event-loop");
+  requireOk(await get("/patterns/inbound-event-loop/start", { workflowId }), "ticket start");
+  requireOk(
+    await get("/patterns/inbound-event-loop/reply", { workflowId, text: "printer is offline" }),
+    "send reply",
+  );
+  requireOk(
+    await get("/patterns/inbound-event-loop/resolve", { workflowId, reason: "cable replaced" }),
+    "resolve ticket",
+  );
+  requireOk(await get("/patterns/inbound-event-loop/transcript", { workflowId }), "transcript");
 });
 
 test("design-pattern parallel step variants", async () => {

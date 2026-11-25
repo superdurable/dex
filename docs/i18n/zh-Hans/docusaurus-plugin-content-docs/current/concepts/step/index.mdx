@@ -29,6 +29,10 @@ Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。�
 
 Step 没有 `WaitFor` 时，`Execute` 立即运行。
 
+可能失败的调用尽量放在 `Execute` 里。`WaitFor` 从不修改外部系统。对 provider 的所有修改，包括 Connector 的写操作，都在 `Execute` 里运行。`WaitFor` 可以做只读、幂等、带超时的调用。例如，它可以从 provider 读取到期日期，并为它返回一个 Timer。`WaitFor` 的结果提交后，这个 Timer 就是持久的。如果截止时间需要可审计或可见，或者需要单独的失败路线，就改在前一个 Step 的 `Execute` 里读取，并把它作为下一个 Step 的输入传入。
+
+如果 `WaitFor` 里的读取遇到永久性错误，就把错误记在 Step execution local value 里，并返回一个立即就绪的等待，再由 `Execute` 根据这个错误路由。provider 确认是永久性错误时，`Execute` 转到处理失败的 Step，或用 `ForceFail` 让 Flow 失败。重试永久性错误只会重复失败。见 [Step execution local](/reference/python/step#step-execution-local)（英文）。
+
 <StepWaitExecuteDiagram markdownDescription="ExampleStep 的 WaitFor 返回一个 Wait，Dex 评估其中的 Timer、Channel 或 SubFlow 条件。条件满足后，Execute 返回 GoTo(Complete Flow, input + 1)。StepDecision 可以是 GoTo、GracefulComplete 或 ForceFail。" />
 
 下面这个 Step 等待一条审批消息，然后进入第二个 Step，由它完成 Flow。
@@ -224,7 +228,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。只有最终完成的 Flow 才返回 output。见 [Flow output](/reference/server/step-and-flow-close#flow-outputs)。
 
-决定还可以取消其他 active Step。见 [并行 Step](/design-patterns/parallel) 和 [并行 SubFlow](/design-patterns/parallel-subflows) 模式。
+决定还可以取消其他 active Step。见 [并行 Step](/design-patterns/parallel) 和 [SubFlow](/design-patterns/subflows) 模式。
 
 ## 保证 {#guarantees}
 
@@ -261,6 +265,11 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 `StepDecision` 可以为某一次 Step execution 覆盖这些选项。
 
 每个方法使用 server 的默认值，除非 StepOptions 另行设置。所有 SDK 的默认值都一样；见 [StepOptions 默认值](/reference/python/step-options#defaults)（英文）。
+
+默认值适合短调用，默认的 heartbeat timeout 很短。如果 attempt 到达它的 heartbeat 截止时间时，既没有发送 heartbeat，也没有写 Dex Stream，Dex 就让这个 attempt 超时。只提高 method timeout，这个截止时间仍然存在。有调用可能静默这么久的 Step，要自己设置两个选项：
+
+- heartbeat timeout 至少等于这次调用的 method timeout。在短调用之间发送 heartbeat 的循环，则让最长的静默间隔低于 heartbeat timeout。
+- 按要限定的对象选择 retry total duration。失败之后，Dex 只用它决定是否安排下一次尝试。排队可能让已安排的尝试晚开始，进行中的尝试也不会被截断。要允许几次接近完整时长的尝试，大约取最大尝试次数乘以 method timeout，再加上 backoff。这只是估算：重试延迟和排队时间也占用这个预算。整个 Flow 的截止时间用 Flow timeout，一次等待的截止时间用 durable Timer。
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

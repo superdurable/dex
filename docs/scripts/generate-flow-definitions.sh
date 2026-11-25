@@ -11,6 +11,10 @@ generate_flow_definition() {
   local source_path="$1"
   local output_path="$2"
   local arguments=("${source_path}" --schema-version 2.0 --json --out "docs/src/data/flow-definitions/${output_path}")
+  # An optional third argument picks one Flow type from a source with several Flows.
+  if [[ -n "${3:-}" ]]; then
+    arguments+=(--flow "$3")
+  fi
   if [[ -n "${DEX_FLOW_PYTHON:-}" && "${source_path}" == *.py ]]; then
     arguments+=(--python "${DEX_FLOW_PYTHON}")
   fi
@@ -44,12 +48,14 @@ generate_flow_definition examples/python/dex_examples/patterns/drain-channels/in
 generate_flow_definition examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py design-patterns/draining-external-channel
 generate_flow_definition examples/python/dex_examples/patterns/cron/cron_schedule_flow.py design-patterns/cron
 generate_flow_definition examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py design-patterns/inactiveness-tracker
+generate_flow_definition examples/python/dex_examples/patterns/inbound-event-loop/support_ticket_flow.py design-patterns/inbound-event-loop
 generate_flow_definition examples/python/dex_examples/patterns/reminders/reminder_flow.py design-patterns/reminder
 generate_flow_definition examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py design-patterns/execute-failure-recovery
+generate_flow_definition examples/python/dex_examples/patterns/fail-fast/expense_reimbursement_flow.py design-patterns/fail-fast-on-permanent-errors
 generate_flow_definition examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py design-patterns/manual-recovery
 generate_flow_definition examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py design-patterns/wait-for-failure-recovery
 generate_flow_definition examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py design-patterns/graceful-timeout
-generate_flow_definition examples/python/dex_examples/patterns/interruptible/interruptible_execution_flow.py design-patterns/interruptible
+generate_flow_definition examples/python/dex_examples/patterns/control-long-running-work/record_backfill_flow.py design-patterns/control-long-running-work
 generate_flow_definition examples/python/dex_examples/patterns/parallel-subflows/submit_request_flow.py design-patterns/parallel-subflows-submit-request
 generate_flow_definition examples/python/dex_examples/patterns/parallel-subflows/basic_parent_flow.py design-patterns/parallel-subflows-basic
 generate_flow_definition examples/python/dex_examples/patterns/parallel-subflows/advanced_long_live_parent_flow.py design-patterns/parallel-subflows-long-lived
@@ -63,3 +69,6 @@ generate_flow_definition examples/python/dex_examples/patterns/polling/polling_f
 generate_flow_definition examples/python/dex_examples/patterns/deferred-choice/offer_response_flow.py design-patterns/deferred-choice
 generate_flow_definition examples/python/dex_examples/patterns/critical-section/contract_edit_flow.py design-patterns/critical-section
 generate_flow_definition examples/python/dex_examples/patterns/cancel-case/loan_application_flow.py design-patterns/cancel-case
+generate_flow_definition examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py design-patterns/child-flows-business-identity-order OrderFulfillmentFlow
+generate_flow_definition examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py design-patterns/child-flows-business-identity-shipment ShipmentFlow
+generate_flow_definition examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py design-patterns/entity-flow

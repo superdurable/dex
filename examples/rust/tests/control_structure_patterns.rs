@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for the Deferred Choice, Critical Section, and Cancel
-//! Case control-structure pattern Flows.
+//! Integration tests for the Deferred Choice, Critical Section, Cancel Case,
+//! and Idle Timer with Resolution control-structure pattern Flows, and Child
+//! Flows with Business Identity.
 
 mod condition_order_probes;
+mod offer_response_window_probe;
 mod worker_harness;
 
 use std::collections::BTreeMap;
@@ -32,19 +34,45 @@ use dex_examples_rust::control_patterns::cancel_case::{
     CANCEL_APPLICATION, DECIDE_APPLICATION, LoanApplication, LoanApplicationFlow, RunCreditCheck,
     STOPPED_CREDIT_CHECK_FLOW_ID,
 };
+use dex_examples_rust::control_patterns::child_flows_business_identity::{
+    Order, OrderFulfillmentFlow, RECORD_SHIPMENT_OUTCOME, SHIPMENT_OUTCOME, SHIPMENT_RECORDS,
+    SHIPMENT_REJECTED, SHIPMENT_STARTED, SHIPMENT_TIMEOUT, SHIPMENT_UNAVAILABLE, Shipment,
+    ShipmentFlow, ShipmentRecord, ShipmentReport, ShipmentRequest, shipment_start_request_id,
+};
 use dex_examples_rust::control_patterns::critical_section::{
     ContractEdit, ContractEditFlow, ContractEditRecord,
 };
 use dex_examples_rust::control_patterns::deferred_choice::{
-    ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
+    ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OFFER_RESPONSE_RECORDED,
+    OFFER_RESPONSE_WINDOW_CLOSED, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
+    RouteResponseBeforeExpiry,
+};
+use dex_examples_rust::control_patterns::fail_fast::{
+    ExpenseClaim, ExpenseReimbursementFlow, PAYOUT_OUTCOME, PayoutOutcome,
+};
+use dex_examples_rust::control_patterns::inbound_event_loop::{
+    AwaitTicketMessage, CURRENT_TRANSCRIPT_CHUNK, MAX_REPLY_LENGTH, RESOLVE_TICKET,
+    SEND_TICKET_REPLY, SupportTicketConversationFlow, TRANSCRIPT_CHUNKS,
+};
+use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
+use dex_examples_rust::patterns::control_long_running_work::{
+    ProcessRecordBatch, REQUEST_STOP, RecordBackfillFlow, SET_BATCH_SIZE,
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, Flow, FlowResult, FlowStatus, Rpc,
-    SdkResult, Step, StepExecutionId, TimerId, Value, WaitForStepCompletionOptions, Worker,
+    BlobCache, BlobCacheConfig, Client, ClientOptions, Flow, FlowConfig, FlowResult, FlowStatus,
+    IdReusePolicy, Rpc, SdkError, SdkResult, StartFlowOptions, Step, StepDurability,
+    StepExecutionId, StopFlowOptions, TimerId, Value, WaitForStepCompletionOptions, Worker,
     WorkerOptions,
+};
+use offer_response_window_probe::{
+    ACCEPT_GATED_PROBE_OFFER, ACCEPT_WINDOW_PROBE_OFFER, ACCEPT_WINDOW_PROBE_OFFER_WHEN_RELEASED,
+    HELD_RESPONSE_GATE, HeldResponseReleaseGuard, OPEN_OFFER_DECISION_GATE, OPEN_WINDOW_PROBE_GATE,
+    OfferResponseDecisionGateProbeFlow, OfferResponseWindowProbeFlow, REJECT_GATED_PROBE_OFFER,
+    REJECT_WINDOW_PROBE_OFFER, register_offer_response_window_probe,
+    wait_until_execute_waits_for_locks,
 };
 use tempfile::TempDir;
 use worker_harness::{await_pull_registration, new_temporary_refund_flow};
@@ -82,16 +110,22 @@ impl ControlPatternsEnvironment {
             Client::try_new(
                 create_example_registry(Arc::clone(&polling_jobs), customer_refund_flow.clone())
                     .and_then(register_condition_order_probes)
+                    .and_then(register_offer_response_window_probe)
                     .expect("register Rust examples"),
                 Arc::clone(&cache),
                 ClientOptions::new().server_address(server_address.clone()),
             )
             .expect("create control patterns Client"),
         );
-        let worker_registry =
-            create_worker_registry(Arc::clone(&client), polling_jobs, customer_refund_flow)
-                .and_then(register_condition_order_probes)
-                .expect("register Rust example Worker");
+        let worker_registry = create_worker_registry(
+            Arc::clone(&client),
+            polling_jobs,
+            customer_refund_flow,
+            Arc::new(FakeAccountArchive::default()),
+        )
+        .and_then(register_condition_order_probes)
+        .and_then(register_offer_response_window_probe)
+        .expect("register Rust example Worker");
         let worker_options = WorkerOptions::new()
             .server_address(&server_address)
             .pull(example_pull_worker_options());
@@ -163,6 +197,14 @@ impl ControlPatternsEnvironment {
             result.error_message()
         );
         result
+    }
+
+    fn payout_outcome(&self, flow_id: &str) -> PayoutOutcome {
+        let (outcome,) = self
+            .client
+            .get_attributes(flow_id, (&*PAYOUT_OUTCOME,))
+            .unwrap_or_else(|error| panic!("read PayoutOutcome of {flow_id}: {error}"));
+        outcome.unwrap_or_else(|| panic!("{flow_id} has no PayoutOutcome"))
     }
 
     fn wait_for_completed_flow(&self, flow_id: &str) -> FlowResult {
@@ -297,22 +339,380 @@ fn deferred_choice_routes_on_the_customer_response() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn deferred_choice_consumes_only_the_winning_response() {
+fn fail_fast_routes_a_rejected_bank_account_after_one_attempt() {
     let environment = ControlPatternsEnvironment::start();
     let flow_id = environment.start_flow(
-        &OfferResponseFlow::default(),
-        "deferred-choice-race",
-        "offer-2".to_string(),
+        &ExpenseReimbursementFlow::default(),
+        "pattern-fail-fast",
+        ExpenseClaim {
+            amount_cents: 12_000,
+            bank_account: "not-a-bank-account".to_string(),
+        },
     );
-    environment.invoke(&flow_id, ACCEPT_CUSTOMER_OFFER, "yes".to_string());
-    environment.invoke(&flow_id, REJECT_CUSTOMER_OFFER, "no".to_string());
     let result = environment.wait_for_completed_flow(&flow_id);
-    let step_types = completion_step_types(&result);
-    assert_eq!(step_types.len(), 1, "{step_types:?}");
-    assert!(
-        ["FulfillOffer", "CloseRejectedOffer"].contains(&step_types[0].as_str()),
-        "{step_types:?}"
+    assert_eq!(completion_step_types(&result), ["RecordRejectedClaim"]);
+    assert_eq!(
+        outputs_of::<String>(&result, "RecordRejectedClaim"),
+        ["rejected: bank account is invalid"]
     );
+    assert_eq!(
+        environment.payout_outcome(&flow_id),
+        PayoutOutcome {
+            status: "REJECTED".to_string(),
+            detail: "bank account is invalid".to_string(),
+            submit_attempt: 1,
+        }
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn fail_fast_retries_a_provider_timeout() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &ExpenseReimbursementFlow::default(),
+        "pattern-fail-fast",
+        ExpenseClaim {
+            amount_cents: 12_000,
+            bank_account: "12345678".to_string(),
+        },
+    );
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(completion_step_types(&result), ["SubmitPayout"]);
+    assert_eq!(
+        environment.payout_outcome(&flow_id),
+        PayoutOutcome {
+            status: "PAID".to_string(),
+            detail: format!("payout-{flow_id}"),
+            submit_attempt: 2,
+        }
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn deferred_choice_response_after_the_decision_gets_window_closed() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &OfferResponseWindowProbeFlow::default(),
+        "deferred-choice-window",
+        "offer-3".to_string(),
+    );
+    let outcome = environment.invoke(&flow_id, ACCEPT_WINDOW_PROBE_OFFER, "yes".to_string());
+    assert_eq!(outcome, OFFER_RESPONSE_RECORDED);
+    environment.wait_for_step(&flow_id, &AwaitOfferResponse);
+
+    let outcome = environment.invoke(
+        &flow_id,
+        REJECT_WINDOW_PROBE_OFFER,
+        "changed my mind".to_string(),
+    );
+    assert_eq!(outcome, OFFER_RESPONSE_WINDOW_CLOSED);
+
+    environment.invoke(&flow_id, OPEN_WINDOW_PROBE_GATE, ());
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        outputs_of::<String>(&result, "FulfillOffer"),
+        ["fulfilled offer-3"]
+    );
+    assert!(outputs_of::<String>(&result, "CloseRejectedOffer").is_empty());
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn deferred_choice_second_reply_gets_window_closed_before_the_decision() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &OfferResponseDecisionGateProbeFlow::default(),
+        "deferred-choice-double",
+        "offer-5".to_string(),
+    );
+    // AwaitOfferResponse has not started, so only the first reply can close the window.
+    let first = environment.invoke(&flow_id, ACCEPT_GATED_PROBE_OFFER, "yes".to_string());
+    let second = environment.invoke(&flow_id, REJECT_GATED_PROBE_OFFER, "no".to_string());
+    assert_eq!(first, OFFER_RESPONSE_RECORDED);
+    assert_eq!(second, OFFER_RESPONSE_WINDOW_CLOSED);
+
+    environment.invoke(&flow_id, OPEN_OFFER_DECISION_GATE, ());
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        outputs_of::<String>(&result, "FulfillOffer"),
+        ["fulfilled offer-5"]
+    );
+    assert!(outputs_of::<String>(&result, "CloseRejectedOffer").is_empty());
+    assert!(outputs_of::<String>(&result, "ExpireOffer").is_empty());
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn deferred_choice_response_committed_after_the_timer_won_is_taken() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &OfferResponseWindowProbeFlow::default(),
+        "deferred-choice-late",
+        "offer-4".to_string(),
+    );
+    let _release_on_failure = HeldResponseReleaseGuard;
+    // The Worker runs on its own thread, so the held RPC does not block this test.
+    let held_response = {
+        let client = Arc::clone(&environment.client);
+        let flow_id = flow_id.clone();
+        thread::spawn(move || {
+            client.invoke_rpc(
+                &flow_id,
+                ACCEPT_WINDOW_PROBE_OFFER_WHEN_RELEASED,
+                "yes, just in time".to_string(),
+            )
+        })
+    };
+    assert!(
+        HELD_RESPONSE_GATE.wait_until_entered(WAIT_TIMEOUT),
+        "{flow_id}: the held response RPC never ran"
+    );
+    // The Timer wins while the RPC holds the window lock, so Execute waits for the RPC.
+    environment.skip_offer_expiry(&flow_id);
+    let run_id = environment
+        .client
+        .describe_flow(&flow_id)
+        .unwrap_or_else(|error| panic!("describe {flow_id}: {error}"))
+        .run_id;
+    assert!(
+        wait_until_execute_waits_for_locks(&flow_id, &run_id, "AwaitOfferResponse", WAIT_TIMEOUT),
+        "{flow_id}: AwaitOfferResponse Execute never waited for the window lock"
+    );
+    HELD_RESPONSE_GATE.release();
+    let outcome = held_response
+        .join()
+        .expect("join the held response RPC")
+        .unwrap_or_else(|error| panic!("held response RPC on {flow_id}: {error}"));
+    assert_eq!(outcome, OFFER_RESPONSE_RECORDED);
+
+    environment.wait_for_step(&flow_id, &RouteResponseBeforeExpiry);
+    environment.invoke(&flow_id, OPEN_WINDOW_PROBE_GATE, ());
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        outputs_of::<String>(&result, "FulfillOffer"),
+        ["fulfilled offer-4"]
+    );
+    assert!(outputs_of::<String>(&result, "ExpireOffer").is_empty());
+}
+
+/// At the default batch size the backfill needs 100 seconds, longer than the wait timeout.
+#[test]
+#[ignore = "requires dexcli dev"]
+fn control_long_running_work_reads_the_batch_size_each_batch() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &RecordBackfillFlow::default(),
+        "control-long-running-work-batch",
+        (),
+    );
+    for invalid_size in [0, 1001] {
+        let error = environment
+            .client
+            .invoke_rpc(&flow_id, SET_BATCH_SIZE, invalid_size)
+            .expect_err("an out-of-range batch size is rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("batch size must be between 1 and 1000"),
+            "{error}"
+        );
+    }
+    // The first batch has used the default size, so a later batch must read the new one.
+    environment.wait_for_step(&flow_id, &ProcessRecordBatch);
+    environment.invoke(&flow_id, SET_BATCH_SIZE, 1000);
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "processed 1000 records");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn control_long_running_work_stops_before_the_next_batch() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &RecordBackfillFlow::default(),
+        "control-long-running-work-stop",
+        (),
+    );
+    environment.wait_for_step(&flow_id, &ProcessRecordBatch);
+    environment
+        .client
+        .invoke_rpc_without_input(&flow_id, REQUEST_STOP)
+        .unwrap_or_else(|error| panic!("request stop on {flow_id}: {error}"));
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    let output = single_output(&result);
+    let record: i64 = output
+        .strip_prefix("stopped before record ")
+        .and_then(|record| record.parse().ok())
+        .unwrap_or_else(|| panic!("unexpected stop output: {output}"));
+    assert!(record >= 11, "{output}");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_records_replies_before_the_resolution() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketConversationFlow::default(),
+        "inbound-event-loop",
+        String::new(),
+    );
+    let blank_reply = environment
+        .client
+        .invoke_rpc(&flow_id, SEND_TICKET_REPLY, "  ".to_string())
+        .expect_err("a blank reply is rejected");
+    assert!(
+        blank_reply.to_string().contains("reply text is required"),
+        "{blank_reply}"
+    );
+    let blank_reason = environment
+        .client
+        .invoke_rpc(&flow_id, RESOLVE_TICKET, " ".to_string())
+        .expect_err("a blank resolution is rejected");
+    assert!(
+        blank_reason
+            .to_string()
+            .contains("resolution reason is required"),
+        "{blank_reason}"
+    );
+
+    let replies = ["printer is offline", "restarted it, still offline"];
+    for reply in replies {
+        environment.invoke(&flow_id, SEND_TICKET_REPLY, reply.to_string());
+    }
+    wait_for_ticket_transcript(&environment, &flow_id, &replies);
+    environment.invoke(
+        &flow_id,
+        RESOLVE_TICKET,
+        "replaced the network cable".to_string(),
+    );
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        single_output(&result),
+        "resolved: replaced the network cable"
+    );
+    assert_eq!(ticket_transcript_texts(&environment, &flow_id), replies);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_counts_reply_length_in_characters() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketConversationFlow::default(),
+        "inbound-event-loop-length",
+        String::new(),
+    );
+    // Each emoji is one character but four UTF-8 bytes and two UTF-16 code units.
+    let longest_reply = "😀".repeat(MAX_REPLY_LENGTH);
+
+    let too_long = environment
+        .client
+        .invoke_rpc(&flow_id, SEND_TICKET_REPLY, format!("{longest_reply}😀"))
+        .expect_err("a reply over the limit is rejected");
+    assert!(
+        too_long
+            .to_string()
+            .contains("reply text exceeds 4000 characters"),
+        "{too_long}"
+    );
+    environment.invoke(&flow_id, SEND_TICKET_REPLY, longest_reply.clone());
+    environment.invoke(&flow_id, RESOLVE_TICKET, "answered".to_string());
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "resolved: answered");
+    assert_eq!(
+        ticket_transcript_texts(&environment, &flow_id),
+        [longest_reply.as_str()]
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn inbound_event_loop_closes_a_quiet_ticket() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &SupportTicketConversationFlow::default(),
+        "inbound-event-loop-inactive",
+        String::new(),
+    );
+    environment.invoke(&flow_id, SEND_TICKET_REPLY, "is anyone there?".to_string());
+    wait_for_ticket_transcript(&environment, &flow_id, &["is anyone there?"]);
+
+    // The reply ended execution 1, so execution 2 holds the inactivity Timer.
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        match environment.client.skip_timer(
+            &flow_id,
+            StepExecutionId::of(&AwaitTicketMessage).execution_number(2),
+            TimerId::by_condition_index(0),
+        ) {
+            Ok(()) => break,
+            Err(error) => assert!(
+                Instant::now() < deadline,
+                "skip the inactivity Timer of {flow_id}: {error}"
+            ),
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(single_output(&result), "closed after inactivity");
+}
+
+/// Reads the reply texts of the current transcript chunk with a Client Attribute read.
+fn ticket_transcript_texts(environment: &ControlPatternsEnvironment, flow_id: &str) -> Vec<String> {
+    let (chunk,) = environment
+        .client
+        .get_attributes(
+            flow_id,
+            (&TRANSCRIPT_CHUNKS.instance(CURRENT_TRANSCRIPT_CHUNK),),
+        )
+        .unwrap_or_else(|error| panic!("read the transcript of {flow_id}: {error}"));
+    chunk
+        .unwrap_or_default()
+        .replies
+        .into_iter()
+        .map(|reply| reply.text)
+        .collect()
+}
+
+/// Polls the current transcript chunk until it holds exactly `expected`.
+fn wait_for_ticket_transcript(
+    environment: &ControlPatternsEnvironment,
+    flow_id: &str,
+    expected: &[&str],
+) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        let texts = ticket_transcript_texts(environment, flow_id);
+        if texts == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{flow_id} transcript is {texts:?}, expected {expected:?}"
+        );
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
+fn single_output(result: &FlowResult) -> String {
+    let outputs = result
+        .completions()
+        .iter()
+        .map(|completion| {
+            completion
+                .decode::<String>()
+                .unwrap_or_else(|error| panic!("decode the ticket outcome: {error}"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(outputs.len(), 1, "{outputs:?}");
+    outputs[0].clone()
 }
 
 #[test]
@@ -498,6 +898,461 @@ fn cancel_case_cancel_wins_when_both_are_pending() {
         outputs_of::<ConditionOrderOutcome>(&result, "AwaitProbeDecision"),
         [ConditionOrderOutcome::new("canceled", 1)]
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_records_the_report_before_the_shipment_closes() {
+    let environment = ControlPatternsEnvironment::start();
+    let order_id = unique_flow_id("order");
+    let delivered = format!("{order_id}-1");
+    environment.start_order(
+        &order_id,
+        Order {
+            shipments: vec![shipment(&delivered, "Seattle", 1)],
+            reconcile_interval_seconds: 3600,
+        },
+    );
+    let run_id = environment.wait_for_claimed_run(&order_id, &delivered);
+    // The reconcile Timer waits an hour, so only the report can fill the outcome.
+    environment.wait_for_shipment_record(
+        &order_id,
+        &delivered,
+        &ShipmentRecord {
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(run_id),
+            outcome: Some("delivered to Seattle".to_string()),
+        },
+    );
+    environment.assert_running(&order_id);
+    environment.terminate_flows(&[&order_id]);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_accepts_reports_only_from_the_claimed_run() {
+    let environment = ControlPatternsEnvironment::start();
+    let order_id = unique_flow_id("order");
+    let delivered = format!("{order_id}-1");
+    let canceled = format!("{order_id}-2");
+    environment.start_order(
+        &order_id,
+        Order {
+            shipments: vec![
+                shipment(&delivered, "Seattle", 1),
+                shipment(&canceled, "Portland", 3600),
+            ],
+            reconcile_interval_seconds: 2,
+        },
+    );
+    let delivered_run_id = environment.wait_for_claimed_run(&order_id, &delivered);
+    let canceled_run_id = environment.wait_for_claimed_run(&order_id, &canceled);
+    let delivered_record = ShipmentRecord {
+        status: Some("completed".to_string()),
+        run_id: Some(delivered_run_id.clone()),
+        outcome: Some("delivered to Seattle".to_string()),
+    };
+    environment.wait_for_shipment_record(&order_id, &delivered, &delivered_record);
+
+    // A repeated report, a report from another run, and an unknown number change nothing.
+    let unknown = format!("{order_id}-9");
+    for (shipment_number, shipment_run_id) in [
+        (&delivered, delivered_run_id.as_str()),
+        (&canceled, "another-run"),
+        (&canceled, ""),
+        (&unknown, "another-run"),
+    ] {
+        environment.invoke_retrying_lock_conflicts(
+            &order_id,
+            RECORD_SHIPMENT_OUTCOME,
+            ShipmentReport {
+                shipment_number: shipment_number.clone(),
+                shipment_run_id: shipment_run_id.to_string(),
+                outcome: "delivered to Boise".to_string(),
+            },
+        );
+    }
+    assert_eq!(
+        environment.shipment_record(&order_id, &delivered),
+        delivered_record
+    );
+    assert_eq!(
+        environment.shipment_record(&order_id, &canceled),
+        ShipmentRecord {
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(canceled_run_id.clone()),
+            outcome: None,
+        }
+    );
+    environment.assert_no_shipment_record(&order_id, &unknown);
+
+    environment
+        .client
+        .stop_flow(
+            &canceled,
+            StopFlowOptions::cancel().reason("customer canceled the parcel"),
+        )
+        .expect("cancel the shipment");
+    environment.wait_for_completed_flow(&order_id);
+    assert_eq!(
+        environment.shipment_record(&order_id, &canceled),
+        ShipmentRecord {
+            status: Some("canceled".to_string()),
+            run_id: Some(canceled_run_id),
+            outcome: None,
+        }
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_rejects_a_shipment_number_owned_by_another_request() {
+    let environment = ControlPatternsEnvironment::start();
+    let first_order_id = unique_flow_id("order");
+    let shared = shipment(&format!("{first_order_id}-1"), "Boise", 3600);
+    let number = shared.shipment_number.clone();
+    let order = Order {
+        shipments: vec![shared.clone()],
+        reconcile_interval_seconds: 3600,
+    };
+    environment.start_order(&first_order_id, order);
+    let run_id = environment.wait_for_claimed_run(&first_order_id, &number);
+
+    // Replaying the same start request returns the claimed run.
+    let options = StartFlowOptions::new()
+        .timeout(SHIPMENT_TIMEOUT)
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .request_id(shipment_start_request_id(&first_order_id, &shared))
+        .ignore_already_started(true);
+    let replayed_run_id = environment
+        .client
+        .start_flow_with_options(
+            &ShipmentFlow::default(),
+            &number,
+            ShipmentRequest {
+                order_flow_id: first_order_id.clone(),
+                shipment: shared.clone(),
+            },
+            options,
+        )
+        .expect("replay the start request");
+    assert_eq!(replayed_run_id, run_id);
+
+    // Another order with the same shipment number sends a different request.
+    let second_order_id = unique_flow_id("order");
+    let second_shipment = format!("{second_order_id}-2");
+    environment.start_order(
+        &second_order_id,
+        Order {
+            shipments: vec![shared, shipment(&second_shipment, "Austin", 3600)],
+            reconcile_interval_seconds: 3600,
+        },
+    );
+    let rejected = ShipmentRecord {
+        status: Some(SHIPMENT_REJECTED.to_string()),
+        ..ShipmentRecord::default()
+    };
+    environment.wait_for_shipment_record(&second_order_id, &number, &rejected);
+    // Reports to the second order, from the owning run or with no run ID, leave the rejected record as it is.
+    for report_run_id in [run_id.as_str(), ""] {
+        environment.invoke_retrying_lock_conflicts(
+            &second_order_id,
+            RECORD_SHIPMENT_OUTCOME,
+            ShipmentReport {
+                shipment_number: number.clone(),
+                shipment_run_id: report_run_id.to_string(),
+                outcome: "delivered to Boise".to_string(),
+            },
+        );
+    }
+    assert_eq!(
+        environment.shipment_record(&second_order_id, &number),
+        rejected
+    );
+    environment.terminate_flows(&[&number, &first_order_id, &second_shipment, &second_order_id]);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_ignores_a_reopened_shipment_number() {
+    let environment = ControlPatternsEnvironment::start();
+    let order_id = unique_flow_id("order");
+    let number = format!("{order_id}-1");
+    environment.start_order(
+        &order_id,
+        Order {
+            shipments: vec![shipment(&number, "Seattle", 3600)],
+            reconcile_interval_seconds: 10,
+        },
+    );
+    let claimed_run_id = environment.wait_for_claimed_run(&order_id, &number);
+    environment
+        .client
+        .stop_flow(&number, StopFlowOptions::cancel())
+        .expect("cancel the claimed run");
+    environment.wait_for_shipment_status(&number, FlowStatus::Canceled);
+
+    // Another caller reopens the number; its run reports to the same order and completes.
+    environment
+        .client
+        .start_flow_with_options(
+            &ShipmentFlow::default(),
+            &number,
+            ShipmentRequest {
+                order_flow_id: order_id.clone(),
+                shipment: shipment(&number, "Portland", 1),
+            },
+            StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning),
+        )
+        .expect("reopen the shipment number");
+    environment.wait_for_shipment_status(&number, FlowStatus::Completed);
+
+    // The order has not read the shipment yet, and it ignored the other run's report.
+    environment.assert_running(&order_id);
+    assert_eq!(
+        environment.shipment_record(&order_id, &number),
+        ShipmentRecord {
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(claimed_run_id.clone()),
+            outcome: None,
+        }
+    );
+
+    environment.wait_for_completed_flow(&order_id);
+    assert_eq!(
+        environment.shipment_record(&order_id, &number),
+        ShipmentRecord {
+            status: Some(SHIPMENT_UNAVAILABLE.to_string()),
+            run_id: Some(claimed_run_id),
+            outcome: None,
+        }
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_fails_an_invalid_order() {
+    let environment = ControlPatternsEnvironment::start();
+    type InvalidOrderCase = (&'static str, fn(&str) -> Order, &'static str);
+    let cases: [InvalidOrderCase; 3] = [
+        (
+            "duplicate shipment number",
+            |number| Order {
+                shipments: vec![
+                    shipment(number, "Seattle", 1),
+                    shipment(number, "Portland", 1),
+                ],
+                reconcile_interval_seconds: 2,
+            },
+            "duplicate shipment number: ",
+        ),
+        (
+            "negative delivery delay",
+            |number| Order {
+                shipments: vec![shipment(number, "Seattle", -1)],
+                reconcile_interval_seconds: 2,
+            },
+            "negative delivery delay for shipment: ",
+        ),
+        (
+            "zero reconcile interval",
+            |number| Order {
+                shipments: vec![shipment(number, "Seattle", 1)],
+                reconcile_interval_seconds: 0,
+            },
+            "reconcile interval must be positive",
+        ),
+    ];
+    for (name, order, expected_message) in cases {
+        let order_id = unique_flow_id("order");
+        let number = format!("{order_id}-1");
+        environment.start_order(&order_id, order(&number));
+        let result = environment.wait_for_closed_flow(&order_id, FlowStatus::Failed);
+        let message = result.error_message().unwrap_or_default();
+        assert!(message.contains(expected_message), "{name}: {message}");
+        environment.assert_no_shipment_record(&order_id, &number);
+        assert!(
+            matches!(
+                environment.client.describe_flow(&number),
+                Err(SdkError::FlowNotFound { .. })
+            ),
+            "{name}: no shipment {number} starts"
+        );
+    }
+}
+
+// The explicit SYNC options override the Flow's ASYNC default, so the outcome stays readable once
+// the order recorded it. This does not prove the commit order of the two Steps.
+#[test]
+#[ignore = "requires dexcli dev"]
+fn child_flows_business_identity_keeps_the_outcome_readable_when_sync_overrides_an_async_default() {
+    let environment = ControlPatternsEnvironment::start();
+    let order_id = unique_flow_id("order");
+    let number = format!("{order_id}-1");
+    environment.start_order(
+        &order_id,
+        Order {
+            shipments: vec![shipment(&number, "Austin", 3)],
+            reconcile_interval_seconds: 3600,
+        },
+    );
+    let run_id = environment.wait_for_claimed_run(&order_id, &number);
+    environment
+        .client
+        .update_flow_config(
+            &number,
+            FlowConfig::new().step_durability(StepDurability::Async),
+        )
+        .expect("switch the shipment to ASYNC defaults");
+    environment.wait_for_shipment_record(
+        &order_id,
+        &number,
+        &ShipmentRecord {
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(run_id),
+            outcome: Some("delivered to Austin".to_string()),
+        },
+    );
+    let (outcome,) = environment
+        .client
+        .get_attributes(&number, (&*SHIPMENT_OUTCOME,))
+        .expect("read the shipment outcome");
+    assert_eq!(outcome, Some("delivered to Austin".to_string()));
+    environment.terminate_flows(&[&order_id]);
+}
+
+impl ControlPatternsEnvironment {
+    /// The report RPC fails fast while `AwaitShipment` holds the same Attribute lock.
+    fn invoke_retrying_lock_conflicts<Input: Value + Clone, Output: Value>(
+        &self,
+        flow_id: &str,
+        rpc: Rpc<Input, Output>,
+        input: Input,
+    ) -> Output {
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        loop {
+            match self.client.invoke_rpc(flow_id, rpc, input.clone()) {
+                Ok(output) => return output,
+                Err(SdkError::RpcLockConflict { .. }) if Instant::now() < deadline => {
+                    thread::sleep(POLL_INTERVAL);
+                }
+                Err(error) => panic!("invoke locking RPC on {flow_id}: {error}"),
+            }
+        }
+    }
+
+    fn assert_running(&self, flow_id: &str) {
+        let status = self
+            .client
+            .describe_flow(flow_id)
+            .unwrap_or_else(|error| panic!("describe {flow_id}: {error}"))
+            .status;
+        assert_eq!(status, FlowStatus::Running, "{flow_id}");
+    }
+
+    fn terminate_flows(&self, flow_ids: &[&str]) {
+        for flow_id in flow_ids {
+            self.client
+                .stop_flow(flow_id, StopFlowOptions::terminate())
+                .unwrap_or_else(|error| panic!("terminate {flow_id}: {error}"));
+        }
+    }
+
+    /// Polls until the order holds `expected` as the record of the shipment.
+    fn wait_for_shipment_record(
+        &self,
+        order_id: &str,
+        shipment_number: &str,
+        expected: &ShipmentRecord,
+    ) {
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        loop {
+            let record = self
+                .client
+                .get_attributes(order_id, (SHIPMENT_RECORDS.instance(shipment_number),))
+                .map(|(record,)| record);
+            if matches!(&record, Ok(Some(record)) if record == expected) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "record of {shipment_number} is {record:?}, expected {expected:?}"
+            );
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    fn start_order(&self, order_id: &str, order: Order) {
+        self.client
+            .start_flow(&OrderFulfillmentFlow::default(), order_id, order)
+            .unwrap_or_else(|error| panic!("start order {order_id}: {error}"));
+    }
+
+    /// Polls until the shipment exists and has `expected` status.
+    fn wait_for_shipment_status(&self, shipment_number: &str, expected: FlowStatus) {
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        loop {
+            let status = self
+                .client
+                .describe_flow(shipment_number)
+                .map(|info| info.status);
+            if matches!(status, Ok(status) if status == expected) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "shipment {shipment_number} is {status:?}, expected {expected:?}"
+            );
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    /// Polls until the order claimed a run of the shipment and returns its run ID.
+    fn wait_for_claimed_run(&self, order_id: &str, shipment_number: &str) -> String {
+        let deadline = Instant::now() + WAIT_TIMEOUT;
+        loop {
+            let record = self
+                .client
+                .get_attributes(order_id, (SHIPMENT_RECORDS.instance(shipment_number),))
+                .map(|(record,)| record);
+            if let Ok(Some(ShipmentRecord {
+                run_id: Some(run_id),
+                ..
+            })) = &record
+            {
+                return run_id.clone();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "record of {shipment_number} is {record:?}, expected a claimed run"
+            );
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    fn assert_no_shipment_record(&self, order_id: &str, shipment_number: &str) {
+        let (record,) = self
+            .client
+            .get_attributes(order_id, (SHIPMENT_RECORDS.instance(shipment_number),))
+            .unwrap_or_else(|error| panic!("read the record of {shipment_number}: {error}"));
+        assert_eq!(record, None, "{order_id} has a record of {shipment_number}");
+    }
+
+    fn shipment_record(&self, order_id: &str, shipment_number: &str) -> ShipmentRecord {
+        let (record,) = self
+            .client
+            .get_attributes(order_id, (SHIPMENT_RECORDS.instance(shipment_number),))
+            .unwrap_or_else(|error| panic!("read the record of {shipment_number}: {error}"));
+        record.unwrap_or_else(|| panic!("{order_id} has no record of {shipment_number}"))
+    }
+}
+
+fn shipment(shipment_number: &str, destination: &str, delivery_delay_seconds: i64) -> Shipment {
+    Shipment {
+        shipment_number: shipment_number.to_string(),
+        destination: destination.to_string(),
+        delivery_delay_seconds,
+    }
 }
 
 fn unique_flow_id(prefix: &str) -> String {

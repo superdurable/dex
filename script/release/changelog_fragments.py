@@ -48,7 +48,7 @@ SLUG_MAX_LENGTH = 40
 
 SKILLS_TARGET = "skills"
 SKILLS_VERSION = "skills/VERSION"
-SKILLS_SDK_VERSION = "skills/dex-sdk/VERSION"
+SKILLS_APP_BUILDER_VERSION = "skills/dex-app-builder/VERSION"
 SKILLS_CHANGELOG = "skills/CHANGELOG.md"
 SKILLS_MANIFESTS = (
     "skills/.claude-plugin/plugin.json",
@@ -57,7 +57,7 @@ SKILLS_MANIFESTS = (
     "skills/.cursor-plugin/plugin.json",
     "skills/.cursor-plugin/marketplace.json",
 )
-SKILLS_OUTPUTS = (SKILLS_VERSION, SKILLS_SDK_VERSION, SKILLS_CHANGELOG, *SKILLS_MANIFESTS)
+SKILLS_OUTPUTS = (SKILLS_VERSION, SKILLS_APP_BUILDER_VERSION, SKILLS_CHANGELOG, *SKILLS_MANIFESTS)
 SKILLS_ARCHIVED_CHANGELOG = "skills/CHANGELOG-0.x.md"
 # The mirror publishes the whole skills/ tree, so every file there except release output needs a fragment.
 SKILLS_PUBLISHED_PREFIX = "skills/"
@@ -699,7 +699,7 @@ def assemble_skills_release(files: Mapping[str, str], fragments: Sequence[Fragme
     entry = f"## {version} - {release_date}\n\n" + "\n".join(fragment.body for fragment in ordered) + "\n"
     release_files = {
         SKILLS_VERSION: f"{version}\n",
-        SKILLS_SDK_VERSION: f"{version}\n",
+        SKILLS_APP_BUILDER_VERSION: f"{version}\n",
         SKILLS_CHANGELOG: insert_changelog_entry(files[SKILLS_CHANGELOG], entry),
     }
     for path in SKILLS_MANIFESTS:

@@ -16,20 +16,37 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, Timer, Wait,
+    Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, RetryPolicy, Rpc, RpcList,
+    RpcResult, Step, StepDecision, StepList, StepOptions, Timer, Wait,
 };
 
 /// How long the customer has to respond.
 pub const OFFER_EXPIRY: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 
+/// The response window is open until the first reply or `AwaitOfferResponse` closes it. Unset reads as open.
+pub const RESPONSE_WINDOW_OPEN: &str = "open";
+pub const RESPONSE_WINDOW_CLOSED: &str = "closed";
+
+/// The retry budget of the locked `AwaitOfferResponse` Execute.
+pub const DECIDE_RETRY_INITIAL_INTERVAL: Duration = Duration::from_secs(1);
+pub const DECIDE_RETRY_MAXIMUM_ATTEMPTS: u32 = 3;
+pub const DECIDE_RETRY_TOTAL_DURATION: Duration = Duration::from_secs(60);
+pub const DECIDE_EXECUTE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The outcomes of a customer response RPC.
+pub const OFFER_RESPONSE_RECORDED: &str = "recorded";
+pub const OFFER_RESPONSE_WINDOW_CLOSED: &str = "window closed";
+
 pub static OFFER_ACCEPTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerAccepted"));
 pub static OFFER_REJECTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerRejected"));
+/// Locked by both response RPCs and by `AwaitOfferResponse::execute`.
+pub static OFFER_RESPONSE_WINDOW: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("offerResponseWindow"));
 
-pub const ACCEPT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("accept_customer_offer");
-pub const REJECT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("reject_customer_offer");
+pub const ACCEPT_CUSTOMER_OFFER: Rpc<String, String> = Rpc::new("accept_customer_offer");
+pub const REJECT_CUSTOMER_OFFER: Rpc<String, String> = Rpc::new("reject_customer_offer");
 
 /// Routes on the first of three events: the customer accepts, the customer
 /// rejects, or the offer expires.
@@ -38,19 +55,47 @@ pub struct OfferResponseFlow {
     await_offer_response: AwaitOfferResponse,
     fulfill_offer: FulfillOffer,
     close_rejected_offer: CloseRejectedOffer,
+    route_response_before_expiry: RouteResponseBeforeExpiry,
     expire_offer: ExpireOffer,
 }
 
 impl OfferResponseFlow {
     /// Records that the customer accepted the offer.
-    fn accept_customer_offer(&self, context: &mut Context, note: String) -> HandlerResult<()> {
-        OFFER_ACCEPTED.publish(context, note)
+    /// Returns `OFFER_RESPONSE_WINDOW_CLOSED` once the window is closed.
+    pub fn accept_customer_offer(
+        &self,
+        context: &mut Context,
+        note: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        publish_while_window_open(context, &OFFER_ACCEPTED, note)
     }
 
     /// Records that the customer rejected the offer.
-    fn reject_customer_offer(&self, context: &mut Context, note: String) -> HandlerResult<()> {
-        OFFER_REJECTED.publish(context, note)
+    /// Returns `OFFER_RESPONSE_WINDOW_CLOSED` once the window is closed.
+    pub fn reject_customer_offer(
+        &self,
+        context: &mut Context,
+        note: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        publish_while_window_open(context, &OFFER_REJECTED, note)
     }
+}
+
+/// Publishes the first response and closes the window; later responses get the closed result.
+/// The check, the publish, and the close commit together, because the RPC holds the window lock.
+fn publish_while_window_open(
+    context: &mut Context,
+    response: &Channel<String>,
+    note: String,
+) -> HandlerResult<RpcResult<String>> {
+    let window = OFFER_RESPONSE_WINDOW.get(context)?;
+    if window.as_deref() == Some(RESPONSE_WINDOW_CLOSED) {
+        return Ok(RpcResult::new(OFFER_RESPONSE_WINDOW_CLOSED.to_string()));
+    }
+    response.publish(context, note)?;
+    // The first reply closes the window, so AnyOf never leaves a second reply unconsumed.
+    OFFER_RESPONSE_WINDOW.set(context, RESPONSE_WINDOW_CLOSED.to_string())?;
+    Ok(RpcResult::new(OFFER_RESPONSE_RECORDED.to_string()))
 }
 
 impl Flow for OfferResponseFlow {
@@ -60,28 +105,51 @@ impl Flow for OfferResponseFlow {
         StepList::start(&self.await_offer_response)
             .and(&self.fulfill_offer)
             .and(&self.close_rejected_offer)
+            .and(&self.route_response_before_expiry)
             .and(&self.expire_offer)
     }
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
+            .attribute(&OFFER_RESPONSE_WINDOW)
             .channel(&OFFER_ACCEPTED)
             .channel(&OFFER_REJECTED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .procedure(ACCEPT_CUSTOMER_OFFER, Self::accept_customer_offer)
-            .procedure(REJECT_CUSTOMER_OFFER, Self::reject_customer_offer)
+            .function(
+                ACCEPT_CUSTOMER_OFFER.lock(OFFER_RESPONSE_WINDOW.lock()),
+                Self::accept_customer_offer,
+            )
+            .function(
+                REJECT_CUSTOMER_OFFER.lock(OFFER_RESPONSE_WINDOW.lock()),
+                Self::reject_customer_offer,
+            )
     }
 }
 
-/// Waits for whichever event happens first and routes on it.
+// dex:group group-id:decide group-label:"Decide"
+// dex:explanation text:"Waits for an acceptance, a rejection, or the 3-day deadline, closes the response window, and routes on the winner."
 #[derive(Default)]
 pub struct AwaitOfferResponse;
 
 impl Step for AwaitOfferResponse {
     type Input = String;
+
+    /// Locks the response window in Execute, the same lock as the response RPCs.
+    /// A short retry budget bounds how long a failing Execute blocks responses.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .execute_lock(OFFER_RESPONSE_WINDOW.lock())
+            .execute_retry(
+                RetryPolicy::new()
+                    .initial_interval(DECIDE_RETRY_INITIAL_INTERVAL)
+                    .maximum_attempts(DECIDE_RETRY_MAXIMUM_ATTEMPTS)
+                    .total_duration(DECIDE_RETRY_TOTAL_DURATION),
+            )
+            .execute_method_timeout(DECIDE_EXECUTE_TIMEOUT)
+    }
 
     fn wait_for(&self, _context: &mut Context, _offer_id: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
@@ -92,7 +160,13 @@ impl Step for AwaitOfferResponse {
     }
 
     fn execute(&self, context: &mut Context, offer_id: Self::Input) -> HandlerResult<StepDecision> {
+        // Every later response RPC now returns OFFER_RESPONSE_WINDOW_CLOSED.
+        OFFER_RESPONSE_WINDOW.set(context, RESPONSE_WINDOW_CLOSED.to_string())?;
         if context.has_any_timer_fired() {
+            // A response committed after the Timer won but before this Execute took the lock.
+            if OFFER_ACCEPTED.size(context)? + OFFER_REJECTED.size(context)? > 0 {
+                return Ok(StepDecision::go_to(&RouteResponseBeforeExpiry, offer_id));
+            }
             return Ok(StepDecision::go_to(&ExpireOffer, offer_id));
         }
         if !OFFER_ACCEPTED.condition_results(context)?.is_empty() {
@@ -102,8 +176,33 @@ impl Step for AwaitOfferResponse {
     }
 }
 
+// dex:group group-id:decide group-label:"Decide"
+// dex:explanation text:"Takes the response that the customer sent before the window closed and routes on it."
 #[derive(Default)]
-struct FulfillOffer;
+pub struct RouteResponseBeforeExpiry;
+
+impl Step for RouteResponseBeforeExpiry {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, _offer_id: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            OFFER_ACCEPTED.for_one(),
+            OFFER_REJECTED.for_one(),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, offer_id: Self::Input) -> HandlerResult<StepDecision> {
+        if !OFFER_ACCEPTED.condition_results(context)?.is_empty() {
+            return Ok(StepDecision::go_to(&FulfillOffer, offer_id));
+        }
+        Ok(StepDecision::go_to(&CloseRejectedOffer, offer_id))
+    }
+}
+
+// dex:group group-id:outcome group-label:"Outcome"
+// dex:explanation text:"Completes the Flow with the fulfilled offer."
+#[derive(Default)]
+pub struct FulfillOffer;
 
 impl Step for FulfillOffer {
     type Input = String;
@@ -119,8 +218,10 @@ impl Step for FulfillOffer {
     }
 }
 
+// dex:group group-id:outcome group-label:"Outcome"
+// dex:explanation text:"Completes the Flow with the rejected offer."
 #[derive(Default)]
-struct CloseRejectedOffer;
+pub struct CloseRejectedOffer;
 
 impl Step for CloseRejectedOffer {
     type Input = String;
@@ -136,8 +237,10 @@ impl Step for CloseRejectedOffer {
     }
 }
 
+// dex:group group-id:outcome group-label:"Outcome"
+// dex:explanation text:"Completes the Flow with the expired offer."
 #[derive(Default)]
-struct ExpireOffer;
+pub struct ExpireOffer;
 
 impl Step for ExpireOffer {
     type Input = String;

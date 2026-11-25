@@ -17,16 +17,20 @@ use std::sync::Arc;
 
 use dex_examples_rust::control_patterns::{
     cancel_case::{CreditCheckFlow, LoanApplicationFlow},
+    child_flows_business_identity::{OrderFulfillmentFlow, ShipmentFlow},
     critical_section::ContractEditFlow,
     deferred_choice::OfferResponseFlow,
+    fail_fast::ExpenseReimbursementFlow,
+    inbound_event_loop::SupportTicketConversationFlow,
 };
+use dex_examples_rust::data_storage::entity_flow::CustomerAccountFlow;
 use dex_examples_rust::patterns::{
+    control_long_running_work::RecordBackfillFlow,
     cron::CronScheduleFlow,
     drain_channels::{DrainInternalChannelFlow, DrainingExternalChannelFlow},
     entity_store::UserProfileFlow,
     hash_partitioned_attribute_map::CustomerDirectoryFlow,
     inactiveness_tracker::InactivenessTrackerFlow,
-    interruptible::InterruptibleFlow,
     intervention::ManualRecoveryFlow,
     parallel::{
         AwaitParallelStepsFlow, DynamicParallelStepsFlow, FirstWinParallelStepsFlow,
@@ -82,8 +86,8 @@ use dex_examples_rust::workflow_patterns::{
     triggers::{PersistentTriggerFlow, TransientTriggerFlow},
 };
 use dex_examples_rust::{
-    CONTROL_PATTERN_FLOW_TYPES, PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES,
-    WORKFLOW_PATTERN_FLOW_TYPES, create_example_registry,
+    CONTROL_PATTERN_FLOW_TYPES, DATA_STORAGE_PATTERN_FLOW_TYPES, PATTERN_FLOW_TYPES,
+    PRODUCT_FLOW_TYPES, WORKFLOW_PATTERN_FLOW_TYPES, create_example_registry,
 };
 use dex_sdk::{Flow, Registry, SdkResult};
 
@@ -118,7 +122,7 @@ fn catalog_matches_every_cross_language_example() {
         CronScheduleFlow::default().flow_type(),
         DrainInternalChannelFlow::default().flow_type(),
         DrainingExternalChannelFlow::default().flow_type(),
-        InterruptibleFlow::default().flow_type(),
+        RecordBackfillFlow::default().flow_type(),
         ManualRecoveryFlow::default().flow_type(),
         StaticParallelStepsFlow::default().flow_type(),
         DynamicParallelStepsFlow::default().flow_type(),
@@ -216,6 +220,10 @@ fn control_pattern_catalog_matches_every_flow() {
         ContractEditFlow::default().flow_type(),
         CreditCheckFlow::default().flow_type(),
         LoanApplicationFlow::default().flow_type(),
+        OrderFulfillmentFlow::default().flow_type(),
+        ShipmentFlow::default().flow_type(),
+        ExpenseReimbursementFlow::default().flow_type(),
+        SupportTicketConversationFlow::default().flow_type(),
     ];
 
     assert_eq!(control_pattern_flows, CONTROL_PATTERN_FLOW_TYPES);
@@ -234,6 +242,30 @@ fn control_pattern_catalog_matches_every_flow() {
     );
     create_catalog_registry()
         .expect("control pattern Flows must register with every other example");
+}
+
+#[test]
+fn data_storage_pattern_catalog_matches_every_flow() {
+    let data_storage_pattern_flows = [CustomerAccountFlow::default().flow_type()];
+
+    assert_eq!(data_storage_pattern_flows, DATA_STORAGE_PATTERN_FLOW_TYPES);
+    let every_flow_type = PRODUCT_FLOW_TYPES
+        .into_iter()
+        .chain(PATTERN_FLOW_TYPES)
+        .chain(WORKFLOW_PATTERN_FLOW_TYPES)
+        .chain(CONTROL_PATTERN_FLOW_TYPES)
+        .chain(data_storage_pattern_flows)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        every_flow_type.len(),
+        PRODUCT_FLOW_TYPES.len()
+            + PATTERN_FLOW_TYPES.len()
+            + WORKFLOW_PATTERN_FLOW_TYPES.len()
+            + CONTROL_PATTERN_FLOW_TYPES.len()
+            + DATA_STORAGE_PATTERN_FLOW_TYPES.len()
+    );
+    create_catalog_registry()
+        .expect("Data Storage pattern Flows must register with every other example");
 }
 
 #[test]

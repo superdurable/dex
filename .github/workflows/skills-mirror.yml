@@ -62,13 +62,26 @@ jobs:
               echo "Mirror trailer refers to an unavailable Dex skills tree: ${last_dex_commit}" >&2
               exit 1
             fi
+            if git -C mirror log -1 --format='%(trailers:key=Examples-Links,valueonly)' | grep -qx pinned; then
+              scratch="$(mktemp -d)"
+              trap 'rm -rf "${scratch}"' EXIT
+              mkdir "${scratch}/skills"
+              export GIT_INDEX_FILE="${scratch}/index"
+              export GIT_WORK_TREE="${scratch}/skills"
+              git -C dex read-tree "${expected_tree}"
+              git -C dex checkout-index --all
+              python3 "${GIT_WORK_TREE}/script/pin-examples-links.py" "${GIT_WORK_TREE}" "${last_dex_commit}"
+              git -C dex add -u
+              expected_tree="$(git -C dex write-tree)"
+              unset GIT_INDEX_FILE GIT_WORK_TREE
+            fi
           else
             # dex-skills main snapshot before the first Dex mirror sync.
             expected_tree=66cfe2662123bf44a2af371dd68bc8518fce4939
           fi
 
           if [[ "${mirror_tree}" != "${expected_tree}" ]]; then
-            echo "Skills mirror drift: mirror HEAD tree ${mirror_tree} differs from expected Dex tree ${expected_tree}. Restore the mirror or investigate direct edits before syncing." >&2
+            echo "Skills mirror drift: mirror HEAD tree ${mirror_tree} differs from expected tree ${expected_tree}. Restore the mirror or investigate direct edits before syncing." >&2
             exit 1
           fi
           if [[ -n "${last_dex_commit}" ]] && ! git -C dex merge-base --is-ancestor "${last_dex_commit}" "${DEX_COMMIT}"; then
@@ -78,15 +91,29 @@ jobs:
 
           rsync -a --delete --exclude=.git dex/skills/ mirror/
           git -C mirror add -A
-          synced_tree="$(git -C mirror write-tree)"
-          if [[ "${synced_tree}" != "${target_tree}" ]]; then
-            echo "Skills mirror copy failed: staged tree ${synced_tree} differs from Dex ${DEX_COMMIT}:skills tree ${target_tree}." >&2
+          copied_tree="$(git -C mirror write-tree)"
+          if [[ "${copied_tree}" != "${target_tree}" ]]; then
+            echo "Skills mirror copy failed: staged tree ${copied_tree} differs from Dex ${DEX_COMMIT}:skills tree ${target_tree}." >&2
             exit 1
           fi
-          if [[ "${synced_tree}" == "${mirror_tree}" ]]; then
-            echo "Skills mirror is already current at ${target_tree}."
+          if [[ -n "${last_dex_commit}" && "${target_tree}" == "$(git -C dex rev-parse "${last_dex_commit}:skills")" ]]; then
+            echo "Skills mirror already current"
             exit 0
           fi
+          python3 dex/skills/script/pin-examples-links.py mirror "${DEX_COMMIT}"
+          git -C mirror add -u
+          synced_tree="$(git -C mirror write-tree)"
+          if [[ "${synced_tree}" == "${mirror_tree}" ]]; then
+            echo "Skills mirror is already current at ${synced_tree}."
+            exit 0
+          fi
+
+          python3 mirror/script/check-package.py --allow-pinned-examples
+          (
+            cd mirror
+            python3 -m unittest discover -s test -p 'test_*.py'
+            node --test test/version-check.test.mjs
+          )
 
           pending_fragments="$(git -C dex ls-tree --name-only "${DEX_COMMIT}:changelog.d/skills" 2>/dev/null | grep -vx '.gitkeep' || true)"
           if [[ -n "${pending_fragments}" && "${DRY_RUN}" != "true" ]]; then
@@ -103,7 +130,7 @@ jobs:
               echo "Warning: changelog.d/skills/ holds unreleased fragments; a real sync would refuse."
             fi
             echo "Dry run for Dex ${DEX_COMMIT}; proposed mirror diff:"
-            git -C mirror diff --cached --stat
+            git -C mirror diff --cached --stat --patch
             exit 0
           fi
 
@@ -117,6 +144,7 @@ jobs:
               git -C dex log --format=%s "${DEX_COMMIT}" -- skills/
             fi
             printf '\nDex-Commit: %s\n' "${DEX_COMMIT}"
+            printf 'Examples-Links: pinned\n'
           } > "${commit_message}"
           git -C mirror -c user.name='Dex Skills Mirror' -c user.email='dex-skills-mirror@users.noreply.github.com' commit -F "${commit_message}"
           rm "${commit_message}"
@@ -124,8 +152,8 @@ jobs:
 
           git -C mirror fetch origin main
           pushed_tree="$(git -C mirror rev-parse 'origin/main^{tree}')"
-          if [[ "${pushed_tree}" != "${target_tree}" ]]; then
-            echo "Skills mirror verification failed: origin/main tree ${pushed_tree} differs from Dex ${DEX_COMMIT}:skills tree ${target_tree}." >&2
+          if [[ "${pushed_tree}" != "${synced_tree}" ]]; then
+            echo "Skills mirror verification failed: origin/main tree ${pushed_tree} differs from staged tree ${synced_tree}." >&2
             exit 1
           fi
           echo "Verified skills mirror tree ${pushed_tree}."

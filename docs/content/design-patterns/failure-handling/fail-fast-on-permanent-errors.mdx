@@ -1,0 +1,325 @@
+---
+title: Fail Fast on Permanent Errors
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/fail-fast-on-permanent-errors.json';
+
+# Fail Fast on Permanent Errors
+
+Use this pattern when a provider call can fail in two ways: a transient error that a retry may fix, and a permanent error that no retry can fix.
+
+An example is an expense claim paid through a payment provider. A timeout is transient: the next attempt may succeed. An invalid bank account is permanent: the provider has rejected the request, and every retry gets the same answer.
+
+Step retry retries every error that Step code raises, under the Step's retry policy. In the example the retry scheduling budget is one hour, so a permanent error that `Execute` raises keeps being retried until that budget runs out. Classify the error in `Execute` instead, and route a permanent error at once.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## How it works
+
+- Make provider writes in `Execute`. `Execute` sees the provider's error and decides what it means. A read-only call in `WaitFor` hands a permanent error to `Execute` instead; see [WaitFor and Execute](/concepts/step#waitfor-and-execute).
+- Let a transient error fail the attempt. Throw it or return it. Step retry runs the call again under the Step's own retry policy.
+- Catch a permanent error and return a Step decision. Go to a failure-handling Step that records the business failure. Return `ForceFail` instead when the whole Flow must be marked failed at once.
+- Treat an error as permanent only when the provider confirms it, such as rejected input or an invalid request. Leave an unknown error transient, so retry still covers it.
+- Size the retry policy for transient errors only. A routed permanent error never consumes it.
+- Prefer to put calls that can fail in `Execute`. `Execute` returns the decision that routes the failure, in the same call that saw it.
+- Once the rejection decision commits, that error never retries `SubmitPayout`. The failure-handling Step is a Step of its own, so Dex can still retry it independently.
+- Keep the failure record free of sensitive input. The example records a fixed reason and never the bank account number.
+
+In the example:
+
+1. `ExpenseReimbursementFlow` starts `SubmitPayout` with the claim. The Flow ID is the claim ID and the provider's idempotency key.
+2. `SubmitPayout` calls the payment provider. On success, it records the payout in the `PayoutOutcome` Attribute and completes the Flow.
+3. When the provider times out, `SubmitPayout` lets the error fail the attempt. Step retry calls the provider again with backoff, until the one-hour retry scheduling budget runs out.
+4. When the provider rejects the bank account, `SubmitPayout` goes to `RecordRejectedClaim` with a fixed reason. `SubmitPayout` is not retried for this error.
+5. `RecordRejectedClaim` records the rejection in `PayoutOutcome` and completes the Flow.
+
+## Example
+
+The fake provider accepts only a bank account of eight ASCII digits and rejects any other. It times out on the first submission of every valid claim, then pays it. Run the HTTP sample from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/fail-fast/expense_reimbursement_flow.py',
+    go: 'examples/go/patterns/fail-fast/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/failfast/ExpenseReimbursementFlow.java',
+    typescript: 'examples/typescript/src/patterns/fail-fast/expense-reimbursement-flow.ts',
+    rust: 'examples/rust/src/control_patterns/fail_fast/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class RecordRejectedClaim(Step[ClaimRejection]):
+    def execute(self, context: Context, input: ClaimRejection) -> StepDecision:
+        PAYOUT_OUTCOME.set(
+            context, PayoutOutcome("REJECTED", input.reason, input.submit_attempt)
+        )
+        return graceful_complete(f"rejected: {input.reason}")
+
+
+class SubmitPayout(Step[ExpenseClaim]):
+    def __init__(self, provider: FakePaymentProvider) -> None:
+        self.provider = provider
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                backoff_coefficient=2.0,
+                maximum_interval=timedelta(minutes=5),
+                total_duration=timedelta(hours=1),
+            )
+        )
+
+    def execute(self, context: Context, input: ExpenseClaim) -> StepDecision:
+        try:
+            payout_id = self.provider.submit_payout(context.flow_id, input)
+        except PayoutRejectedError as rejection:
+            return go_to(
+                RecordRejectedClaim, ClaimRejection(str(rejection), context.attempt)
+            )
+        PAYOUT_OUTCOME.set(context, PayoutOutcome("PAID", payout_id, context.attempt))
+        return graceful_complete(payout_id)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type SubmitPayout struct {
+	dex.StepDefaultsNoWaitFor[ExpenseClaim]
+	provider *FakePaymentProvider
+}
+
+func (SubmitPayout) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumInterval:    5 * time.Minute,
+			TotalDuration:      time.Hour,
+		},
+	}
+}
+
+func (step SubmitPayout) Execute(ctx dex.Context, claim ExpenseClaim) (*dex.StepDecision, error) {
+	payoutID, err := step.provider.SubmitPayout(ctx.FlowID(), claim)
+	var rejection *PayoutRejectedError
+	if errors.As(err, &rejection) {
+		return dex.GoTo(RecordRejectedClaim{}, ClaimRejection{Reason: rejection.Reason, SubmitAttempt: ctx.Attempt()}), nil
+	}
+	if err != nil {
+		return nil, dex.ErrorWithStack(err)
+	}
+	if err := PayoutOutcomeAttribute.Set(ctx, PayoutOutcome{Status: "PAID", Detail: payoutID, SubmitAttempt: ctx.Attempt()}); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(payoutID), nil
+}
+
+type RecordRejectedClaim struct {
+	dex.StepDefaultsNoWaitFor[ClaimRejection]
+}
+
+func (RecordRejectedClaim) Execute(ctx dex.Context, rejection ClaimRejection) (*dex.StepDecision, error) {
+	outcome := PayoutOutcome{Status: "REJECTED", Detail: rejection.Reason, SubmitAttempt: rejection.SubmitAttempt}
+	if err := PayoutOutcomeAttribute.Set(ctx, outcome); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("rejected: " + rejection.Reason), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+    final class SubmitPayout implements Step<ExpenseClaim> {
+        @Override
+        public Class<ExpenseClaim> getInputType() {
+            return ExpenseClaim.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .executeRetry(RetryPolicy.newBuilder()
+                            .initialInterval(Duration.ofSeconds(1))
+                            .backoffCoefficient(2.0)
+                            .maximumInterval(Duration.ofMinutes(5))
+                            .totalDuration(Duration.ofHours(1))
+                            .build())
+                    .build();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final ExpenseClaim claim) {
+            final String payoutId;
+            try {
+                payoutId = provider.submitPayout(context.getFlowId(), claim);
+            } catch (final PayoutRejectedException rejection) {
+                return StepDecision.goTo(RecordRejectedClaim.class,
+                        new ClaimRejection(rejection.getMessage(), context.getAttempt()));
+            }
+            payoutOutcome.set(context, new PayoutOutcome("PAID", payoutId, context.getAttempt()));
+            return StepDecision.gracefulComplete(payoutId);
+        }
+    }
+
+    final class RecordRejectedClaim implements Step<ClaimRejection> {
+        @Override
+        public Class<ClaimRejection> getInputType() {
+            return ClaimRejection.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final ClaimRejection rejection) {
+            payoutOutcome.set(context,
+                    new PayoutOutcome("REJECTED", rejection.reason(), rejection.submitAttempt()));
+            return StepDecision.gracefulComplete("rejected: " + rejection.reason());
+        }
+    }
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class RecordRejectedClaim implements Step<ClaimRejection> {
+  public readonly inputCodec = jsonCodec<ClaimRejection>();
+
+  public getStepType(): string {
+    return "RecordRejectedClaim";
+  }
+
+  public execute(context: Context, rejection: ClaimRejection): StepDecision {
+    payoutOutcome.set(context, {
+      status: "REJECTED",
+      detail: rejection.reason,
+      submitAttempt: rejection.submitAttempt,
+    });
+    return gracefulComplete(`rejected: ${rejection.reason}`);
+  }
+}
+
+export class SubmitPayout implements Step<ExpenseClaim> {
+  public readonly inputCodec = jsonCodec<ExpenseClaim>();
+
+  public constructor(private readonly provider: FakePaymentProvider) {}
+
+  public getStepType(): string {
+    return "SubmitPayout";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: {
+        initialIntervalMs: 1_000,
+        backoffCoefficient: 2,
+        maximumIntervalMs: 5 * 60_000,
+        totalDurationMs: 60 * 60_000,
+      },
+    };
+  }
+
+  public execute(context: Context, claim: ExpenseClaim): StepDecision {
+    let payoutId: string;
+    try {
+      payoutId = this.provider.submitPayout(context.flowId, claim);
+    } catch (error) {
+      if (error instanceof PayoutRejectedError) {
+        return goTo(RecordRejectedClaim, { reason: error.message, submitAttempt: context.attempt });
+      }
+      throw error;
+    }
+    payoutOutcome.set(context, { status: "PAID", detail: payoutId, submitAttempt: context.attempt });
+    return gracefulComplete(payoutId);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for SubmitPayout {
+    type Input = ExpenseClaim;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                .initial_interval(Duration::from_secs(1))
+                .backoff_coefficient(2.0)
+                .maximum_interval(Duration::from_secs(5 * 60))
+                .total_duration(Duration::from_secs(60 * 60)),
+        )
+    }
+
+    fn execute(&self, context: &mut Context, claim: Self::Input) -> HandlerResult<StepDecision> {
+        let payout_id = match self.provider.submit_payout(context.flow_id(), &claim) {
+            Ok(payout_id) => payout_id,
+            Err(PayoutError::Rejected { reason }) => {
+                let rejection = ClaimRejection {
+                    reason,
+                    submit_attempt: context.attempt(),
+                };
+                return Ok(StepDecision::go_to(&RecordRejectedClaim, rejection));
+            }
+            Err(error @ PayoutError::Timeout) => return Err(HandlerError::from_error(error)),
+        };
+        let outcome = PayoutOutcome {
+            status: "PAID".to_string(),
+            detail: payout_id.clone(),
+            submit_attempt: context.attempt(),
+        };
+        PAYOUT_OUTCOME.set(context, outcome)?;
+        Ok(StepDecision::graceful_complete(payout_id))
+    }
+}
+
+impl Step for RecordRejectedClaim {
+    type Input = ClaimRejection;
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        rejection: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        let outcome = PayoutOutcome {
+            status: "REJECTED".to_string(),
+            detail: rejection.reason.clone(),
+            submit_attempt: rejection.submit_attempt,
+        };
+        PAYOUT_OUTCOME.set(context, outcome)?;
+        Ok(StepDecision::graceful_complete(format!(
+            "rejected: {}",
+            rejection.reason
+        )))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Test both routes
+
+Test with the Step's real retry policy. A test that shortens the policy no longer tests the route.
+
+- Make a fake provider return a permanent error. Assert the terminal state and that the outcome came from the first attempt of `SubmitPayout`. When the test can observe the fake provider, also assert that it was called exactly once.
+- Make the fake provider return a transient error once. Assert that the Step retries and then succeeds on the second attempt.
+
+The examples read the attempt from the `PayoutOutcome` Attribute, which records the attempt that produced the outcome.
+
+## Compared with Execute Failure Recovery
+
+[Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) handles a failure that is still there after the retry policy is exhausted. Its `ExecuteFailure` policy moves the Flow to a recovery Step, which receives the failed Step's input.
+
+Fail Fast on Permanent Errors decides before any retry. `Execute` itself returns the decision, so the failure-handling Step receives whatever input `Execute` builds, such as the rejection reason.
+
+Use both together when a Step needs both: fail fast on a confirmed permanent error, and add an `ExecuteFailure` route for transient errors that outlast the retry policy.
+
+## Next
+
+- [Manual Recovery](/design-patterns/failure-handling/manual-recovery)
+- [Retry and failure policies](/reference/python/failure-and-retries#retry-and-failure-policies)
+- [Failure Handling](/design-patterns/failure-handling)

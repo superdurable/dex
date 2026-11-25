@@ -219,7 +219,7 @@ How a write tool fails decides what the model reads, and so whether it calls the
 | The handler | Records | The model reads |
 | --- | --- | --- |
 | Returns `isError: true`, or throws `ToolExecutionError` from `@superdurable/dex-agents` | `failed` | The text; nothing took effect |
-| Throws any other error | `outcome_unknown` for a write, once its attempts run out | `outcomeUnknownToolResult`: the write may have taken effect |
+| Throws any other error | `outcome_unknown` for a write, once its attempts run out | `outcomeUnknownThrownErrorToolResult` with the error's message: the write may have taken effect. A crash, or a call without a final record, gets `outcomeUnknownToolResult` |
 
 Return `isError: true`, or throw `ToolExecutionError`, only for an answer that settles the call, such as an
 HTTP 4xx from the service. Let a broken connection, a timeout, or a 5xx throw, because the write may have run.

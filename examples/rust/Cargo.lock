@@ -247,9 +247,9 @@ dependencies = [
 
 [[package]]
 name = "dex-blob-cache"
-version = "1.44.0"
+version = "1.45.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "689ff0171fd27bcf58678a749a95de0bd3eb543de3d29512423c426ff0d6203e"
+checksum = "f94090772d149d4cb8e9017b6d2c612034a02f096f8f30238bcd190a6ba9444c"
 dependencies = [
  "crc32c",
  "sha2",
@@ -266,6 +266,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "tower",
@@ -275,9 +276,9 @@ dependencies = [
 
 [[package]]
 name = "dex-protocol"
-version = "1.44.0"
+version = "1.45.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f61fa1a80ef42df8741a783c406a8a98fcd02b3cb9cd3db2cd40b97b2bf328f8"
+checksum = "e4332696f0b3413af24e76032043e76535fe9f71a6f6af424d6b9af3708abbf4"
 dependencies = [
  "prost",
  "prost-types",
@@ -289,9 +290,9 @@ dependencies = [
 
 [[package]]
 name = "dex-sdk"
-version = "1.44.0"
+version = "1.45.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "785b561629e880a7a2ecfd43b46ccd8140224f85891532e7b01da7e61a5e9c82"
+checksum = "f9e3801bcfba7627284681fdd3139eafa975ca82f910b5ce1303f309536e184d"
 dependencies = [
  "bytes",
  "dex-blob-cache",
@@ -306,6 +307,7 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-stream",
  "tonic",

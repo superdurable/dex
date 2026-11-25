@@ -394,20 +394,21 @@ def test_parent_child_starts_a_child(
     )
 
 
-def test_interruptible_start_and_cancel(
+def test_control_long_running_work_set_batch_size_and_stop(
     app: SyncExampleApp,
     client: Client,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("sync-interruptible")
-    client.start_flow(app.interruptible, flow_id, None, start_options())
+    flow_id = new_flow_id("sync-control-long-running-work")
+    client.start_flow(app.record_backfill, flow_id, None, start_options())
     wait_until(
-        "interruptible flow running",
+        "record backfill running",
         lambda: flow_status_or_none(client, flow_id) is FlowStatus.RUNNING,
     )
-    client.invoke_rpc(app.interruptible.interrupt, flow_id)
+    client.invoke_rpc(app.record_backfill.set_batch_size, flow_id, 20)
+    client.invoke_rpc(app.record_backfill.request_stop, flow_id)
     wait_until(
-        "interruptible flow completed",
+        "record backfill completed",
         lambda: flow_status_or_none(client, flow_id) is FlowStatus.COMPLETED,
         WAIT_TIMEOUT,
     )

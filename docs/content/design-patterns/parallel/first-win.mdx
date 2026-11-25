@@ -12,9 +12,13 @@ Use the first completed concurrent Step and cancel the remaining siblings.
 
 **Init** starts several `DoWork` executions. Each one sleeps for a random short time, so any of them can finish first. The first execution to return a decision cancels its sibling `DoWork` executions. The Flow keeps the first result and stops work that can no longer change it.
 
+Each branch is its own Step execution, with its own retries, failure route, and durable result. Racing several external calls inside one `Execute` with in-process concurrency, such as `Promise.any`, asyncio tasks, or threads, gives up all three.
+
 ## Core implementation
 
 The cancellation selector cancels only sibling executions of the same Step type. Other branches keep running.
+
+Each losing execution watches its Step's cancellation signal. It passes the signal to calls that accept cancellation. Otherwise it uses short call timeouts and checks the signal between calls. Cancellation is cooperative, and it does not reverse an external effect that already happened. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. A reservation that must be released uses an expiring lease or a durable compensation branch keyed by the business ID.
 
 <SdkTabs
   examples={{
@@ -177,4 +181,5 @@ impl Step for FirstWinWork {
 
 ## Next
 
+- [Critical Section](/design-patterns/parallel/critical-section)
 - [Parallel Steps](/design-patterns/parallel)

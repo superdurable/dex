@@ -17,7 +17,7 @@ import { SpanKind } from "@opentelemetry/api";
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import {
   messageSequenceKey,
-  outcomeUnknownToolResult,
+  outcomeUnknownThrownErrorToolResult,
   turnFailureNoteFooter,
   turnFailureNoteHeader,
   type AgentMessage,
@@ -442,7 +442,10 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
     assert.equal(toolLog("sync_inventory", sessionId).length, 3);
     const answer = (await sessions.getAgentSnapshot(sessionId)).messages.at(-1);
-    assert.equal(answer?.text, `sync_inventory -> ${outcomeUnknownToolResult}`);
+    assert.equal(
+      answer?.text,
+      `sync_inventory -> ${outcomeUnknownThrownErrorToolResult.replace("{error}", "inventory service unavailable")}`,
+    );
     assert.deepEqual(await finishedToolStatuses(sessionId), ["outcome_unknown"]);
     assert.ok((await executedStepTypes(sessionId)).includes("RecordToolFailure"));
   });
@@ -454,7 +457,15 @@ describe("Mastra agent sessions in Step mode with an in-process Worker", () => {
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
     assert.deepEqual(toolLog("issue_invoice", sessionId), [`${sessionId} call-1-issue_invoice`]);
     const answer = (await sessions.getAgentSnapshot(sessionId)).messages.at(-1);
-    assert.equal(answer?.text, `issue_invoice -> ${outcomeUnknownToolResult}`);
+    // Mastra's validation error lists the invalid fields and the returned output after this prefix.
+    const validationError =
+      "tool issue_invoice returned a validation error after it may have run: " +
+      "Tool output validation failed for issue_invoice.";
+    const answerText = answer?.text ?? "";
+    assert.ok(
+      answerText.startsWith(`issue_invoice -> ${outcomeUnknownThrownErrorToolResult.replace("{error}", validationError)}`),
+      answerText,
+    );
     assert.deepEqual(await finishedToolStatuses(sessionId), ["outcome_unknown"]);
     assert.deepEqual(await executedStepTypes(sessionId), [
       "StartAgentSession",

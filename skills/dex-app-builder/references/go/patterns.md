@@ -1,0 +1,355 @@
+# Go patterns
+
+Choose a pattern with [core patterns](../core/patterns.md) first. This page maps
+each pattern to its runnable Go example and shows the Go skeleton where the
+idiom matters. Examples live under
+[examples/go/patterns](https://github.com/superdurable/dex/tree/main/examples/go/patterns).
+
+| Pattern | Go example | Go notes |
+| --- | --- | --- |
+| Static parallel Steps | [parallel/static.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/static.go) | `dex.GoToMany(dex.MovementOf(a, x), dex.MovementOf(b, x))` |
+| Dynamic parallel Steps | [parallel/dynamic.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/dynamic.go) | Build `[]dex.StepMovement` from input |
+| Await all | [parallel/await_parallel.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/await_parallel.go) | `dex.DefineJoin`; skeleton below |
+| First win | [parallel/first_win.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/first_win.go) | Winner returns a decision with `.CancelSiblingSteps(...)` |
+| Parallel SubFlows | [parallel-subflows/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/parallel-subflows) | `dex.AllOf` over `dex.SubFlow` conditions |
+| Polling | [polling/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling/workflow.go) | Skeleton below |
+| Cron | [cron/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/cron/workflow.go) | Timer raced with trigger and skip Channels |
+| Reminder | [reminders/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/reminders/workflow.go) | Timer raced with an opt-out Channel |
+| Idle Timer (Inactivity tracker) | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
+| Idle Timer with Resolution (Inbound event loop) | [inbound-event-loop/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inbound-event-loop/workflow.go) | Skeleton below |
+| Execute failure recovery | [recovery/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/recovery/workflow.go) | `ProceedToOnExecuteFailure` |
+| Fail fast on permanent errors | [fail-fast/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/fail-fast/workflow.go) | Execute routes a confirmed permanent provider error instead of retrying |
+| WaitFor failure recovery | [proceed-on-wait-failure/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/proceed-on-wait-failure/workflow.go) | `ProceedOnWaitForFailure` plus `ctx.WaitForMethodFailed()` |
+| Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
+| Graceful timeout | [timeout/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/timeout/workflow.go) | Flow implements `HandleTimeout(ctx)` |
+| Internal Channel drain | [drain-channels/internal-drain/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/internal-drain/workflow.go) | Finalize after accepted messages drain |
+| External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty`; the controller starts first with `IDReusePolicy: dex.IDReuseAllowIfNotRunning`, a per-message `RequestID`, and `AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true}`; on `FlowAlreadyStartedError` it publishes with `InvokeRPCWithOptions` and a per-message `RequestID` |
+| Control Long-Running Work (formerly Stop Long-Running Work and Interruptible execution) | [control-long-running-work/record_backfill_flow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/control-long-running-work/record_backfill_flow.go) | RPCs write batch size and stop Attributes; each batch reads them first |
+| Responsive Step completion | [wait-for-step-completion/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/wait-for-step-completion) | `client.WaitForStepCompletion` |
+| Responsive Attribute match | Skeleton in [core patterns](../core/patterns.md#attribute-match) | Revision Attribute under one lock |
+| Responsive Stream | [primitives/stream/controller.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/stream/controller.go) | `ReadStream` with resume tokens |
+| Entity Flow with Attribute Sync (Entity store) | [entity-store/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-store/workflow.go) | `SyncToAttributeStore`; RPC-only Flow |
+| Entity Flow | [entity-flow/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-flow/workflow.go) | One long-lived Flow per entity; locked RPCs, Client reads |
+| Child Flows with business identity | [child-flows-business-identity/order_fulfillment_flow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/child-flows-business-identity/order_fulfillment_flow.go) | Top-level child Flows with stable Flow IDs that report back durably |
+| Sequentially chunked AttributeMap | [sequentially-chunked-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/sequentially-chunked-attribute-map/workflow.go) | Load one chunk per call with `RPCInvokeOptions` |
+| Hash-partitioned AttributeMap | [hash-partitioned-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/hash-partitioned-attribute-map/workflow.go) | Same bucket in the lock and the load |
+
+## Await all
+
+```go
+var WorkCompletedJoin = dex.DefineJoin[int]("parallel-complete")
+
+type awaitInit struct{ dex.StepDefaultsNoWaitFor[int] }
+
+func (awaitInit) GetStepType() string { return "SplitItems" }
+
+func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) {
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, count)
+	for index := range count {
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(awaitWork{}, WorkItem{Index: index, Round: round})
+		})
+	}
+	movements, err := WorkCompletedJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(awaitStep{}, round)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(movements...), nil
+}
+
+// WorkItem is the input of one DoWork branch.
+type WorkItem struct {
+	Index int           `json:"index"`
+	Round dex.JoinRound `json:"round"`
+}
+
+type awaitWork struct {
+	dex.StepDefaultsNoWaitFor[WorkItem]
+}
+
+func (awaitWork) GetStepType() string { return "DoWork" }
+
+func (awaitWork) Execute(ctx dex.Context, input WorkItem) (*dex.StepDecision, error) {
+	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
+	return WorkCompletedJoin.EndBranch(ctx, input.Round, input.Index)
+}
+
+type awaitStep struct{ dex.StepDefaults }
+
+func (awaitStep) GetStepType() string { return "Await" }
+
+func (awaitStep) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(WorkCompletedJoin.ForAllBranches(round)), nil
+}
+
+func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	completedIndexes, err := WorkCompletedJoin.BranchResults(ctx, round)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(len(completedIndexes)), nil
+}
+```
+
+- Register the Join in `PersistenceSchema.Channels`. `Fork` returns the branch
+  and join movements for one `dex.GoToMany`; each worker returns
+  `EndBranch`, and the join Step reads `BranchResults`.
+- A partial join waits `ForBranches(round, n)` or `ForFirstBranch(round)`, and
+  the next round's split Step resets with `ForRemainingBranches`; see
+  [partial_joins.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go).
+- First-win losers and branches of a cancelling join pass `ctx` to calls that
+  accept it, such as `http.NewRequestWithContext(ctx, ...)`. Withdraw with a
+  fresh bounded context, not the canceled `ctx`; `ctx.Err()` also follows a
+  method or heartbeat timeout.
+
+## Polling
+
+One long-running Step polls the external system. Its StepOptions alone bound
+the wait.
+
+```go
+const (
+	pollInterval   = 5 * time.Second
+	jobCallTimeout = 10 * time.Second
+	maxJobWait     = 30 * time.Minute
+)
+
+var JobProgress = dex.DefineStream[JobStatus]("job-progress", 1<<20)
+
+type awaitJob struct {
+	dex.StepDefaultsNoWaitFor[string]
+	jobs JobService
+}
+
+type recordJobWaitFailure struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (awaitJob) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteMethodTimeout: maxJobWait,
+		HeartbeatTimeout:     time.Minute,
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    3,
+			TotalDuration:      maxJobWait,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(recordJobWaitFailure{}, nil),
+	}
+}
+
+func (step awaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
+	var reportedState JobState
+	if _, err := ctx.GetLastHeartbeatValue(&reportedState); err != nil {
+		return nil, err
+	}
+	for {
+		callCtx, cancel := context.WithTimeout(ctx, jobCallTimeout)
+		status, err := step.jobs.GetJobStatus(callCtx, jobID)
+		cancel()
+		if err != nil {
+			return nil, dex.ErrorWithStack(err)
+		}
+		switch status.State {
+		case JobSucceeded:
+			return dex.GracefulComplete(status.Result), nil
+		case JobFailed:
+			return dex.ForceFail("job " + jobID + " failed"), nil
+		}
+		if status.State != reportedState {
+			if err := JobProgress.Write(ctx, status); err != nil {
+				return nil, err
+			}
+			reportedState = status.State
+		} else if err := ctx.RecordHeartbeat(reportedState); err != nil {
+			return nil, err
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
+	failure := ctx.RecoveryError()
+	if failure == nil {
+		return dex.ForceFail("waiting for job " + jobID + " failed"), nil
+	}
+	return dex.ForceFail("waiting for job " + jobID + " failed: " + failure.Detail), nil
+}
+```
+
+- Bound each call with `context.WithTimeout(ctx, ...)`. Do not `select` on
+  `ctx.Done()` around `time.Sleep`; Dex cancels `ctx` on expiry.
+- Keep `pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s`, against
+  the `HeartbeatTimeout` the Step sets. Raise it only when a healthy call is
+  silent longer. The default is in the
+  [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
+- `MaximumAttempts` stays small, such as 3 to 5. `TotalDuration` bounds the
+  time; never use a large attempt count as a time bound.
+- `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` hold the maximum wait.
+  Never compute a deadline in the loop.
+
+## Idle Timer with Resolution
+
+The RPCs only validate and publish. The waiting Step consumes the messages,
+appends them to the transcript, and loops back to itself, which restarts the
+inactivity Timer. See [the rules](../core/patterns.md#idle-timer-with-resolution).
+
+```go
+var (
+	Replies     = dex.DefineChannel[string]("replies")
+	Resolutions = dex.DefineChannel[string]("resolutions")
+	Transcript  = dex.DefineAttribute[[]string]("transcript")
+)
+
+const inactivityWindow = 24 * time.Hour
+
+type ConversationFlow struct {
+	dex.FlowDefaults
+}
+
+func (*ConversationFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(awaitInbound{}),
+		dex.DefineStep(resolveConversation{}),
+		dex.DefineStep(closeInactiveConversation{}),
+	}
+}
+
+func (*ConversationFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Transcript},
+		Channels:   []dex.ChannelDef{Replies, Resolutions},
+	}
+}
+
+func (flow *ConversationFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.SendReply, nil),
+		dex.DefineRPC(flow.ResolveConversation, nil),
+	}
+}
+
+// SendReply returns false for a rejected reply.
+func (*ConversationFlow) SendReply(ctx dex.Context, text string) (*dex.RPCResult[bool], error) {
+	if strings.TrimSpace(text) == "" {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	if err := Replies.Publish(ctx, text); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[bool]{Output: true}, nil
+}
+
+func (*ConversationFlow) ResolveConversation(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+	// An empty pending resolution means "none", so an empty reason is invalid.
+	if strings.TrimSpace(reason) == "" {
+		return nil, errors.New("resolution reason is empty")
+	}
+	if err := Resolutions.Publish(ctx, reason); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+type awaitInbound struct {
+	dex.StepDefaults
+}
+
+// The input is a pending resolution reason, or "" while the conversation is open.
+func (awaitInbound) WaitFor(_ dex.Context, pendingResolution string) (*dex.Wait, error) {
+	if pendingResolution != "" {
+		// Drain replies accepted before the Flow closes.
+		return dex.Until(Replies.AtLeast(1)), nil
+	}
+	// Replies are declared before Resolutions, so queued replies win first.
+	return dex.AnyOf(
+		Replies.AtLeast(1),
+		Resolutions.ForOne(),
+		dex.Timer(inactivityWindow),
+	), nil
+}
+
+// Execute routes on the Condition that won; only the winner has results.
+func (awaitInbound) Execute(ctx dex.Context, pendingResolution string) (*dex.StepDecision, error) {
+	replies, err := Replies.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(replies) > 0 {
+		transcript, err := Transcript.Get(ctx)
+		var notFound *dex.AttributeNotFoundError
+		if err != nil && !errors.As(err, &notFound) {
+			return nil, err
+		}
+		if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
+			return nil, err
+		}
+		if pendingResolution != "" {
+			return dex.GoTo(resolveConversation{}, pendingResolution), nil
+		}
+		// A new execution registers a new wait, so the Timer restarts.
+		return dex.GoTo(awaitInbound{}, ""), nil
+	}
+	reasons, err := Resolutions.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(reasons) > 0 {
+		return dex.GoTo(resolveConversation{}, reasons[0]), nil
+	}
+	if ctx.HasTimerFired() {
+		return dex.GoTo(closeInactiveConversation{}, nil), nil
+	}
+	return nil, errors.New("no Condition of the conversation wait completed")
+}
+
+type resolveConversation struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (resolveConversation) Execute(_ dex.Context, reason string) (*dex.StepDecision, error) {
+	return dex.ForceCompleteIfChannelsEmpty(
+		"resolved: "+reason,
+		[]dex.ChannelDef{Replies},
+		dex.MovementOf(awaitInbound{}, reason),
+	), nil
+}
+
+type closeInactiveConversation struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	// A reply or resolution committed before the empty check reopens the wait.
+	return dex.ForceCompleteIfChannelsEmpty(
+		"inactive",
+		[]dex.ChannelDef{Replies, Resolutions},
+		dex.MovementOf(awaitInbound{}, ""),
+	), nil
+}
+```
+
+- The waiting Step locks nothing, because it is the only writer of
+  `Transcript`. If an RPC wrote `Transcript`, both would need its lock, and
+  replies would fail with lock conflicts while the Step runs.
+- `Replies.AtLeast(1)` takes every queued reply in one execution.
+- Both closing Steps use `dex.ForceCompleteIfChannelsEmpty` on `Replies`, so
+  a reply committed before the empty check is still recorded. The fallback
+  returns to `awaitInbound` with the pending resolution. The inactivity close
+  also checks `Resolutions` and reopens the wait.
+- Start the Flow with `""` as its input: no pending resolution.
+
+## Durable Timer
+
+Race `dex.Timer(...)` against Channels with `dex.AnyOf` in `WaitFor`. In
+`Execute`, branch on `ctx.HasTimerFired()`, then `GoTo` the wait Step again
+with the next schedule in its input.
+
+## Partitioned AttributeMaps
+
+An upsert passes the same bucket to `RPCInvokeOptions.LockAttributeMapInstances`
+and `LoadAttributeMapInstances`. Appenders that share a lock retry after
+`*dex.RPCLockConflictError`.

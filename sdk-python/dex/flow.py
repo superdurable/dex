@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Generator as GeneratorABC
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from inspect import (
     isasyncgenfunction,
@@ -353,6 +353,14 @@ class _RegisteredStep:
 
 
 @dataclass(frozen=True)
+class _StepLockKeys:
+    """Registration-time lock keys of one Step; declared lock requirements count only these."""
+
+    wait_for: frozenset[str] = frozenset()
+    execute: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
 class _RegisteredRPC:
     name: str
     method: Callable[..., Any]
@@ -376,6 +384,9 @@ class _RegisteredFlow:
     rpcs: MappingProxyType[str, _RegisteredRPC]
     persistence: MappingProxyType[str, _PersistenceDefinition]
     actions: tuple[_RegisteredAction, ...] = ()
+    step_lock_keys: MappingProxyType[str, _StepLockKeys] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     def action_permission_mappings_for_writes(
         self, writes: Sequence[pb.AttributeWrite]
@@ -684,14 +695,47 @@ class Registry:
             attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] = (
                 pb.INDEX_TYPE_KEYWORD_ARRAY
             )
+        step_lock_keys: dict[str, _StepLockKeys] = {}
         for registered_step in registered_steps.values():
+            # Read once, so validation and lock enforcement see the same options.
+            step_options = registered_step.step.get_step_options()
             Registry._validate_step_targets(
                 registered_flow,
                 registered_step,
-                registered_step.step.get_step_options(),
+                step_options,
                 set(),
             )
-        return registered_flow
+            step_lock_keys[registered_step.name] = Registry._step_lock_keys(
+                step_options
+            )
+        return replace(registered_flow, step_lock_keys=MappingProxyType(step_lock_keys))
+
+    @staticmethod
+    def _step_lock_keys(options: StepOptions | None) -> _StepLockKeys:
+        """Return the ``wait_for`` and ``execute`` lock keys a Step registers."""
+        if not isinstance(options, StepOptions):
+            return _StepLockKeys()
+        return _StepLockKeys(
+            Registry._valid_lock_keys(options.wait_for_lock_attributes),
+            Registry._valid_lock_keys(options.execute_lock_attributes),
+        )
+
+    @staticmethod
+    def _valid_lock_keys(locks: Sequence[AttributeLock]) -> frozenset[str]:
+        # Invalid entries are skipped; mapping the options reports them as before.
+        keys: set[str] = set()
+        try:
+            entries = tuple(locks)
+        except TypeError:
+            return frozenset()
+        for lock in entries:
+            if not isinstance(lock, AttributeLock):
+                continue
+            try:
+                keys.add(Registry._physical_lock(lock))
+            except ValueError:
+                continue
+        return frozenset(keys)
 
     @staticmethod
     def _validate_step_targets(
@@ -784,7 +828,29 @@ class Registry:
                 raise ValueError(f"duplicate persistence definition {definition.name}")
             persistence[definition.name] = definition
             Registry._register_attribute_index(definition, attribute_indexes)
+        Registry._validate_required_lock_attributes(persistence)
         return persistence
+
+    @staticmethod
+    def _validate_required_lock_attributes(
+        persistence: dict[str, _PersistenceDefinition],
+    ) -> None:
+        for definition in persistence.values():
+            if isinstance(definition, (Attribute, AttributeMap)):
+                requirement: object = definition.writes_require_lock
+                usage = "writes_require_lock"
+            elif isinstance(definition, (Channel, ChannelMap)):
+                requirement = definition.publishes_require_lock
+                usage = "publishes_require_lock"
+            else:
+                continue
+            if not isinstance(requirement, Attribute):
+                continue
+            if persistence.get(requirement.name) is not requirement:
+                raise ValueError(
+                    f"{definition.name} {usage} names Attribute {requirement.name}, "
+                    "which is not registered in the Flow's PersistenceSchema"
+                )
 
     @staticmethod
     def _register_attribute_index(

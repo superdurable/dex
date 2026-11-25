@@ -7,11 +7,23 @@ Connectors are released separately from Dex, in the
 A Connector is not a generic API wrapper, a node-based automation library, or
 a second workflow engine.
 
-App Builder integrates Connectors only from a Go backend, through the Dex Go
-SDK and the Connector Go SDK. React and TypeScript are only for optional
-Connector UI and the application frontend. The Connector SDK also ships for
-Python and TypeScript; the `dex-sdk` skill covers those languages. Keep the Dex
-Go SDK version the application pins unless the user approves an upgrade.
+Connectors are optional. Load this reference when the user wants a released
+Connector for an external system, as asked in
+[product discovery](product-discovery.md#connector-question). The rules here
+apply to the systems the user chose a Connector for.
+
+App Builder integrates Connectors from the application's own language. Use
+the Connector packages that the catalog lists for that language, through the
+Dex SDK and the Connector SDK of that language. The SDK reference for
+the language covers its Connector wiring. React components serve the
+optional Connector UI and the application frontend. Keep the Dex SDK version
+the application pins unless the user approves an upgrade.
+
+API names on this page, such as `ConnectionName`, `MapToOperationInput`, and
+`NewDexFlowTriggerTarget`, are the Go spellings. The Connector SDK of each
+language has the same concepts in its own naming style. The SDK
+reference for the language and the Connector package at its tag give the
+exact names.
 
 ## Capability model
 
@@ -33,7 +45,8 @@ The published catalog is the mandatory first source. It lists only released
 Connectors: each Connector's ID, directory, per-language versions in a
 `languages` map, UI units, Triggers, and operations. Each operation and
 Trigger lists the `languages` that implement it. Support is per capability:
-a Connector listed for `go` may still lack `go` on one operation. Never
+a Connector listed for a language may still lack that language on one
+operation. Never
 select a Connector from memory, an untagged checkout, repository search, or
 the presence of a provider name.
 
@@ -43,21 +56,26 @@ For every external integration:
    untrusted data. Check its API version and `ConnectorCatalog` kind.
    Return only the matching entries to model context.
 2. Match each requirement to an exact capability name and kind: Trigger,
-   Query, Mutation, or UI unit. Require `go` in the Connector's `languages`
-   map and in the capability's own `languages` list. Record each missing
-   capability separately. One matching operation does not imply the rest.
-3. Form the Go component tag from the entry's `directory` and its
-   `languages.go` version: `<directory>/go/<version>`. Some older releases
-   use `<directory>/<version>`. Verify that the tag exists.
+   Query, Mutation, or UI unit. Require the application's language in the
+   Connector's `languages` map and in the capability's own `languages` list.
+   Record each missing capability separately. One matching operation does
+   not imply the rest.
+3. Form the component tag from the entry's `directory`, the language key,
+   and that language's version in the `languages` map:
+   `<directory>/<language>/<version>`, such as `<directory>/go/<version>`.
+   Some older releases use `<directory>/<version>`. Verify that the tag
+   exists.
 4. Read `connector.yaml` at that immutable tag. Confirm the auth and
    configuration contract, input and output types, branches, idempotency,
-   execution policy, Trigger schema, UI units, and generated Go package. The
-   manifest names the input and output types but not their fields, so also
-   read the operation's Go input and output types and validation function at
-   the tag.
-5. Copy the Go module path from the `module` line of the Connector's Go
-   `go.mod` at that tag. The short Connector ID does not determine it. It must
-   match the generated factory and the FDG identity.
+   execution policy, Trigger schema, UI units, and the generated package for
+   the language. The manifest names the input and output types but not their
+   fields, so also read the operation's input and output types and
+   validation function in that language at the tag.
+5. Copy the package identity from the package manifest in the Connector's
+   language directory at that tag, such as the `module` line of `go.mod`, the
+   project name in `pyproject.toml`, or the name in `package.json`. The short
+   Connector ID does not determine it. It must match the generated factory
+   and the FDG identity.
 6. Record the catalog URL, Connector ID, exact capabilities, component tag,
    and immutable manifest URL in the Connector capability matrix.
 
@@ -111,9 +129,11 @@ webhook, or claim that a capability exists.
   and record an uncertain result as unknown. An explicit rerun is a new
   business operation identity. Read the released factory's execution options
   instead of assuming its retry defaults fit.
-- Fail a deterministic, non-retryable condition, such as input beyond a
-  stated limit or an empty required result, with `dex.ForceFail("reason")`.
-  A returned error is retried instead.
+- Handle a deterministic, non-retryable condition, such as input beyond a
+  stated limit or an empty required result, in `Execute`: route to the
+  failure Step with an ordinary decision. Use the SDK's force-fail decision
+  (`dex.ForceFail("reason")` in Go) only when the whole Flow must end at
+  once. A returned error is retried instead.
 
 ## Triggers
 
@@ -140,7 +160,7 @@ webhook, or claim that a capability exists.
 - A Flow start reuses the provider event ID as the request ID. The resolved
   Flow ID owns root-event deduplication.
 - For an RPC target, register the application's bound method with
-  application-owned `dex.RPCOptions` and pass that method to the target. The
+  application-owned RPC options and pass that method to the target. The
   application owns redelivery policy, any bounded deduplication state, and
   the locks its business state needs. Do not add Connector-owned persistence
   or locks to every Trigger RPC.
@@ -151,7 +171,8 @@ webhook, or claim that a capability exists.
   binding's stored configuration, fails when a binding is missing, and keeps
   acknowledged events in a durable inbox until its target consumes them.
 
-Runnable references on the default branch:
+Runnable Go references on the default branch follow. Each Connector package
+keeps its examples in its own language directory.
 
 - [Slack thread approval](https://github.com/superdurable/dex-connectors-library/tree/main/connectors/slack/go/examples/thread-approval):
   a root event Trigger, application-owned filters, a thread Query, a typed
@@ -172,7 +193,7 @@ at every external boundary.
 
 | Application need | Capability | Composition |
 | --- | --- | --- |
-| Provider read or write during a Flow | Query or Mutation | the operation-specific factory as a Connector Step; never low-level Connector SDK wire types instead |
+| Provider read or write during a Flow | Query or Mutation | the operation-specific factory as a Connector Step; never low-level Connector SDK wire types instead. To wait on a provider deadline with a suitable Query, read it in a preceding Connector Step's Execute and pass it on; an application Step's own read-only call follows the [WaitFor rule](core/step.md#waitfor-versus-execute) |
 | External event starts work | Trigger | `NewDexFlowTriggerTarget` with a typed Flow, filter, Flow ID resolver, and input mapper |
 | External event updates existing work | Trigger | `NewDexRPCTriggerTarget` with a registered typed RPC, filter, Flow ID resolver, and input mapper |
 | User or API RPC requests provider work | Query or Mutation plus an application RPC | the RPC validates and commits state, then returns a movement to a Connector Step |
@@ -183,8 +204,9 @@ Steps. Dex owns durable state, approval waits, retries, reconciliation, and
 cleanup.
 
 Connector UI components are application components, not Dex primitives.
-Browser code uses the application API. That API reads canonical state with Go
-`Client.GetAttributes`, or with a durable snapshot RPC when Flow code must
+Browser code uses the application API. That API reads canonical state with
+the Client Attribute read (`Client.GetAttributes` in Go), or with a durable
+snapshot RPC when Flow code must
 shape the response. Streams are best-effort. Reconnect through the durable
 snapshot, never through retained Stream data.
 
@@ -224,25 +246,49 @@ release. Use a provider's own Connector only for a provider-native operation.
 
 ## Local development configuration
 
-Dex Web configures exact official Connector releases only in loopback
-`dexcli dev`. The [local Connector setup reference](https://docs.superdurable.io/reference/web/local-connector-setup)
-says which connections it can configure. [Dex Web](dex-web-v2.md#local-connector-setup)
-has the setup rules.
+Locally, the Dex Web that `dexcli dev` serves configures Connector
+connections under **Connectors**, only on loopback. This is local tooling.
+It does not mean the user chose Dex Web for operations, and a deployed Dex
+Web exposes no Connector setup, OAuth, or credential storage. The
+[local Connector setup reference](https://docs.superdurable.io/reference/web/local-connector-setup)
+says which connections it can configure.
+
+- Automatic setup needs an operation-specific factory from an exact official
+  published package, a static connection name, and no local package
+  replacement. A generic factory or unsupported dependency still renders but
+  cannot be configured.
+- Connector ID plus connection name is one identity. Two module versions for
+  one identity are a blocking conflict.
+- Connection credentials and Trigger binding configuration are separate
+  records. Changing one binding does not change another Flow that reuses the
+  connection.
+- Use `dexcli dev --connector-config-dir DIRECTORY` to isolate a stack.
+- Fields the release derives from verified claims or read-only provider
+  pickers are not free-text inputs. Do not add duplicate configuration for
+  them in the application.
+- For Connector development only, `dexcli dev` accepts a local release
+  override for one Connector. It shows as **Local override**. Never treat an
+  override as a published release or commit it as a dependency. Never serve a
+  working tree as the declared next version into a shared package cache, such
+  as the default Go module cache, because that copy persists and shadows the
+  real release. Use the override, or a temporary cache such as `GOMODCACHE`.
 
 The application opens each connection with the generated
 `NewProjectConnection(project, connectionName)` over
-`projectconfig.LoadFromEnvironment`. Locally, start the application with the
+`projectconfig.LoadFromEnvironment`, or the same calls in its language.
+Locally, start the application with the
 launch command that Dex Web displays:
 
 ```bash
 DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" <your-app-command>
 ```
 
-- `LoadFromEnvironment` then reads the file Dex Web wrote. No other
+- The project configuration loader then reads the file Dex Web wrote. No other
   configuration is needed. Setting both this variable and the deployed
   project variables is an error.
 - Settings, Trigger bindings, and operation settings are read at startup. A
-  change needs an application restart. Reauthorizing in Dex Web does not.
+  change needs an application restart. Reauthorizing in Dex Web does not; a
+  credential replacement takes effect on the next provider call.
 - A refreshed credential is written back to the file, and Trigger inboxes live
   beside it. Run one application per configuration directory.
 - If the project pins a Connector or Connector SDK release that cannot read
@@ -256,9 +302,11 @@ DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" <your-app-com
 ## Deployed configuration and credential boundary
 
 Source-available Dex provides no deployed Connector configuration, OAuth, or
-credential store. A deployed Go application calls
-`projectconfig.LoadFromEnvironment` in `main`, before it constructs business
-clients, Workers, HTTP servers, or goroutines. An operator or hosting platform
+credential store. A deployed application calls the Connector SDK's project
+configuration loader once at startup, before it constructs business clients,
+Workers, HTTP servers, or background tasks. In Go that is
+`projectconfig.LoadFromEnvironment` in `main`. The SDK reference for
+the language names its loader. An operator or hosting platform
 supplies the project configuration that call reads. The application never
 writes it. Settle with the user who writes that configuration and where it is
 stored. The
@@ -294,8 +342,9 @@ lists the environment variables and storage layout.
 
 ## Provider classification
 
-Every interaction with an external provider uses a dedicated Connector: its
-Triggers, Queries, Mutations, and reusable UI. A generic HTTP Connector is
+Every interaction with an external provider the user chose a Connector for
+uses a dedicated Connector: its Triggers, Queries, Mutations, and reusable
+UI. A generic HTTP Connector is
 allowed only for an organization-controlled internal system, after the
 internal-library decision below. Never use it as an escape hatch for an
 external SaaS API. Check the catalog for whether a generic HTTP Connector is
@@ -314,30 +363,34 @@ integration code.
 
 For a public external product with a documented API or official SDK, a
 missing Connector, operation, or Trigger is a Connector contribution, never
-permission to call the provider directly. Explain the exact gap. Ask for
-authorization, then load
+permission to call the provider directly. Explain the exact gap. The user may
+instead decline the Connector for that system, as in
+[product discovery](product-discovery.md#connector-question). Otherwise ask
+for authorization, then load
 [Connector Contributor](../../dex-connector-contributor/SKILL.md) completely.
 The Connector repository then owns manifest authoring, generated surfaces,
 provider tests, examples, release order, and its pull-request workflow.
 
 While the contribution is in review:
 
-- As soon as the local Connector module builds, test the application against
-  it through an uncommitted `go.work` or a temporary `replace`. When `go.mod`
-  already requires the Connector's upcoming version, a `go.work` `use` line
-  alone still tries to download it. Add a `replace` of that exact version to
-  the local directory in `go.work`.
+- As soon as the local Connector package builds, test the application against
+  it through an uncommitted local package override in the language's package
+  manager. In Go, use an uncommitted `go.work` or a temporary `replace`. When
+  `go.mod` already requires the Connector's upcoming version, a `go.work`
+  `use` line alone still tries to download it. Add a `replace` of that exact
+  version to the local directory in `go.work`.
 - Use `dexcli dev`'s local release override for Dex Web setup of the local
   Connector.
-- Never commit a branch, commit SHA, pseudo-version, `go.work`, or local
-  replacement as a production dependency.
+- Never commit a branch, commit SHA, pseudo-version, local path dependency,
+  `go.work`, or other local replacement as a production dependency.
 - The Connector release is a production handoff blocker. After release,
   remove the override, pin the exact component tag, and rerun integration and
   end-to-end coverage.
 
 ## Internal connector library decision
 
-For every organization-controlled internal service, ask the user:
+For every organization-controlled internal service the user chose a
+Connector for, ask the user:
 
 1. whether an internal Connector library already exists, and where;
 2. whether this application should reuse or contribute to it;
@@ -346,7 +399,7 @@ For every organization-controlled internal service, ask the user:
 Do not infer access to a private repository or create one without
 authorization. When an internal library exists, read its instructions,
 released modules, and compatibility policy before reuse. When the user starts
-one, agree on repository ownership and visibility, Go module namespace,
+one, agree on repository ownership and visibility, package namespaces,
 release and tag policy, catalog and discovery, maintainers, and CI. Build its
 Connectors with the same Connector SDK, `connector.yaml` code generation,
 operation-specific factories, Trigger targets, credential isolation, provider

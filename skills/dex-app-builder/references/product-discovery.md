@@ -31,24 +31,21 @@ Identify each of these from the supplied intent first:
   would cause;
 - every management list, detail, action, assignment, edit, progress, and
   recovery need;
-- what authenticates users and maps roles to permissions in front of a
-  deployed Dex Web, such as an identity provider or reverse proxy;
-- whether any custom process UI is needed beyond Dex Web.
+- what authenticates users and maps roles to permissions at the
+  application's trusted boundary, such as an identity provider or reverse
+  proxy;
+- the [UI question](#ui-question) and, for each external system, the
+  [Connector question](#connector-question).
 
 ## Stack checkpoint
 
-Classify the repository before you propose a language. An effectively empty
-repository gets the stack in [workspace bootstrap](workspace-bootstrap.md): a
-Go backend on an exact released Dex Go SDK paired with the installed `dexcli`,
-plus a React and Vite frontend only for a confirmed custom UI. Do not offer
-TypeScript, Node, or another SDK language as an equivalent default.
-
-Only an explicit user request can replace the Go backend for a new
-application. Before you accept it, explain that App Builder, strict FDG 2.0,
-and Dex Web management metadata require Go. A non-Go backend becomes a
-standalone `dex-sdk` project. Python and TypeScript projects may use official
-Connectors where the catalog lists their language. Java and Rust have no
-Connector SDK.
+Classify the repository before you propose a language. Pick the backend
+language with the rule in
+[workspace bootstrap](workspace-bootstrap.md#choose-the-language). The backend
+uses an exact released Dex SDK for that language, paired with the installed
+`dexcli`. Add a React and Vite frontend when the user wants their own UI. For
+each Connector the user chose, use the official package that the catalog
+lists for the application's language.
 
 ## Actor, role, operation, and permission matrix
 
@@ -86,7 +83,11 @@ Confirm:
 - cancellation, recovery, cleanup, and operator intervention;
 - searchable indexed fields and detailed display fields;
 - sensitive data that must stay out of IDs, logs, Streams, and generated
-  artifacts.
+  artifacts;
+- whether any data must stay unreadable to Dex Server, its storage, and its
+  operators. If so, plan payload encryption, and keep that data out of IDs,
+  names, and Attributes the server compares. See
+  [payload encryption](core/data-handling.md#sensitive-data-and-payload-encryption).
 
 For each outcome and comparison fact, record how the run will show it: a Step
 it enters, an Action, or a scalar Attribute. See
@@ -145,8 +146,8 @@ owner, so it never pollutes the authoritative store.
 | product-specific | yes or no | concrete option | measured requirement, not speculation | required before a SubFlow | Step, independent top-level Flow, or confirmed SubFlow |
 
 New applications default to no SubFlows. Use static or dynamic parallel
-Steps, a Join for parallel branches, Channels for quorum, batching, typed RPCs, and ordinary Go
-helpers first. Provider abstraction, research stages, model calls, code reuse,
+Steps, a Join for parallel branches, Channels for quorum, batching, typed RPCs, and ordinary
+helper functions first. Provider abstraction, research stages, model calls, code reuse,
 an independent retry policy, and ordinary bounded fan-out never justify a
 SubFlow.
 
@@ -193,13 +194,34 @@ record, relational joins or multi-record transactions, or large analytical
 scans. Record the exact operation, scale or SLO, authority, synchronization,
 failure, and reconciliation design. "We may need it later" is not evidence.
 
-## Management UI capability mapping
+## UI question
 
-Process products usually need a management interface. Design it through
-Dex Web first. For each management operation, define its indexed Attributes,
-Summary RPC fields, Display RPC fields, Action RPC input and metadata,
-condition, and permission. Only then decide whether a custom surface is
-needed.
+The backend is the core of the product. Ask the user once, in the same
+discovery batch as the other open questions, which UI they want:
+
+- **their own UI**, which most products need, such as a participant portal,
+  a branded application, or screens for their own users;
+- **Dex Web** for operations and management: Runs, Work Queue, Actions,
+  edits, history, and diagnostics;
+- **both**, often their own UI for end users and Dex Web for operators;
+- **neither**, when callers only use the application API.
+
+Skip the question when the request already answers it. Never default to Dex
+Web alone. The user's own UI needs no Dex Web gap to justify it. For their
+own UI, load [UI workflow](ui-workflow.md). For Dex Web, load
+[Dex Web](dex-web-v2.md) and record the management mapping below. When the
+user chose both, leave the needs Dex Web covers to Dex Web unless the user
+asks for them in their own UI.
+
+With Dex Web deployed, still confirm what supplies authentication,
+role-to-permission mapping, tenant isolation, and the trusted reverse proxy in
+front of it.
+
+### Dex Web management mapping
+
+Use this mapping only when the user chose Dex Web. For each management
+operation it serves, define its indexed Attributes, Summary RPC fields,
+Display RPC fields, Action RPC input and metadata, condition, and permission.
 
 | Management need | Dex Web capability |
 | --- | --- |
@@ -210,30 +232,23 @@ needed.
 | Change simple business fields | Declare editable scalar Attributes in the Display RPC. |
 | Inspect progress and failures | Use the Run timeline, Step graph, execution details, and recovery information. |
 
-Record this mapping as a discovery artifact. Keep each fully covered need in
-Dex Web, even when another need requires Custom UI. For an uncovered need,
-name the exact missing interaction and its user. A general wish for an admin
-portal, dashboard, management backend, or branded shell is not a capability
-gap.
+Record this mapping as a discovery artifact.
 
-## UI-mode decision
+## Connector question
 
-Decide the UI mode only after the management mapping is complete and the
-Summary, Display, Action, indexed Attribute, and permission contracts are
-designed. [UI workflow](ui-workflow.md) has the two modes.
+When discovery finds an external system, ask the user once whether they want
+to use a released Connector for it. Skip the question when the request
+already answers it. Load
+[Connector architecture](connector-architecture.md) only when the user wants
+one.
 
-- **No custom UI** when those surfaces serve operators and maintainers. The
-  application needs no frontend of its own. Still confirm what supplies
-  authentication, role-to-permission mapping, tenant isolation, and the
-  trusted reverse proxy in front of a deployed Dex Web.
-- **Custom UI** only for a recorded Dex Web gap, such as a participant
-  journey, a different navigation model, domain visualization, or a complex
-  interaction Dex Web lacks. Record which requirement forces it.
+When the user declines, the application calls the system from its own Step
+code in `Execute`. Each call keeps an idempotency identity, a bounded timeout,
+and recovery. Its credentials stay out of code and Flow state.
 
-## Connector decision
-
-Create a Connector capability matrix for every Trigger, Query, Mutation, and
-integration UI. Follow the discovery procedure in
+When the user wants a released Connector, create a Connector capability
+matrix for every Trigger, Query, Mutation, and integration UI. Follow the
+discovery procedure in
 [Connector architecture](connector-architecture.md#released-capability-discovery).
 
 - Start from the published catalog at
@@ -241,25 +256,30 @@ integration UI. Follow the discovery procedure in
 - For a public external product, match each need to an exact released
   capability, not a Connector name. Verify the full contract in the
   component tag's immutable `connector.yaml`.
-- Require `go` in the Connector's `languages` map and in the capability's
-  own `languages` list. A capability without `go` is a gap.
+- Require the application's language in the Connector's `languages` map and
+  in the capability's own `languages` list. A capability without that
+  language is a gap.
 - Record the catalog URL, Connector ID, capability kind and name, component
   tag, immutable manifest URL, and the reuse or gap decision.
 
 If the catalog or the release manifest cannot be verified, stop
-Connector-dependent implementation and report the blocker. A missing
-Connector, operation, Trigger, or UI unit for a product with a documented API
-or official SDK is a `dex-connector-contributor` work item and a production
-release blocker. It is never permission to install the provider SDK or write
-local integration code.
+Connector-dependent implementation and report the blocker. For a system the
+user chose a Connector for, a missing Connector, operation, Trigger, or UI
+unit for a product with a documented API or official SDK is a
+`dex-connector-contributor` work item and a production release blocker. It
+is never permission to install the provider SDK or write local integration
+code without asking the user again.
 
 Mark a service internal only when the organization owns and controls it.
-Then follow the
+When the user chose a Connector for an internal service, follow the
 [internal connector library decision](connector-architecture.md#internal-connector-library-decision).
 
 If the process begins from Slack, email, a webhook, or another external
-source, model it as a Connector Trigger. The application decides whether the
-event starts a Flow or invokes a typed RPC.
+source the user chose a Connector for, model it as a Connector Trigger.
+Otherwise the application API receives the event: verify the provider
+signature or an equivalent proof at that boundary, deduplicate by the stable
+provider event ID, and correlate the event to its Flow. Either way, the
+application decides whether the event starts a Flow or invokes a typed RPC.
 
 ## Confirmation artifact
 
@@ -271,13 +291,16 @@ Before code, provide:
 3. the data-lifecycle and execution-shape matrices, including every top-level
    Flow, every candidate collapsed into a Step, RPC, or helper, and the full
    gate for any proposed SubFlow;
-4. the management UI capability mapping, with the proposed Summary, Display,
-   Action, indexed Attribute, Work Queue, and permission contracts;
-5. the **No custom UI** or **Custom UI** mode and any recorded Dex Web gap;
+4. the UI answer: the user's own UI, Dex Web, both, or neither, and the
+   application API operations the UI or callers need;
+5. when the user chose Dex Web, the management mapping, with the proposed
+   Summary, Display, Action, indexed Attribute, Work Queue, and permission
+   contracts;
 6. the proposed Flow, Step, state, message, Timer, RPC, and Connector
    boundaries;
 7. the storage matrix and any evidence-backed external-store gap;
-8. Connector reuse, contribution, internal-library decisions, and release
+8. the Connector answer for each external system and, for each chosen
+   Connector, reuse, contribution, internal-library decisions, and release
    status;
 9. unresolved tradeoffs.
 

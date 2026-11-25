@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use dexzd_protocol::dex::WorkerErrorResponse;
+use dexzd_protocol::dex::{DispatchTaskErrorReason, WorkerErrorResponse};
 use dexzd_protocol::dexzd::v1::StepAttemptFailureKind;
 
 use crate::effects::method_request::RequestValueSlot;
@@ -35,6 +35,17 @@ impl AttemptFailure {
             omitted_value_slots: None,
             is_not_run: false,
         }
+    }
+
+    /// Returns the failure of an attempt whose Worker disconnected after the task frame went out.
+    pub(super) fn worker_disconnected(detail: &str) -> Self {
+        Self::server(
+            StepAttemptFailureKind::DispatchError,
+            format!(
+                "{}: {detail}",
+                DispatchTaskErrorReason::WorkerDisconnected.as_str_name()
+            ),
+        )
     }
 
     /// Returns a server failure of an attempt the Worker certainly never ran.

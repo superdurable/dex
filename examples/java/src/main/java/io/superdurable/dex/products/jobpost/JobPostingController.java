@@ -18,6 +18,8 @@ package io.superdurable.dex.products.jobpost;
 
 import io.superdurable.dex.AttributeMatch;
 import io.superdurable.dex.Client;
+import io.superdurable.dex.SearchFlowEntry;
+import io.superdurable.dex.SearchFlowsPage;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.WaitForAttributeOptions;
 import org.springframework.http.ResponseEntity;
@@ -109,15 +111,14 @@ public class JobPostingController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<Map<String, String>> search(@RequestParam String query) {
-        query = escapeQuote(query);
-        final Map<String, String> response = new LinkedHashMap<String, String>();
-        response.put(
-                "message",
-                "Java Client 0.0.3 does not expose SearchFlows; "
-                        + "Title uses the text1 FULL_TEXT AttributeIndex; "
-                        + "JobDescription is not searchable.");
-        response.put("query", query);
+    public ResponseEntity<Map<String, Object>> search(@RequestParam final String query) {
+        final String filter = escapeQuote(query);
+        final String scope = "FlowType = 'JobPostingFlow'";
+        final String scopedQuery = filter.isBlank() ? scope : "(" + filter + ") AND (" + scope + ")";
+        final SearchFlowsPage page = client.searchFlows(scopedQuery, 20);
+        final Map<String, Object> response = new LinkedHashMap<String, Object>();
+        response.put("flowIDs", page.getFlows().stream().map(SearchFlowEntry::getFlowId).toList());
+        response.put("nextPageToken", page.getNextPageToken());
         return ResponseEntity.ok(response);
     }
 

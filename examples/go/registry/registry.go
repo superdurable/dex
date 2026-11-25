@@ -22,15 +22,19 @@ package registry
 
 import (
 	cancelcase "github.com/superdurable/dex/examples/go/patterns/cancel-case"
+	childflows "github.com/superdurable/dex/examples/go/patterns/child-flows-business-identity"
+	controllongrunningwork "github.com/superdurable/dex/examples/go/patterns/control-long-running-work"
 	criticalsection "github.com/superdurable/dex/examples/go/patterns/critical-section"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
 	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	entityflow "github.com/superdurable/dex/examples/go/patterns/entity-flow"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	failfast "github.com/superdurable/dex/examples/go/patterns/fail-fast"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
-	"github.com/superdurable/dex/examples/go/patterns/interruptible"
+	inboundeventloop "github.com/superdurable/dex/examples/go/patterns/inbound-event-loop"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
@@ -97,11 +101,17 @@ var (
 	CronSchedule          *cron.CronScheduleFlow
 	Polling               *patternspolling.PollingFlow
 	PollingJobs           *patternspolling.FakeJobService
-	Interruptible         *interruptible.InterruptibleFlow
+	RefundService         *refundmodel.FakeService
+	ExpenseReimbursement  *failfast.ExpenseReimbursementFlow
+	PaymentProvider       *failfast.FakePaymentProvider
+	RecordBackfill        *controllongrunningwork.RecordBackfillFlow
 	Reminder              *reminders.ReminderFlow
+	AccountArchive        *entityflow.FakeAccountArchive
+	CustomerAccount       *entityflow.CustomerAccountFlow
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
 	InactivenessTracker   *inactivenesstrackertimer.InactivenessTrackerFlow
+	SupportTicket         *inboundeventloop.SupportTicketConversationFlow
 	StaticParallel        *parallel.StaticParallelStepsFlow
 	DynamicParallel       *parallel.DynamicParallelStepsFlow
 	AwaitParallel         *parallel.AwaitParallelStepsFlow
@@ -123,6 +133,8 @@ var (
 	ContractEdit          *criticalsection.ContractEditFlow
 	CreditCheck           *cancelcase.CreditCheckFlow
 	LoanApplication       *cancelcase.LoanApplicationFlow
+	Shipment              *childflows.ShipmentFlow
+	OrderFulfillment      *childflows.OrderFulfillmentFlow
 	WorkflowPatterns      *workflowpatterns.WorkflowPatternFlows
 
 	Step                 *step.StepFlow
@@ -171,9 +183,9 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	Subscription = subscription.NewSubscriptionFlow(applicationService)
 	UserOnboarding = signup.NewUserOnboardingFlow(applicationService)
 	JobPosting = jobpost.NewJobPostingFlow(applicationService)
-	refundService := refundmodel.NewFakeService()
-	CustomerRefund = deterministic.NewCustomerRefundFlow(refundService)
-	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(refundService, newDemoOpenAIConnection())
+	RefundService = refundmodel.NewFakeService()
+	CustomerRefund = deterministic.NewCustomerRefundFlow(RefundService)
+	AgenticRefund = agentic.NewAgenticCustomerRefundFlow(RefundService, newDemoOpenAIConnection())
 	refundServices := managerapproval.NewRefundServices(refundLedgerDirectory)
 	ManagerApprovalRefund = managerapproval.NewManagerApprovalRefundFlow(
 		refundServices.Billing, refundServices.Email, &managerapproval.MockMessageModel{},
@@ -182,11 +194,16 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingJobs = patternspolling.NewFakeJobService()
 	Polling = patternspolling.NewPollingFlow(PollingJobs)
-	Interruptible = interruptible.NewInterruptibleFlow()
+	PaymentProvider = failfast.NewFakePaymentProvider()
+	ExpenseReimbursement = failfast.NewExpenseReimbursementFlow(PaymentProvider)
+	RecordBackfill = controllongrunningwork.NewRecordBackfillFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
+	AccountArchive = entityflow.NewFakeAccountArchive()
+	CustomerAccount = entityflow.NewCustomerAccountFlow(AccountArchive)
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()
+	SupportTicket = inboundeventloop.NewSupportTicketConversationFlow()
 	StaticParallel = parallel.NewStaticParallelStepsFlow()
 	DynamicParallel = parallel.NewDynamicParallelStepsFlow()
 	AwaitParallel = parallel.NewAwaitParallelStepsFlow()
@@ -208,6 +225,8 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	ContractEdit = criticalsection.NewContractEditFlow()
 	CreditCheck = cancelcase.NewCreditCheckFlow()
 	LoanApplication = cancelcase.NewLoanApplicationFlow(getClient, CreditCheck)
+	Shipment = childflows.NewShipmentFlow(getClient)
+	OrderFulfillment = childflows.NewOrderFulfillmentFlow(getClient, Shipment)
 	WorkflowPatterns = workflowpatterns.NewWorkflowPatternFlows(getClient)
 
 	Step = step.NewStepFlow()
@@ -249,11 +268,14 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ManagerApprovalRefund,
 		CronSchedule,
 		Polling,
-		Interruptible,
+		ExpenseReimbursement,
+		RecordBackfill,
 		Reminder,
+		CustomerAccount,
 		UserProfile,
 		ManualRecovery,
 		InactivenessTracker,
+		SupportTicket,
 		StaticParallel,
 		DynamicParallel,
 		AwaitParallel,
@@ -275,6 +297,8 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ContractEdit,
 		CreditCheck,
 		LoanApplication,
+		Shipment,
+		OrderFulfillment,
 		Step,
 		ExampleFlow,
 		StepRetry,

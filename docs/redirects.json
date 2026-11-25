@@ -37,27 +37,179 @@
   },
   {
     "from": "/design-patterns/polling/backoff",
-    "to": "/design-patterns/polling"
+    "to": "/design-patterns/durable-timer/polling"
   },
   {
     "from": "/zh-Hans/design-patterns/polling/backoff",
-    "to": "/zh-Hans/design-patterns/polling"
+    "to": "/zh-Hans/design-patterns/durable-timer/polling"
   },
   {
     "from": "/design-patterns/polling/timer",
-    "to": "/design-patterns/polling"
+    "to": "/design-patterns/durable-timer/polling"
   },
   {
     "from": "/zh-Hans/design-patterns/polling/timer",
-    "to": "/zh-Hans/design-patterns/polling"
+    "to": "/zh-Hans/design-patterns/durable-timer/polling"
   },
   {
     "from": "/design-patterns/polling/iteration",
-    "to": "/design-patterns/polling"
+    "to": "/design-patterns/durable-timer/polling"
   },
   {
     "from": "/zh-Hans/design-patterns/polling/iteration",
-    "to": "/zh-Hans/design-patterns/polling"
+    "to": "/zh-Hans/design-patterns/durable-timer/polling"
+  },
+  {
+    "from": "/design-patterns/polling",
+    "to": "/design-patterns/durable-timer/polling"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/polling",
+    "to": "/zh-Hans/design-patterns/durable-timer/polling"
+  },
+  {
+    "from": "/design-patterns/critical-section",
+    "to": "/design-patterns/parallel/critical-section"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/critical-section",
+    "to": "/zh-Hans/design-patterns/parallel/critical-section"
+  },
+  {
+    "from": "/design-patterns/parallel-subflows",
+    "to": "/design-patterns/subflows"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/parallel-subflows",
+    "to": "/zh-Hans/design-patterns/subflows"
+  },
+  {
+    "from": "/design-patterns/parallel-subflows/basic",
+    "to": "/design-patterns/subflows/basic"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/parallel-subflows/basic",
+    "to": "/zh-Hans/design-patterns/subflows/basic"
+  },
+  {
+    "from": "/design-patterns/parallel-subflows/wait-for-half",
+    "to": "/design-patterns/subflows/wait-for-half"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/parallel-subflows/wait-for-half",
+    "to": "/zh-Hans/design-patterns/subflows/wait-for-half"
+  },
+  {
+    "from": "/design-patterns/parallel-subflows/long-lived-parent",
+    "to": "/design-patterns/subflows/long-lived-parent"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/parallel-subflows/long-lived-parent",
+    "to": "/zh-Hans/design-patterns/subflows/long-lived-parent"
+  },
+  {
+    "from": "/design-patterns/parallel-subflows/short-lived-parent",
+    "to": "/design-patterns/subflows/short-lived-parent"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/parallel-subflows/short-lived-parent",
+    "to": "/zh-Hans/design-patterns/subflows/short-lived-parent"
+  },
+  {
+    "from": "/design-patterns/parallel-subflows/partitioning",
+    "to": "/design-patterns/subflows/partitioning"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/parallel-subflows/partitioning",
+    "to": "/zh-Hans/design-patterns/subflows/partitioning"
+  },
+  {
+    "from": "/design-patterns/parallel-subflows/back-pressure",
+    "to": "/design-patterns/subflows/back-pressure"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/parallel-subflows/back-pressure",
+    "to": "/zh-Hans/design-patterns/subflows/back-pressure"
+  },
+  {
+    "from": "/design-patterns/cancel-case",
+    "to": "/design-patterns/subflows/cancel-case"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/cancel-case",
+    "to": "/zh-Hans/design-patterns/subflows/cancel-case"
+  },
+  {
+    "from": "/design-patterns/deferred-choice",
+    "to": "/design-patterns/external-interaction/decision-with-deadline"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/deferred-choice",
+    "to": "/zh-Hans/design-patterns/external-interaction/decision-with-deadline"
+  },
+  {
+    "from": "/design-patterns/durable-timer/inactiveness-tracker-timer",
+    "to": "/design-patterns/external-interaction/idle-timer"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/durable-timer/inactiveness-tracker-timer",
+    "to": "/zh-Hans/design-patterns/external-interaction/idle-timer"
+  },
+  {
+    "from": "/design-patterns/inbound-event-loop",
+    "to": "/design-patterns/external-interaction/idle-timer-with-resolution"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/inbound-event-loop",
+    "to": "/zh-Hans/design-patterns/external-interaction/idle-timer-with-resolution"
+  },
+  {
+    "from": "/design-patterns/interruptible",
+    "to": "/design-patterns/external-interaction/control-long-running-work"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/interruptible",
+    "to": "/zh-Hans/design-patterns/external-interaction/control-long-running-work"
+  },
+  {
+    "from": "/design-patterns/external-interaction/stop-long-running-work",
+    "to": "/design-patterns/external-interaction/control-long-running-work"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/external-interaction/stop-long-running-work",
+    "to": "/zh-Hans/design-patterns/external-interaction/control-long-running-work"
+  },
+  {
+    "from": "/design-patterns/entity-store",
+    "to": "/design-patterns/data-storage/entity-flow-attribute-sync"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/entity-store",
+    "to": "/zh-Hans/design-patterns/data-storage/entity-flow-attribute-sync"
+  },
+  {
+    "from": "/design-patterns/sequentially-chunked-attribute-map",
+    "to": "/design-patterns/data-storage/sequentially-chunked-attribute-map"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/sequentially-chunked-attribute-map",
+    "to": "/zh-Hans/design-patterns/data-storage/sequentially-chunked-attribute-map"
+  },
+  {
+    "from": "/design-patterns/hash-partitioned-attribute-map",
+    "to": "/design-patterns/data-storage/hash-partitioned-attribute-map"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/hash-partitioned-attribute-map",
+    "to": "/zh-Hans/design-patterns/data-storage/hash-partitioned-attribute-map"
+  },
+  {
+    "from": "/design-patterns/attribute-map-partitioning",
+    "to": "/design-patterns/data-storage"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/attribute-map-partitioning",
+    "to": "/zh-Hans/design-patterns/data-storage"
   },
   {
     "from": "/production/server-operations",

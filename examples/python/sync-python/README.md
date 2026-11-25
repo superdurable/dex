@@ -19,7 +19,7 @@ Seven Flows:
 | Engagement | `/products/engagement` | channels + RPC |
 | Subscription | `/products/subscription` | timers |
 | Parent–child | `/patterns/parent-child` | sync `Client` inside `Step.execute` |
-| Interruptible | `/patterns/interruptible` | interrupt RPC |
+| Control Long-Running Work | `/patterns/control-long-running-work` | batch size and stop RPCs |
 
 Defaults: HTTP `127.0.0.1:8081` (the async app uses `8080`). The Worker uses
 pull streams and needs only an outbound connection to the Dex Server.

@@ -687,7 +687,10 @@ fn is_skippable_rejection(body: &Command, reply: &CommandReply) -> bool {
         }
         Command::ChannelPublish(_) => is_terminal_cleanup_rejection(error),
         // A transactional RPC whose deletions no longer hold is skipped as a whole.
-        Command::RpcCommitted(rpc) => rpc.is_transactional && is_missing_channel_message(error),
+        Command::RpcCommitted(rpc) => {
+            (rpc.is_transactional && is_missing_channel_message(error))
+                || is_terminal_cleanup_rejection(error)
+        }
         _ => false,
     }
 }
@@ -737,6 +740,9 @@ fn reapplied_command(input: &FlowCommand, scope: &CommandScope<'_>) -> FlowComma
             }
         }
         Some(Command::RpcCommitted(rpc)) => {
+            // The TimeTravel's own rules decide, so an older TimeTravel replays as it applied.
+            rpc.should_reject_publication_during_pending_close =
+                is_publication_during_pending_close_rejected(scope);
             rpc.hard_delete_objects.clear();
             if let Some(response) = rpc.response.as_mut() {
                 response
@@ -747,6 +753,14 @@ fn reapplied_command(input: &FlowCommand, scope: &CommandScope<'_>) -> FlowComma
         _ => {}
     }
     command
+}
+
+fn is_publication_during_pending_close_rejected(scope: &CommandScope<'_>) -> bool {
+    matches!(
+        &scope.command.command,
+        Some(Command::TimeTravel(time_travel))
+            if time_travel.should_reject_publication_during_pending_close
+    )
 }
 
 fn step_executions(attempt_rows: &[AttemptRow]) -> Result<Vec<StepExecutionRecord>, ApplyError> {

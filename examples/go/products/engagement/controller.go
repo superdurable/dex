@@ -125,14 +125,15 @@ func (controller *controller) update(
 		return
 	}
 	var output Status
-	err := controller.client.InvokeRPC(
+	err := httputil.InvokeRPCRetryingLockConflict(
 		request.Request.Context(),
+		controller.client,
 		flowID,
 		rpc,
 		request.Query("notes"),
 		&output,
 	)
-	httputil.Respond(request, output, err)
+	httputil.RespondRPC(request, output, err)
 }
 
 func (controller *controller) list(request *gin.Context) {

@@ -16,6 +16,7 @@ package io.superdurable.dex;
 
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
+import io.superdurable.dex.exceptions.MissingAttributeLockException;
 import io.superdurable.gen.ChannelCondition;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.CloseDecision;
@@ -108,14 +109,22 @@ final class WorkerDispatcher {
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final Wait wait = callWaitFor(step.getStep(), context, input);
-            serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
+            final InvocationContext.BufferedChanges changes = context.snapshotBufferedChanges();
+            RequiredAttributeLockCheck.check(
+                    flow,
+                    step.getName(),
+                    MissingAttributeLockException.HandlerMethod.WAIT_FOR,
+                    null,
+                    step.getWaitForLockKeys(),
+                    changes);
+            serverProtocol.requireHardDeleteAttributeSupport(changes.attributeWrites);
             final InvokeWaitForMethodResponse.Builder response =
                     InvokeWaitForMethodResponse.newBuilder()
-                            .addAllUpsertAttributes(context.getAttributeWrites())
+                            .addAllUpsertAttributes(changes.attributeWrites)
                             .addAllUpsertStepExeLocals(context.getLocalWrites())
                             .addAllRecordEvents(context.getEvents())
-                            .addAllPublishToChannel(context.getPublications())
-                            .addAllDeleteFromChannel(context.getChannelDeletions());
+                            .addAllPublishToChannel(changes.publications)
+                            .addAllDeleteFromChannel(changes.channelDeletions);
             final WaitingCondition waiting = mapWait(flow, step, wait);
             if (waiting != null) {
                 serverProtocol.requireGracefulCompletionConditionSupport(waiting);
@@ -159,14 +168,22 @@ final class WorkerDispatcher {
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
         try {
             final StepDecision decision = callExecute(step.getStep(), context, input);
-            serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
+            final InvocationContext.BufferedChanges changes = context.snapshotBufferedChanges();
+            RequiredAttributeLockCheck.check(
+                    flow,
+                    step.getName(),
+                    MissingAttributeLockException.HandlerMethod.EXECUTE,
+                    null,
+                    step.getExecuteLockKeys(),
+                    changes);
+            serverProtocol.requireHardDeleteAttributeSupport(changes.attributeWrites);
             final InvokeExecuteMethodResponse response = InvokeExecuteMethodResponse.newBuilder()
                     .setStepDecision(mapDecision(flow, step, decision))
-                    .addAllUpsertAttributes(context.getAttributeWrites())
+                    .addAllUpsertAttributes(changes.attributeWrites)
                     .addAllRecordEvents(context.getEvents())
                     .addAllUpsertStepExeLocals(context.getLocalWrites())
-                    .addAllPublishToChannel(context.getPublications())
-                    .addAllDeleteFromChannel(context.getChannelDeletions())
+                    .addAllPublishToChannel(changes.publications)
+                    .addAllDeleteFromChannel(changes.channelDeletions)
                     .build();
             final Throwable finalizationFailure = context.finalizeStepOutputs(null);
             if (finalizationFailure != null) {
@@ -206,17 +223,19 @@ final class WorkerDispatcher {
                 request.getLoadedChannelMapInstancesList(),
                 serverProtocol);
         final StepDecision decision = flow.getFlow().handleTimeout(context);
-        serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
+        // Timeout handlers are not checked: their locks come from the Flow start options.
+        final InvocationContext.BufferedChanges changes = context.snapshotBufferedChanges();
+        serverProtocol.requireHardDeleteAttributeSupport(changes.attributeWrites);
         return InvokeExecuteMethodResponse.newBuilder()
                 .setStepDecision(mapDecision(
                         flow,
                         "Flow " + flow.getName() + " timeout handler",
                         decision))
-                .addAllUpsertAttributes(context.getAttributeWrites())
+                .addAllUpsertAttributes(changes.attributeWrites)
                 .addAllRecordEvents(context.getEvents())
                 .addAllUpsertStepExeLocals(context.getLocalWrites())
-                .addAllPublishToChannel(context.getPublications())
-                .addAllDeleteFromChannel(context.getChannelDeletions())
+                .addAllPublishToChannel(changes.publications)
+                .addAllDeleteFromChannel(changes.channelDeletions)
                 .build();
     }
 
@@ -251,12 +270,20 @@ final class WorkerDispatcher {
             arguments = new Object[] {context};
         }
         final Object returned = invoke(flow.getFlow(), method, arguments);
-        serverProtocol.requireHardDeleteAttributeSupport(context.getAttributeWrites());
+        final InvocationContext.BufferedChanges changes = context.snapshotBufferedChanges();
+        RequiredAttributeLockCheck.check(
+                flow,
+                null,
+                MissingAttributeLockException.HandlerMethod.RPC,
+                rpc.getName(),
+                rpc.getLockKeys(),
+                changes);
+        serverProtocol.requireHardDeleteAttributeSupport(changes.attributeWrites);
         final InvokeWorkerRPCResponse.Builder response = InvokeWorkerRPCResponse.newBuilder()
-                .addAllUpsertAttributes(context.getAttributeWrites())
+                .addAllUpsertAttributes(changes.attributeWrites)
                 .addAllRecordEvents(context.getEvents())
-                .addAllPublishToChannel(context.getPublications())
-                .addAllDeleteFromChannel(context.getChannelDeletions());
+                .addAllPublishToChannel(changes.publications)
+                .addAllDeleteFromChannel(changes.channelDeletions);
         if (returned instanceof RPCResult) {
             final RPCResult<?> result = (RPCResult<?>) returned;
             response.setOutput(values.encode(result.getOutput()));
@@ -509,7 +536,7 @@ final class WorkerDispatcher {
         final io.superdurable.gen.StepOptions options = mapStepOptions(
                 flow,
                 movement.getOptions() == null
-                        ? target.getStep().getStepOptions()
+                        ? target.getDefaultStepOptions()
                         : movement.getOptions());
         if (options != null || target.skipsWaitFor()) {
             final io.superdurable.gen.StepOptions.Builder mappedOptions = options == null
@@ -567,7 +594,7 @@ final class WorkerDispatcher {
                     .setExecuteFailureProceedStepType(registeredTarget.getName());
             final io.superdurable.gen.StepOptions targetOptions =
                     mapStepOptions(flow, target.getOptions() == null
-                            ? registeredTarget.getStep().getStepOptions()
+                            ? registeredTarget.getDefaultStepOptions()
                             : target.getOptions());
             if (targetOptions != null || registeredTarget.skipsWaitFor()) {
                 final io.superdurable.gen.StepOptions.Builder mappedTarget =
@@ -647,7 +674,7 @@ final class WorkerDispatcher {
             final io.superdurable.gen.StepOptions targetOptions = mapStepOptions(
                     flow,
                     target.getOptions() == null
-                            ? registeredTarget.getStep().getStepOptions()
+                            ? registeredTarget.getDefaultStepOptions()
                             : target.getOptions());
             if (targetOptions != null || registeredTarget.skipsWaitFor()) {
                 final io.superdurable.gen.StepOptions.Builder mappedTarget = targetOptions == null
@@ -962,7 +989,7 @@ final class WorkerDispatcher {
                     .setOptions(mappedOptions)
                     .setSubFlowIndex(index);
             final io.superdurable.gen.StepOptions stepOptions =
-                    mapStepOptions(target, start.getStep().getStepOptions());
+                    mapStepOptions(target, start.getDefaultStepOptions());
             if (stepOptions != null || start.skipsWaitFor()) {
                 final io.superdurable.gen.StepOptions.Builder mappedStepOptions =
                         stepOptions == null

@@ -33,4 +33,9 @@ public abstract class PersistenceDefinition {
     boolean isHardDeleteOnNull() {
         return false;
     }
+
+    /** Returns the declared write or publish lock, or {@code null} when none is declared. */
+    LockRequirement getLockRequirement() {
+        return null;
+    }
 }

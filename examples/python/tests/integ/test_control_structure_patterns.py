@@ -32,6 +32,7 @@ from dex import (
 )
 
 from dex_examples.app import ExampleApp
+from dex_examples.http_app import create_app
 from dex_examples.patterns.cancel_case.loan_application_flow import (
     STOPPED_CREDIT_CHECK_FLOW_ID,
     LoanApplication,
@@ -132,20 +133,45 @@ async def test_deferred_choice_routes_on_the_customer_response(
     assert outputs_of(result, expected_step, str) == [expected_output]
 
 
-async def test_deferred_choice_consumes_only_the_winning_response(
+async def test_deferred_choice_route_answers_window_closed_after_the_offer_closed(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow = app.offer_response
-    flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "pattern-deferred-choice-race", "offer-2"
+    http_client = create_app(app).test_client()
+    flow_id = new_flow_id("pattern-deferred-choice-route")
+    start = await http_client.get(
+        "/patterns/deferred-choice/start",
+        query_string={"workflowId": flow_id, "offerId": "offer-6"},
     )
-    await client.invoke_rpc(flow.accept_customer_offer, flow_id, "yes")
-    await client.invoke_rpc(flow.reject_customer_offer, flow_id, "no")
-    result = await wait_for_completed_flow(client, flow_id)
-    assert len(result.completions) == 1
-    assert result.completions[0].step_type in ("FulfillOffer", "CloseRejectedOffer")
+    assert start.status_code == 200, await start.get_data(as_text=True)
+    accept = await http_client.get(
+        "/patterns/deferred-choice/accept",
+        query_string={"workflowId": flow_id, "note": "looks good"},
+    )
+    assert (accept.status_code, await accept.get_data(as_text=True)) == (
+        200,
+        "offer response recorded",
+    )
+    await wait_for_completed_flow(client, flow_id)
+
+    # The Flow has ended, so Dex rejects the RPC before its handler; the route reads the Flow.
+    late = await http_client.get(
+        "/patterns/deferred-choice/reject",
+        query_string={"workflowId": flow_id, "note": "too late"},
+    )
+    assert (late.status_code, await late.get_data(as_text=True)) == (
+        409,
+        "offer response window closed",
+    )
+    missing = await http_client.get(
+        "/patterns/deferred-choice/accept",
+        query_string={"workflowId": new_flow_id("pattern-deferred-choice-missing"), "note": "hi"},
+    )
+    assert (missing.status_code, await missing.get_data(as_text=True)) == (
+        404,
+        "offer response flow not found",
+    )
 
 
 async def test_critical_section_runs_one_edit_at_a_time(

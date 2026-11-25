@@ -87,9 +87,12 @@ class OrchestrationFlow(Flow[str]):
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.data, self.ready)
 
-    @rpc
+    @rpc(lock_attributes=(data.lock(),))
     def swap(self, context: Context, new_data: str) -> RPCResult[str]:
         old_data = self.data.get(context)
+        # CallAPI1 would overwrite a value written before it stores data.
+        if old_data is None:
+            raise RuntimeError("data is not ready yet")
         self.data.set(context, new_data)
         return RPCResult(old_data)
 ```
@@ -143,7 +146,9 @@ func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
 
 func (flow *OrchestrationFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.Swap, nil),
+		dex.DefineRPC(flow.Swap, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(Data)},
+		}),
 		dex.DefineRPC(flow.SignalReady, nil),
 		dex.DefineRPC(flow.GetData, nil),
 	}
@@ -241,9 +246,13 @@ public class OrchestrationFlow implements Flow<String> {
         return PersistenceSchema.of(data, ready);
     }
 
-    @RPC
+    @RPC(lockAttributes = {"data"})
     public RPCResult<String> swap(final Context context, final String newData) {
         final String oldData = data.get(context);
+        // CallAPI1 would overwrite a value written before it stores data.
+        if (oldData == null) {
+            throw new IllegalStateException("data is not ready yet");
+        }
         data.set(context, newData);
         return RPCResult.of(oldData);
     }
@@ -284,8 +293,10 @@ final class CallAPI3 implements Step<Void> {
 <SdkSnippet lang="typescript">
 
 ```typescript
+const data = new Attribute("data", stringCodec);
+
 export class OrchestrationFlow implements Flow<string> {
-  public readonly data = new Attribute("data", stringCodec);
+  public readonly data = data;
 
   public readonly callAPI1 = new CallAPI1(this);
   public readonly callAPI2 = new CallAPI2(this);
@@ -313,9 +324,13 @@ export class OrchestrationFlow implements Flow<string> {
     };
   }
 
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [data.lock()] })
   public swap(context: Context, newData: string): RPCResult<string> {
     const oldData = this.data.get(context);
+    // CallAPI1 would overwrite a value written before it stores data.
+    if (oldData === undefined) {
+      throw new Error("data is not ready yet");
+    }
     this.data.set(context, newData);
     return { output: oldData };
   }
@@ -384,7 +399,7 @@ impl Flow for OrchestrationFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .function(SWAP_ORCHESTRATION_DATA, Self::swap)
+            .function(SWAP_ORCHESTRATION_DATA.lock(DATA.lock()), Self::swap)
             .procedure_without_input(SIGNAL_ORCHESTRATION_READY, Self::signal_ready)
     }
 }

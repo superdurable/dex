@@ -54,9 +54,55 @@ from dex_agents.values import (
 )
 
 #: Model-visible text for a call whose outcome is unknown.
+#:
+#: .. versionchanged:: 0.6.18
+#:    A call whose last tool Step attempt raised an exception, a record with
+#:    ``AgentToolCall.tool_step_threw`` set, shows
+#:    ``OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT`` instead.
 OUTCOME_UNKNOWN_TOOL_RESULT = (
     "The tool call's outcome is unknown: it stopped without returning a result, so it may "
     "or may not have taken effect. It will not be retried automatically."
+)
+
+#: Template of the model-visible text for an ``OUTCOME_UNKNOWN`` call whose last
+#: tool Step attempt raised an exception, a record with
+#: ``AgentToolCall.tool_step_threw`` set.
+#:
+#: ``{error}`` is the record's ``error``, cut to
+#: ``OUTCOME_UNKNOWN_ERROR_MAX_BYTES``. The model reads the error, such as a
+#: service's answer that the charge was already refunded, instead of being told
+#: that the call returned nothing.
+#:
+#: .. versionadded:: 0.6.18
+OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT = (
+    "The tool call's outcome is unknown: it ended with an error, so it may or may not have "
+    "taken effect. It will not be retried automatically. Error: {error}"
+)
+
+#: Most UTF-8 bytes of a raised exception's message that
+#: ``OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT`` keeps.
+#:
+#: ``describe_tool_call_outcome`` cuts a longer message at the last whole
+#: character within this budget and appends
+#: ``OUTCOME_UNKNOWN_ERROR_TRUNCATION_MARKER``; the stored record keeps the
+#: whole message. The Python and TypeScript Dex SDKs already report at most
+#: this many bytes of a Worker error's message, so the text then shows such a
+#: message whole. The text uses a copy of the message with surrogate pairs
+#: combined and each lone surrogate replaced by U+FFFD, and counts bytes on
+#: that copy.
+#:
+#: .. versionadded:: 0.6.18
+OUTCOME_UNKNOWN_ERROR_MAX_BYTES = 1024
+
+#: Marker ``OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT`` appends to a cut error
+#: message.
+#:
+#: ``{omitted_bytes}`` is the UTF-8 size of the cut part and ``{total_bytes}``
+#: the size of the whole message, both in plain decimal digits.
+#:
+#: .. versionadded:: 0.6.18
+OUTCOME_UNKNOWN_ERROR_TRUNCATION_MARKER = (
+    "\u2026 [error truncated: {omitted_bytes} of {total_bytes} bytes omitted]"
 )
 
 #: First line of the note ``RecordTurnFailure`` stores after a failed turn ran tools.
@@ -227,9 +273,19 @@ def describe_tool_call_outcome(tool_call: AgentToolCall) -> str:
     Args:
         tool_call: A record whose status is final.
 
+    .. versionchanged:: 0.6.18
+       An ``OUTCOME_UNKNOWN`` record whose last tool Step attempt raised an
+       exception, ``AgentToolCall.tool_step_threw``, gets
+       ``OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT`` with the error.
+
     Returns:
-        The output for ``SUCCEEDED``; the error, the rejection message, or a
-        fixed explanation for the other final statuses.
+        The output for ``SUCCEEDED``; ``"The tool call failed: <error>"`` for
+        ``FAILED``; the rejection message, or ``DEFAULT_REJECTION_TOOL_RESULT``,
+        for ``REJECTED``. For ``OUTCOME_UNKNOWN``,
+        ``OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT`` with the record's error cut
+        to ``OUTCOME_UNKNOWN_ERROR_MAX_BYTES`` when ``tool_step_threw`` is
+        ``True`` and the error is not ``None``, otherwise
+        ``OUTCOME_UNKNOWN_TOOL_RESULT``.
 
     Raises:
         ValueError: If the record is still awaiting approval or approved.
@@ -241,7 +297,14 @@ def describe_tool_call_outcome(tool_call: AgentToolCall) -> str:
     if tool_call.status is ToolCallStatus.REJECTED:
         return tool_call.rejection_message or DEFAULT_REJECTION_TOOL_RESULT
     if tool_call.status is ToolCallStatus.OUTCOME_UNKNOWN:
-        return OUTCOME_UNKNOWN_TOOL_RESULT
+        if not tool_call.tool_step_threw or tool_call.error is None:
+            return OUTCOME_UNKNOWN_TOOL_RESULT
+        error = _truncate_well_formed_utf8_text(
+            tool_call.error,
+            OUTCOME_UNKNOWN_ERROR_MAX_BYTES,
+            OUTCOME_UNKNOWN_ERROR_TRUNCATION_MARKER,
+        )
+        return OUTCOME_UNKNOWN_THROWN_ERROR_TOOL_RESULT.format(error=error)
     raise ValueError(f"tool call {tool_call.tool_call_id} has no final outcome yet")
 
 
@@ -316,23 +379,28 @@ def build_tool_call_note(header: str, tool_calls: Sequence[AgentToolCall]) -> st
 
 def _truncate_note_outcome(outcome: str) -> str:
     """Return the well-formed ``outcome``, cut to the note budget with the marker when longer."""
+    return _truncate_well_formed_utf8_text(
+        outcome, TOOL_CALL_NOTE_MAX_OUTPUT_BYTES, TOOL_CALL_NOTE_TRUNCATION_MARKER
+    )
+
+
+def _truncate_well_formed_utf8_text(text: str, max_bytes: int, marker_template: str) -> str:
+    """Return the well-formed ``text``, cut to ``max_bytes`` with the filled-in marker if longer."""
     # Every core cuts the same text: surrogate pairs combined, lone surrogates as U+FFFD.
-    text = outcome
+    original = text
     try:
         encoded = text.encode("utf-8")
     except UnicodeEncodeError:
-        text = outcome.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+        text = original.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
         encoded = text.encode("utf-8")
     total_bytes = len(encoded)
-    if total_bytes <= TOOL_CALL_NOTE_MAX_OUTPUT_BYTES:
+    if total_bytes <= max_bytes:
         return text
-    kept_bytes = TOOL_CALL_NOTE_MAX_OUTPUT_BYTES
+    kept_bytes = max_bytes
     # Back up over UTF-8 continuation bytes to the start of the cut character.
     while encoded[kept_bytes] & 0xC0 == 0x80:
         kept_bytes -= 1
-    marker = TOOL_CALL_NOTE_TRUNCATION_MARKER.format(
-        omitted_bytes=total_bytes - kept_bytes, total_bytes=total_bytes
-    )
+    marker = marker_template.format(omitted_bytes=total_bytes - kept_bytes, total_bytes=total_bytes)
     return encoded[:kept_bytes].decode("utf-8") + marker
 
 

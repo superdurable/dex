@@ -13,15 +13,15 @@ publisher, while the stable plugin ID remains `superdurable-dex`.
 
 | Skill | Responsibility |
 | --- | --- |
-| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a Go backend and UI, and verify locally with source-available Dex. |
-| `dex-sdk` | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
+| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a backend in Go, Python, TypeScript, Java, or Rust and a UI, and verify locally with source-available Dex. Also implement, debug, test, and operate existing Dex applications through its SDK-only route. |
 | `dex-connector-contributor` | Create, verify, and upstream official connector operations, Triggers, and configuration UI units. |
+| `dex-sdk` | Transition name for explicit invocation only. Its guidance merged into `dex-app-builder`, and it tells the agent to load that skill. A later release removes it. |
 
-Start with `dex-app-builder` for Dex product, application, and process work.
-The three Skills can each be selected from a matching natural-language request;
-their descriptions keep standalone SDK and official connector-library work in
-the appropriate specialist. Install the complete plugin so all three skills
-and their sibling links are present.
+Start with `dex-app-builder` for Dex product, application, process, and SDK
+work. `dex-app-builder` and `dex-connector-contributor` can each be selected
+from a matching natural-language request; their descriptions keep official
+connector-library work in the specialist. Install the complete plugin so all
+three skills and their sibling links are present.
 
 ## Requires a coding workspace
 
@@ -115,7 +115,7 @@ Or run the slash-command equivalents inside an interactive Claude Code session:
 /plugin install superdurable-dex@superdurable
 ```
 
-Invoke `/superdurable-dex:dex-sdk`, `/superdurable-dex:dex-app-builder`, or
+Invoke `/superdurable-dex:dex-app-builder` or
 `/superdurable-dex:dex-connector-contributor`. For example:
 
 ```text
@@ -263,7 +263,8 @@ import; manage that installation through **Customize** instead of guessing one.
 ## Migrating from the old plugin
 
 The former Plugin ID `dex` and Skill name `dex-developer` were replaced by
-`superdurable-dex` and `dex-sdk`. Remove or update the old marketplace install,
+`superdurable-dex` and `dex-sdk`, and `dex-sdk` has since merged into
+`dex-app-builder`. Invoking `dex-sdk` by name still loads `dex-app-builder`. Remove or update the old marketplace install,
 choose either the current Plugin or standalone bundle, and start a new task so
 the new Skill names are discovered.
 
@@ -274,13 +275,14 @@ guidance and can shadow the current installation. Remove
 it with the tool that installed it, install exactly one current distribution,
 and start a new task.
 
-## Dex SDK
+## SDK guidance
 
-`dex-sdk` is the coding-agent version of the Dex stable layer: the same scope
-as the docs Concepts, Components, and Design patterns, written as mental
-models, decision tables, rules, anti-patterns, code skeletons, and a
+`dex-app-builder` holds the coding-agent version of the Dex stable layer: the
+same scope as the docs Concepts, Components, and Design patterns, written as
+mental models, decision tables, rules, anti-patterns, code skeletons, and a
 self-check list. It uses progressive disclosure. Shared semantics live under
-`dex-sdk/references/core/`, and each supported language has its own folder.
+`dex-app-builder/references/core/`, and each supported language has its own
+folder. Its SDK-only route skips product discovery for focused SDK work.
 
 The skill contains no Dex version numbers. Exact APIs, defaults, limits, and
 configuration live in the versioned docs
@@ -292,56 +294,62 @@ lockfile remain authoritative.
 ## Dex App Builder
 
 `dex-app-builder` builds a Dex application with source-available Dex only: the Dex
-Go SDK, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server
+SDK for the application's language, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server
 (server-zd), Dex Web, and released official connectors.
 
 It starts with business discovery: process maintainers, managers, terminal
 users, permissions, triggers, actions, waits, approvals, recovery, and audit
 requirements. It models Flows, their primitives, and their Flow Definition
-Graph (FDG) before code, and maps management needs to Dex Web before
-confirming **No custom UI** or **Custom UI**. Runs and Indexed Attributes cover
-list and search, Summary RPCs provide list fields, Display RPCs provide details
-and editable scalars, Action RPC metadata provides forms and permission-gated
-operations, Work Queue discovers actionable Runs, and timeline/graph views show
-progress and failures. A request for an admin backend is not itself a reason
-for Custom UI; discovery must record a specific Dex Web capability gap.
+Graph (FDG) before code. The backend is the main line: Flow design, Dex-first
+state, Workers, and the application's own HTTP API contract for its UI or
+callers. Discovery asks once which UI the user wants: their own UI, which most
+products need, Dex Web for operations and management, both, or neither when
+callers only use the application API. There is no
+Dex Web-only default, and the user's own UI needs no recorded Dex Web gap.
+When the user chooses Dex Web, Runs and Indexed Attributes cover list and
+search, Summary RPCs provide list fields, Display RPCs provide details and
+editable scalars, Action RPC metadata provides forms and permission-gated
+operations, Work Queue discovers actionable Runs, and timeline/graph views
+show progress and failures; the user's own UI repeats them only on request.
 
-The backend is Go-only by product decision and must satisfy strict Dex Web / FDG 2.0 rendering.
-Official Connectors are not Go-only: the catalog lists the languages of each connector and
-of each operation and Trigger, and `dex-sdk` describes Python and TypeScript use.
-An existing application keeps its pinned Go, Dex SDK, `dexcli`, and frontend
-versions. An effectively empty repository becomes a Go module on an exact
-released Dex Go SDK paired with the installed `dexcli`. App Builder does not
-invent a TypeScript backend or borrow SDK setup from a neighboring project.
+The backend can be Go, Python, TypeScript, Java, or Rust, and must satisfy strict Dex Web / FDG 2.0
+rendering with the directives the Flow visualization reference lists for that language.
+An existing application keeps its language and its pinned toolchain, Dex SDK, `dexcli`, and frontend
+versions. Otherwise App Builder uses the language the user names, or TypeScript when the user names
+none. An effectively empty repository gets an exact released Dex SDK for that language paired with
+the installed `dexcli`. App Builder does not borrow SDK setup from a neighboring project. The
+catalog lists the languages of each connector and of each operation and Trigger, and App Builder
+uses the connector packages for the application's language.
 
-No custom UI uses Dex Web for every management interaction, so the
-application ships only its Go Worker plus any confirmed integration ingress.
-For a custom frontend, App Builder first builds only low-fidelity static pages
+For the user's own frontend, App Builder first builds only low-fidelity static pages
 when an interaction choice is unresolved, then designs the Flow, Connector
-boundaries, and application API contract together, generates the Go server
-interfaces and TypeScript client, implements the Go backend, wires the UI
+boundaries, and application API contract together, generates the server
+interfaces and TypeScript client, implements the backend, wires the UI
 through the generated client after the real Dex and Connector paths run, and
 adds visual polish only after real E2E passes. The application does not ship a
 mock backend or mock controls.
 
-Connector integrations reuse released dedicated connectors from
-`superdurable/dex-connectors-library`. Selection starts from the canonical
+Connectors are optional too. When discovery finds an external system, App
+Builder asks whether the user wants a released connector for it; otherwise the
+application calls the system from its own `Execute` code with idempotency,
+timeouts, and recovery. Chosen connector integrations reuse released dedicated
+connectors from `superdurable/dex-connectors-library`. Selection starts from the canonical
 published [`catalog.yaml`](https://connectors.superdurable.io/catalog.yaml),
 then verifies every exact Trigger, Query, Mutation, or UI capability, and its
-`go` language support, against the selected component tag's immutable `connector.yaml`. If the catalog or release
+support for the application's language, against the selected component tag's immutable `connector.yaml`. If the catalog or release
 manifest cannot be verified, App Builder stops connector-dependent
 implementation instead of guessing from memory or falling back to a provider
 SDK. Query/Mutation factories become Connector Steps, Triggers start typed
 Flows or invoke typed RPCs, and RPC-requested provider work moves to a
 Connector Step. A missing or defective public connector capability routes to
 `dex-connector-contributor`; the application can test the local connector
-through an uncommitted Go `replace` while its upstream PR is reviewed, then
+through an uncommitted local package override while its upstream PR is reviewed, then
 must pin the exact release. Generic HTTP is reserved for controlled internal
 systems.
 
 Local verification runs on one long-lived `dexcli dev` stack started as soon as
 the first Flow renders. Every Flow is rendered with
-`dexcli visualize --schema-version 2.0 --json` into the stack's
+`dexcli visualize --json` into the stack's
 `--flow-rendering-dir`, and the user receives the Dex Web URL right away. Dex
 Web configures released connectors in its local **Connectors** view; the
 default plaintext development store is `~/.dex/connectors/connections.json`,
@@ -367,7 +375,7 @@ manifest authoring, generated contracts, configuration guidance, provider
 behavior, examples, testing, release ordering, and upstream contribution
 details.
 
-The bootstrap loads `dex-sdk` Core and Go guidance when the connector change
+The bootstrap loads the `dex-app-builder` Core and Go guidance when the connector change
 touches Dex application semantics. It does not carry a snapshot of connector
 implementation rules, so a contribution always follows the target checkout's
 current contract.

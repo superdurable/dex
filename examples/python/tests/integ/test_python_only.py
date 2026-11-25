@@ -14,17 +14,29 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Callable
 
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.patterns.resource_control.controller_flow import SPOT_INSTANCE_IDS
+from dex_examples.patterns.resource_control.controller_flow import (
+    MAX_BUFFERED_REQUESTS,
+    SPOT_INSTANCE_IDS,
+)
 from dex_examples.patterns.resource_control.request import Request
 from dex_examples.primitives.channel.channel_flow import QueuedMessageReference
+from dex_examples.shared.lock_conflict_retry import invoke_rpc_retrying_lock_conflict
 from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT, wait_until
 
-from dex import AsyncClient, ChannelMessageNotFoundError
+from dex import (
+    AsyncClient,
+    ChannelMessageNotFoundError,
+    Context,
+    FlowNotFoundError,
+    FlowStatus,
+    StepDecision,
+)
 from dex_agents import AgentEventType, AgentSessionClient
 
 pytestmark = pytest.mark.integ
@@ -163,6 +175,98 @@ async def test_resourcecontrol_enqueue(
         controller_running,
         LONG_WAIT_TIMEOUT,
     )
+
+
+async def test_resourcecontrol_shutdown_stops_admission_and_drains_accepted_requests(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller_id = new_flow_id(SPOT_INSTANCE_IDS[0])
+    barrier = _ExecutionBarrier(app.controller.init.execute)
+    monkeypatch.setattr(app.controller.init, "execute", barrier.execute)
+    bootstrap = Request(new_flow_id("bootstrap"), "boot")
+    await client.start_flow(app.controller, controller_id, bootstrap, start_options())
+    accepted = [Request(new_flow_id(f"req-{index}"), "payload") for index in range(3)]
+    late = Request(new_flow_id("late"), "payload")
+    try:
+        # Init stays paused, so shutdown commits with a backlog of accepted requests.
+        await asyncio.wait_for(barrier.started.wait(), WAIT_TIMEOUT.total_seconds())
+        for request in accepted:
+            assert await invoke_rpc_retrying_lock_conflict(
+                lambda request=request: client.invoke_rpc(
+                    app.controller.enqueue, controller_id, request
+                )
+            )
+        shutdowns = await asyncio.gather(
+            *(
+                invoke_rpc_retrying_lock_conflict(
+                    lambda: client.invoke_rpc(app.controller.shutdown, controller_id)
+                )
+                for _ in range(2)
+            )
+        )
+        assert sorted(shutdowns) == [False, True]
+        assert not await invoke_rpc_retrying_lock_conflict(
+            lambda: client.invoke_rpc(app.controller.enqueue, controller_id, late)
+        )
+    finally:
+        barrier.release.set()
+
+    assert (await client.wait_for_flow(controller_id, LONG_WAIT_TIMEOUT)).status is (
+        FlowStatus.COMPLETED
+    )
+    # Each accepted request started its ProcessingFlow; IdReusePolicy.DISALLOW rules out a second run.
+    for request in [bootstrap, *accepted]:
+        info = await client.describe_flow(f"processing-{request.id}")
+        assert info.flow_type == "ProcessingFlow", request.id
+    with pytest.raises(FlowNotFoundError):
+        await client.describe_flow(f"processing-{late.id}")
+
+
+async def test_resourcecontrol_enqueue_counts_the_start_request_before_init(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller_id = new_flow_id(SPOT_INSTANCE_IDS[0])
+    barrier = _ExecutionBarrier(app.controller.init.execute)
+    monkeypatch.setattr(app.controller.init, "execute", barrier.execute)
+    await client.start_flow(
+        app.controller, controller_id, Request(new_flow_id("bootstrap"), "boot"), start_options()
+    )
+    try:
+        await asyncio.wait_for(barrier.started.wait(), WAIT_TIMEOUT.total_seconds())
+        results = [
+            await invoke_rpc_retrying_lock_conflict(
+                lambda: client.invoke_rpc(
+                    app.controller.enqueue, controller_id, Request(new_flow_id("req"), "payload")
+                )
+            )
+            for _ in range(MAX_BUFFERED_REQUESTS)
+        ]
+    finally:
+        barrier.release.set()
+    # The start request takes one of the MAX_BUFFERED_REQUESTS places.
+    assert results.count(True) == MAX_BUFFERED_REQUESTS - 1
+    assert results[-1] is False
+    await invoke_rpc_retrying_lock_conflict(
+        lambda: client.invoke_rpc(app.controller.shutdown, controller_id)
+    )
+
+
+class _ExecutionBarrier:
+    def __init__(self, execute: Callable[[Context, Request], StepDecision]) -> None:
+        self.original_execute = execute
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def execute(self, context: Context, input: Request) -> StepDecision:
+        self.started.set()
+        await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
+        return self.original_execute(context, input)
 
 
 async def test_ai_agent_conversation_and_durable_wait(

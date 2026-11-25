@@ -19,7 +19,11 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
-from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentSnapshot, MessageRole
+from dex_agents import AgentSnapshot, MessageRole
+
+# Every result of a call with an unknown outcome starts like this: the one for a call that
+# returned nothing and, since dex-agents 0.6.18, the one that ends with the error its tool raised.
+UNKNOWN_OUTCOME_PREFIX = "The tool call's outcome is unknown: "
 
 # Asks your service about one call: (idempotency key, tool arguments as JSON) -> report text.
 OutcomeCheck = Callable[[str, str], Awaitable[str]]
@@ -43,7 +47,7 @@ async def report_unknown_outcomes(
     sent = "\n".join(m.text or "" for m in snapshot.messages if m.role == MessageRole.USER)
     reports: list[str] = []
     for message in snapshot.messages:
-        if OUTCOME_UNKNOWN_TOOL_RESULT not in (message.tool_output or ""):
+        if UNKNOWN_OUTCOME_PREFIX not in (message.tool_output or ""):
             continue
         # Every attempt of the call passed this key to the service.
         key = f"{session_id}/{message.turn_id}/{message.tool_call_id}"

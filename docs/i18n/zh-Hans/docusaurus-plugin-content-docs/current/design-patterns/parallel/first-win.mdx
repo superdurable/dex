@@ -13,9 +13,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 **Init** 启动多个 `DoWork` execution。每个 execution 随机等待一小段时间，所以任何一个都可能最先完成。最先返回 decision 的 execution 会取消其他 `DoWork` sibling execution。Flow 保留第一个结果，并停止已经无法改变结果的工作。
 
+每个分支都是独立的 Step execution，有自己的重试、失败路由和持久结果。在一个 `Execute` 里用进程内并发（例如 `Promise.any`、asyncio task 或线程）让几个外部调用互相竞争，这三样都会失去。
+
 ## 核心实现
 
 取消选择器只取消同一 Step 类型的 sibling execution。其他分支继续运行。
+
+每个落败的 execution 都要关注它所在 Step 的取消信号。支持取消的调用，把信号传给它。其他调用设置较短的超时，并在调用之间检查信号。取消是协作式的，不会撤销已经发生的外部效果。已经生效的预留，用一次独立、有界、幂等的调用撤回。必须释放的预留，使用会到期的租约，或以业务 ID 为键的持久补偿分支。
 
 <SdkTabs
   examples={{
@@ -178,4 +182,5 @@ impl Step for FirstWinWork {
 
 ## 下一步
 
+- [临界区](/design-patterns/parallel/critical-section)
 - [并行 Step](/design-patterns/parallel)

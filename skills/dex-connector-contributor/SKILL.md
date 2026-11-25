@@ -17,16 +17,16 @@ Add <XYZ> to Dex official connector library
 ## Session start
 
 Before the first substantive Dex-related response, run the shared Dex Skills
-version check that the [Dex SDK skill](../dex-sdk/SKILL.md) describes. Prefer
+version check that the [Dex App Builder skill](../dex-app-builder/SKILL.md) describes. Prefer
 the lifecycle hook status; run the Skill fallback only when that status is
 `unavailable` or absent. Run it only once and never delay or block the task.
 
 ## Scope
 
 Use this skill only for changes to the official
-`superdurable/dex-connectors-library`. Route standalone Dex SDK work to the
-sibling [Dex SDK skill](../dex-sdk/SKILL.md). A product or application that
-only consumes a released connector remains in `dex-app-builder`.
+`superdurable/dex-connectors-library`. Route standalone Dex SDK work, and any
+product or application that only consumes a released connector, to the
+sibling [Dex App Builder skill](../dex-app-builder/SKILL.md).
 
 ## Resolve the checkout
 
@@ -54,8 +54,8 @@ After entering the checkout:
 2. Read the relevant files under `docs/` and the owning connector or SDK module
    README selected by those instructions.
 3. When the change touches Dex application semantics, read the sibling
-   [Dex SDK skill](../dex-sdk/SKILL.md) completely and follow its routing for
-   the required Core references and the Go reference, plus the Python or
+   [Dex App Builder skill](../dex-app-builder/SKILL.md) completely and follow
+   its SDK-only route and reference routing for the required Core references and the Go reference, plus the Python or
    TypeScript reference when the change touches a package in that language.
    For Dex writes followed by reads or completion checks, include its
    read-after-write rules.

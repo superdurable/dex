@@ -1,6 +1,6 @@
 # Dex Java examples
 
-These examples target `io.superdurable:dex-sdk:1.44.0` (`io.superdurable.dex`).
+These examples target `io.superdurable:dex-sdk:1.45.2` (`io.superdurable.dex`).
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. One Registry and disk BlobCache are shared by its
@@ -93,18 +93,22 @@ after E2E tests for manual HTTP exploration.
 Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 
 - [Cancel case: stop a running child Flow](./src/main/java/io/superdurable/dex/patterns/cancelcase)
+- [Child Flows with business identity: one top-level Flow per shipment number](./src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity)
+- [Control Long-Running Work: change the batch size or stop a record backfill](./src/main/java/io/superdurable/dex/patterns/controllongrunningwork)
 - [Critical section: a one-message Channel token](./src/main/java/io/superdurable/dex/patterns/criticalsection)
 - Cron schedule
 - [Deferred choice: the first response or expiry wins](./src/main/java/io/superdurable/dex/patterns/deferredchoice)
 - Drain internal / externally published channels
-- Interruptible execution
 - Manual recovery
 - Parallel Steps (static / dynamic / await / first win)
 - Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)
 - [Polling an external job in one long-running Step](./src/main/java/io/superdurable/dex/patterns/polling)
+- [Failing fast on a permanent provider error](./src/main/java/io/superdurable/dex/patterns/failfast)
 - Failure recovery (saga)
 - Reminders
 - Inactiveness Tracker Timer
+- [Idle Timer with Resolution](./src/main/java/io/superdurable/dex/patterns/inboundeventloop)
+- [Entity Flow customer accounts](./src/main/java/io/superdurable/dex/patterns/entityflow)
 - [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for Step completion

@@ -21,6 +21,8 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_NAMES = ("dex-app-builder", "dex-sdk", "dex-connector-contributor")
+# A former skill name that answers explicit invocation only and defers to dex-app-builder.
+TRANSITION_SKILL_NAMES = ("dex-sdk",)
 MANIFESTS = {
     "codex": Path(".codex-plugin/plugin.json"),
     "claude": Path(".claude-plugin/plugin.json"),
@@ -42,7 +44,7 @@ FENCED_BLOCK = re.compile(r"^(```|~~~).*?^\1", re.DOTALL | re.MULTILINE)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 EXPLICIT_ANCHOR = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
-URL = re.compile(r"https?://[^\s<>()`\"'\]\\|]+")
+URL = re.compile(r"https?://[^\s<>()`\"'\]\\|]+", re.IGNORECASE)
 
 # Dex Skills documents source-available Dex only; reject a downstream product name.
 DOWNSTREAM_PRODUCT_NAME = re.compile(r"super[\s_-]*verse", re.IGNORECASE)
@@ -86,7 +88,6 @@ DEX_RELEASE_PATTERNS = (
     re.compile(r"\bcli-v\d+"),
     re.compile(r"\b(?:dex[\w-]*|superdurable[\w/.-]*)[\"']?\s*(?:==|~=|>=|@|:|=)\s*[\"']?[\^~]?" + VERSION_NUMBER, re.IGNORECASE),
 )
-# Version phrases that are Dex versions everywhere except in the documents about n8n.
 GENERIC_VERSION_PATTERNS = (
     re.compile(r"\bv\d+\.\d+(?:\.\d+)?(?!\.?\d)"),
     re.compile(r"\b(?:Dex|SDK|server-zd|Server|dexcli|CLI|Web)\s+" + VERSION_NUMBER, re.IGNORECASE),
@@ -101,18 +102,13 @@ GENERIC_VERSION_PATTERNS = (
     ),
     re.compile(RELEASE_VERSION_NUMBER + r"\s+(?:or|and)\s+(?:later|newer|earlier|older)\b", re.IGNORECASE),
 )
-# These App Builder references describe n8n releases and node type versions.
-N8N_VERSION_DOCUMENTS = {
-    "dex-app-builder/references/n8n-semantics.md",
-    "dex-app-builder/references/workflow-import.md",
-}
 # A bare 0.x.y or 1.x.y counts only on a line that names a Dex component or a release.
 BARE_DEX_VERSION = re.compile(r"(?<![\w.])[01]\.\d+\.\d+(?!\w|\.\d)")
 BARE_VERSION_CONTEXT = re.compile(r"\b(?:dex|sdk|server|cli|web|release|version)", re.IGNORECASE)
 # Versions of external standards, formats, and toolchains, not Dex releases.
 ALLOWED_VERSION_TEXT = re.compile(
     r"(?i:\b(?:FDG|OAuth|TLS|HTTP|schema[- ]version)[ /]v?\d+(?:\.\d+)?|--schema-version[ =]+\d+\.\d+)"
-    r"|(?<![-\w/])(?:Node(?:\.js)?|Go|Rust|Java|JDK|Python|TypeScript|n8n) \d+(?:\.\d+)*"
+    r"|(?<![-\w/])(?:Node(?:\.js)?|Go|Rust|Java|JDK|Python|TypeScript) \d+(?:\.\d+)*"
     r"|\btypeVersion`?:?\s+\d+(?:\.\d+)*"
 )
 
@@ -120,6 +116,7 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
 PLACEHOLDER_HOST_SUFFIXES = (".example.com", ".example", ".invalid", ".test")
 # Patterns match host plus path, without the scheme, query, fragment, or a trailing slash.
 DEX_EXAMPLES_URL = re.compile(r"github\.com/superdurable/dex/(?:blob|tree)/main/examples(?:/[^?#]*)?")
+PINNED_DEX_EXAMPLES_URL = re.compile(r"github\.com/superdurable/dex/(?:blob|tree)/[0-9a-f]{40}/examples(?:/[^?#]*)?")
 # Each exception is a destination the Developer reference cannot replace.
 ALLOWED_EXTERNAL_URL_EXCEPTIONS = (
     (
@@ -154,13 +151,15 @@ def fail(message: str) -> None:
 
 
 def main() -> None:
-    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--allow-pinned-examples", action="store_true", help="allow full Dex example commit pins in the mirror")
+    arguments = parser.parse_args()
     version = (ROOT / "VERSION").read_text().strip()
     check_versions(version)
     check_manifests(version)
     skills = check_skill_layout()
     check_skill_links(skills)
-    check_skill_content(skills)
+    check_skill_content(skills, allow_pinned_examples=arguments.allow_pinned_examples)
     check_agent_rules()
     check_open_source_boundary()
     print(f"validated superdurable-dex {version} with three root skills")
@@ -168,8 +167,8 @@ def main() -> None:
 
 def check_versions(version: str) -> None:
     version_tuple(version)
-    if (ROOT / "dex-sdk" / "VERSION").read_text().strip() != version:
-        fail("dex-sdk/VERSION must match the root VERSION")
+    if (ROOT / "dex-app-builder" / "VERSION").read_text().strip() != version:
+        fail("dex-app-builder/VERSION must match the root VERSION")
     headings = {match.group("version") for match in CHANGELOG_HEADING.finditer((ROOT / "CHANGELOG.md").read_text())}
     if version not in headings:
         fail(f"CHANGELOG.md must have a '## {version} - YYYY-MM-DD' section")
@@ -274,14 +273,30 @@ def check_skill_layout() -> list[Path]:
         description = front_matter.get("description", "")
         if not description or len(description) > 1024 or "<" in description or ">" in description:
             fail(f"{skill.name}/SKILL.md needs a description of at most 1024 characters without angle brackets")
-        if front_matter.get("disable-model-invocation") == "true":
-            fail(f"{skill.name}/SKILL.md must allow model invocation")
         agent = skill / "agents" / "openai.yaml"
-        if not agent.is_file() or "allow_implicit_invocation: true" not in agent.read_text():
-            fail(f"{skill.name}/agents/openai.yaml must allow implicit invocation")
+        agent_text = agent.read_text() if agent.is_file() else ""
+        if skill.name in TRANSITION_SKILL_NAMES:
+            check_transition_skill_invocation(skill.name, front_matter, agent_text)
+        else:
+            check_public_skill_invocation(skill.name, front_matter, agent_text)
     if (ROOT / "dex-connector-contributor" / "references").exists():
         fail("dex-connector-contributor must defer to the target repository, not ship references")
     return skills
+
+
+def check_public_skill_invocation(name: str, front_matter: dict[str, str], agent_text: str) -> None:
+    if "disable-model-invocation" in front_matter:
+        fail(f"{name}/SKILL.md must allow model invocation")
+    if "allow_implicit_invocation: true" not in agent_text:
+        fail(f"{name}/agents/openai.yaml must set allow_implicit_invocation: true")
+
+
+def check_transition_skill_invocation(name: str, front_matter: dict[str, str], agent_text: str) -> None:
+    """A transition skill answers explicit invocation only, in Claude Code and Cursor and in Codex."""
+    if front_matter.get("disable-model-invocation") != "true":
+        fail(f"{name}/SKILL.md must set disable-model-invocation: true")
+    if "allow_implicit_invocation: false" not in agent_text:
+        fail(f"{name}/agents/openai.yaml must set allow_implicit_invocation: false")
 
 
 def check_skill_links(skills: list[Path]) -> None:
@@ -321,7 +336,7 @@ def check_skill_links(skills: list[Path]) -> None:
             fail(f"files not reachable from {skill.name}/SKILL.md: {', '.join(unreachable)}")
 
 
-def check_skill_content(skills: list[Path]) -> None:
+def check_skill_content(skills: list[Path], *, allow_pinned_examples: bool = False) -> None:
     problems = []
     for skill in skills:
         for path in sorted([*skill.rglob("*.md"), *skill.glob("agents/*.yaml")]):
@@ -330,13 +345,12 @@ def check_skill_content(skills: list[Path]) -> None:
             if "[TODO:" in content:
                 problems.append(f"{location}: unfinished [TODO: placeholder")
             for url in sorted(set(URL.findall(content))):
-                problem = external_url_problem(url.rstrip(".,;:*"))
+                problem = external_url_problem(url.rstrip(".,;:*"), allow_pinned_examples=allow_pinned_examples)
                 if problem:
                     problems.append(f"{location}: {problem}: {url}")
             for term in find_boundary_terms(content):
                 problems.append(f"{location}: names {term}; describe the Dex behavior instead")
-            is_n8n_document = location.as_posix() in N8N_VERSION_DOCUMENTS
-            for line_number, text in find_dex_versions(content, is_n8n_document):
+            for line_number, text in find_dex_versions(content):
                 problems.append(f"{location}:{line_number}: version number {text!r}; skills contain no version numbers")
     if problems:
         fail("skill content problems:\n" + "\n".join(f"  {problem}" for problem in problems))
@@ -363,11 +377,12 @@ def check_open_source_boundary() -> None:
             fail(f"{relative_path} must not describe a product built on Dex")
 
 
-def external_url_problem(url: str) -> str | None:
+def external_url_problem(url: str, *, allow_pinned_examples: bool = False) -> str | None:
     """Returns why an external URL is not allowed in skill content, or None when it is allowed.
 
     Skills link to the latest Developer reference, to runnable Dex examples on main, and to
-    the narrow exceptions in ALLOWED_EXTERNAL_URL_EXCEPTIONS.
+    the narrow exceptions in ALLOWED_EXTERNAL_URL_EXCEPTIONS. The mirror passes
+    --allow-pinned-examples to also allow Dex example links pinned to full commit SHAs.
     """
     parts = urlsplit(url)
     host = parts.netloc.lower()
@@ -386,6 +401,10 @@ def external_url_problem(url: str) -> str | None:
         return None
     location = f"{host}{parts.path.rstrip('/')}"
     if DEX_EXAMPLES_URL.fullmatch(location):
+        if parts.scheme != "https" or parts.netloc != host:
+            return "Dex example links must use https:// and a lowercase github.com host"
+        return None
+    if allow_pinned_examples and parts.scheme == "https" and parts.netloc == host and PINNED_DEX_EXAMPLES_URL.fullmatch(location):
         return None
     if any(pattern.fullmatch(location) for pattern, _reason in ALLOWED_EXTERNAL_URL_EXCEPTIONS):
         return None
@@ -398,17 +417,14 @@ def find_boundary_terms(content: str) -> list[str]:
     return [description for pattern, description in CONCEPT_BOUNDARY_TERMS if pattern.search(content)]
 
 
-def find_dex_versions(content: str, is_n8n_document: bool = False) -> list[tuple[int, str]]:
-    """Returns (line number, matched text) for each Dex version number in the content.
-
-    An n8n document is checked only for Dex release tags and dependency pins.
-    """
-    patterns = DEX_RELEASE_PATTERNS if is_n8n_document else DEX_RELEASE_PATTERNS + GENERIC_VERSION_PATTERNS
+def find_dex_versions(content: str) -> list[tuple[int, str]]:
+    """Returns (line number, matched text) for each Dex version number in the content."""
+    patterns = DEX_RELEASE_PATTERNS + GENERIC_VERSION_PATTERNS
     found = []
     for line_number, line in enumerate(content.splitlines(), start=1):
         text = ALLOWED_VERSION_TEXT.sub(" ", line)
         matches = [match.group(0) for pattern in patterns for match in pattern.finditer(text)]
-        if not is_n8n_document and BARE_VERSION_CONTEXT.search(text):
+        if BARE_VERSION_CONTEXT.search(text):
             matches.extend(match.group(0) for match in BARE_DEX_VERSION.finditer(text))
         found.extend((line_number, match) for match in dict.fromkeys(matches))
     return found

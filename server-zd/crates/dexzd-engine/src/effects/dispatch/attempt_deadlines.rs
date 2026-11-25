@@ -171,13 +171,9 @@ pub(super) fn task_event_end(
             ),
         )),
         StepTaskEvent::NotDelivered => AttemptEnd::Returned(StepAttemptReturnReason::NotDelivered),
-        StepTaskEvent::Disconnected { detail } => AttemptEnd::Failure(AttemptFailure::server(
-            StepAttemptFailureKind::DispatchError,
-            format!(
-                "{}: {detail}",
-                DispatchTaskErrorReason::WorkerDisconnected.as_str_name()
-            ),
-        )),
+        StepTaskEvent::Disconnected { detail } => {
+            AttemptEnd::Failure(AttemptFailure::worker_disconnected(&detail))
+        }
     })
 }
 

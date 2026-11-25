@@ -43,7 +43,6 @@ from dex import (
     Wait,
     force_complete_if_channels_empty,
     go_to,
-    graceful_complete,
     rpc,
 )
 
@@ -62,9 +61,17 @@ MAX_BUFFERED_REQUESTS = 20
 
 
 class MoveToAnotherInstance(Step[None]):
+    def __init__(self, request_queue: Channel[Request]) -> None:
+        self.request_queue = request_queue
+
     def execute(self, context: Context, input: None) -> StepDecision:
         print("move all the started child flows to another instance")
-        return graceful_complete("moved to another instance")
+        # Requests accepted before shutdown still start before the Flow completes.
+        return force_complete_if_channels_empty(
+            "moved to another instance",
+            StepMovement.of(LoopForNextRequest, None),
+            self.request_queue,
+        )
 
 
 class LoopForNextRequest(Step[None]):
@@ -186,7 +193,7 @@ class ControllerFlow(Flow[Request]):
         client_provider: Callable[[], AsyncClient],
         processing_flow_provider: Callable[[], ProcessingFlow],
     ) -> None:
-        self.move_to_another_instance = MoveToAnotherInstance()
+        self.move_to_another_instance = MoveToAnotherInstance(self.request_queue)
         self.loop_for_next_request = LoopForNextRequest(
             client_provider,
             processing_flow_provider,
@@ -218,18 +225,22 @@ class ControllerFlow(Flow[Request]):
             self.shutdown_requested,
         )
 
-    @rpc
+    @rpc(lock_attributes=(shutdown_requested.lock(),))
     def shutdown(self, context: Context) -> RPCResult[bool]:
         if self.shutdown_requested.get(context):
             return RPCResult(False)
         self.shutdown_requested.set(context, True)
         return RPCResult(True)
 
-    @rpc
+    # Shares the shutdown lock, so no request is accepted after shutdown commits.
+    @rpc(lock_attributes=(shutdown_requested.lock(),))
     def enqueue(self, context: Context, input: Request) -> RPCResult[bool]:
         if self.shutdown_requested.get(context):
             return RPCResult(False)
-        if self.request_queue.size(context) + 1 > MAX_BUFFERED_REQUESTS:
+        # Until Init commits, its start request is not in the queue yet; count it.
+        pending_start_request = 1 if self.current_wait_child_wfs.get(context) is None else 0
+        buffered = self.request_queue.size(context) + pending_start_request
+        if buffered + 1 > MAX_BUFFERED_REQUESTS:
             return RPCResult(False)
         self.request_queue.publish(context, input)
         return RPCResult(True)

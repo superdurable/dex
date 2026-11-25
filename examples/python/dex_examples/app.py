@@ -35,6 +35,13 @@ from dex_examples.patterns.cancel_case.credit_check_flow import CreditCheckFlow
 from dex_examples.patterns.cancel_case.loan_application_flow import (
     LoanApplicationFlow,
 )
+from dex_examples.patterns.child_flows_business_identity.order_fulfillment_flow import (
+    OrderFulfillmentFlow,
+    ShipmentFlow,
+)
+from dex_examples.patterns.control_long_running_work.record_backfill_flow import (
+    RecordBackfillFlow,
+)
 from dex_examples.patterns.critical_section.contract_edit_flow import (
     ContractEditFlow,
 )
@@ -48,12 +55,13 @@ from dex_examples.patterns.drain_channels.internal.drain_internal_channels_flow 
 from dex_examples.patterns.drain_channels.external_publishing.draining_channel_flow import (
     DrainingExternalChannelFlow,
 )
+from dex_examples.patterns.entity_flow.account_archive import FakeAccountArchive
+from dex_examples.patterns.entity_flow.customer_account_flow import (
+    CustomerAccountFlow,
+)
 from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
 from dex_examples.patterns.hash_partitioned_attribute_map.customer_directory_flow import (
     CustomerDirectoryFlow,
-)
-from dex_examples.patterns.interruptible.interruptible_execution_flow import (
-    InterruptibleFlow,
 )
 from dex_examples.patterns.intervention.manual_recovery_flow import (
     ManualRecoveryFlow,
@@ -88,6 +96,10 @@ from dex_examples.patterns.parallel_subflows.wait_for_half_parent_flow import (
 )
 from dex_examples.patterns.polling.job_service import FakeJobService
 from dex_examples.patterns.polling.polling_flow import PollingFlow
+from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
+    ExpenseReimbursementFlow,
+)
+from dex_examples.patterns.fail_fast.payment_provider import FakePaymentProvider
 from dex_examples.patterns.recovery.failure_recovery_flow import FailureRecoveryFlow
 from dex_examples.patterns.reminders.reminder_flow import ReminderFlow
 from dex_examples.patterns.sequentially_chunked_attribute_map.chunked_subscriber_flow import (
@@ -95,6 +107,9 @@ from dex_examples.patterns.sequentially_chunked_attribute_map.chunked_subscriber
 )
 from dex_examples.patterns.inactiveness_tracker_timer.inactiveness_tracker_flow import (
     InactivenessTrackerFlow,
+)
+from dex_examples.patterns.inbound_event_loop.support_ticket_flow import (
+    SupportTicketConversationFlow,
 )
 from dex_examples.patterns.resource_control.controller_flow import ControllerFlow
 from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
@@ -185,7 +200,7 @@ class ExampleApp:
         self.cron_schedule = CronScheduleFlow()
         self.drain_internal = DrainInternalChannelFlow(pattern_service)
         self.drain_external = DrainingExternalChannelFlow()
-        self.interruptible = InterruptibleFlow()
+        self.record_backfill = RecordBackfillFlow()
         self.manual_recovery = ManualRecoveryFlow()
         self.static_parallel = StaticParallelStepsFlow()
         self.dynamic_parallel = DynamicParallelStepsFlow()
@@ -208,8 +223,13 @@ class ExampleApp:
         self.polling_jobs = FakeJobService()
         self.polling = PollingFlow(self.polling_jobs)
         self.failure_recovery = FailureRecoveryFlow()
+        self.payment_provider = FakePaymentProvider()
+        self.expense_reimbursement = ExpenseReimbursementFlow(self.payment_provider)
         self.reminder = ReminderFlow(pattern_service)
         self.inactiveness_tracker = InactivenessTrackerFlow()
+        self.support_ticket = SupportTicketConversationFlow()
+        self.account_archive = FakeAccountArchive()
+        self.customer_account = CustomerAccountFlow(self.account_archive)
         self.user_profile = UserProfileFlow()
         self.chunked_subscriber = ChunkedSubscriberFlow()
         self.customer_directory = CustomerDirectoryFlow()
@@ -222,6 +242,8 @@ class ExampleApp:
         self.loan_application = LoanApplicationFlow(
             client_provider, self.credit_check
         )
+        self.shipment = ShipmentFlow(client_provider, lambda: self.order_fulfillment)
+        self.order_fulfillment = OrderFulfillmentFlow(client_provider, self.shipment)
 
         self.example_flow = ExampleFlow()
         self.step = StepFlow()
@@ -268,7 +290,7 @@ class ExampleApp:
             self.cron_schedule,
             self.drain_internal,
             self.drain_external,
-            self.interruptible,
+            self.record_backfill,
             self.manual_recovery,
             self.static_parallel,
             self.dynamic_parallel,
@@ -282,8 +304,11 @@ class ExampleApp:
             self.submit_subflow_request,
             self.polling,
             self.failure_recovery,
+            self.expense_reimbursement,
             self.reminder,
             self.inactiveness_tracker,
+            self.support_ticket,
+            self.customer_account,
             self.user_profile,
             self.chunked_subscriber,
             self.customer_directory,
@@ -294,6 +319,8 @@ class ExampleApp:
             self.contract_edit,
             self.credit_check,
             self.loan_application,
+            self.shipment,
+            self.order_fulfillment,
             self.example_flow,
             self.step,
             self.step_retry,

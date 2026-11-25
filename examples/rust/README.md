@@ -72,7 +72,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
 | User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
-| Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers |
+| Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers; the `DeleteJobPost` RPC soft-deletes under the same lock, after which updates fail (HTTP 409), while the HTTP delete route cancels the Flow |
 | Deal DSL | [`DealDSLFlow`](src/products/deal_dsl/flow.rs) | Durable state-machine interpreter with keyed condition waits and one-action checkpoints |
 | Customer refund | [`CustomerRefundFlow`](src/products/customer_refund/refund_flow.rs) | Manager approval through a Channel, a retried refund, and Time Travel; also its own Worker and commands |
 
@@ -103,7 +103,7 @@ remain split so their orchestration boundaries are visible.
 | Cron schedule | [`CronScheduleFlow`](src/patterns/cron) | Fixed-interval durable timer loop |
 | Drain internal Channel | [`DrainInternalChannelFlow`](src/patterns/drain_channels.rs) | Internal publication, one-at-a-time drain, sentinel completion |
 | Draining External Channel Publishing | [`DrainingExternalChannelFlow`](src/patterns/drain_channels/flow.rs) | RPC publication, one-at-a-time drain, conditional completion |
-| Interruptible execution | [`InterruptibleFlow`](src/patterns/interruptible/flow.rs) | Graceful interrupt handling |
+| Control Long-Running Work | [`RecordBackfillFlow`](src/patterns/control_long_running_work/flow.rs) | Control Attributes read each batch: batch size and stop request |
 | Manual recovery | [`ManualRecoveryFlow`](src/patterns/intervention/flow.rs) | Exhausted retry recovery and manual Channel decision |
 | Static parallel Steps | [`StaticParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A fixed set of concurrent Step types |
 | Dynamic parallel Steps | [`DynamicParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A runtime-sized set of one Step type |
@@ -115,8 +115,10 @@ remain split so their orchestration boundaries are visible.
 | Partitioning and back pressure | [`SubmitRequestFlow`](src/patterns/parallel_subflows/flow.rs) | Stable parent partitioning and durable retries after admission rejection |
 | Polling | [`PollingFlow`](src/patterns/polling/flow.rs) | One long-running Execute loop with heartbeats, a progress Stream, and an engine-enforced maximum wait |
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
+| Fail fast on permanent errors | [`ExpenseReimbursementFlow`](src/control_patterns/fail_fast/flow.rs) | Retry a provider timeout; route a confirmed rejection to a failure Step at once |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
 | Inactiveness Tracker Timer | [`InactivenessTrackerFlow`](src/patterns/inactiveness_tracker/flow.rs) | Activity resets a timer; expiry processes inactiveness |
+| Idle Timer with Resolution | [`SupportTicketConversationFlow`](src/control_patterns/inbound_event_loop/flow.rs) | Replies loop back and restart the inactivity Timer; resolution or inactivity closes after the reply Channel drains |
 | Entity Store | [`UserProfileFlow`](src/patterns/entity_store.rs) | Attribute Store projection and profile RPCs |
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
 | Wait for Step completion | [`WaitForStepCompletionFlow`](src/patterns/wait_for_step_completion.rs) | `Client::wait_for_step_completion` target followed by background work |

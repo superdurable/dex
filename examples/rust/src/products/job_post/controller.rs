@@ -22,12 +22,16 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::products::job_post::flow::{
-    GET_JOB_POST, JobPost, JobPostingFlow, UPDATE_JOB_POST, UPDATE_VERSION,
+    GET_JOB_POST, JOB_POST_DELETED, JobPost, JobPostingFlow, UPDATE_JOB_POST, UPDATE_VERSION,
 };
 use crate::server::helpers::{
-    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
+    ErrorBody, SharedClient, StartResponse, invoke_retrying_lock_conflict, map_rpc_error,
+    map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
-use dex_sdk::{AttributeMatch, StopFlowOptions, WaitForAttributeOptions};
+use axum::Json;
+use axum::http::StatusCode;
+use axum::response::Response;
+use dex_sdk::{AttributeMatch, SdkError, StopFlowOptions, WaitForAttributeOptions};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -166,9 +170,27 @@ async fn update(
         notes,
         deleted: false,
     };
-    match run_blocking(move || client.invoke_rpc(&flow_id, UPDATE_JOB_POST, replacement)) {
+    match run_blocking(move || {
+        invoke_retrying_lock_conflict(|| {
+            client.invoke_rpc(&flow_id, UPDATE_JOB_POST, replacement.clone())
+        })
+    }) {
         Ok(_) => ok_json(json!({ "updated": true })),
-        Err(error) => map_sdk_error(error).into_response(),
+        Err(error) => map_update_error(error),
+    }
+}
+
+/// Maps an update of a soft-deleted post to 409; other errors map like other RPC routes.
+fn map_update_error(error: SdkError) -> Response {
+    match &error {
+        SdkError::WorkerInvocation { worker, .. } if worker.error_type() == JOB_POST_DELETED => (
+            StatusCode::CONFLICT,
+            Json(ErrorBody {
+                error: "the job post is deleted and cannot be updated".to_string(),
+            }),
+        )
+            .into_response(),
+        _ => map_rpc_error(error).into_response(),
     }
 }
 

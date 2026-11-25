@@ -118,6 +118,50 @@ A read still records **failed**. So does a call that a tool source built, such
 as a Connector or MCP tool, because the source classifies its own errors. See
 [Connector tools](/reference/agents/connector-tools).
 
+## What the model sees for outcome_unknown {#outcome-unknown-text}
+
+Changed in 0.6.18 in Python and TypeScript. The text depends on how the tool
+Step's last attempt ended:
+
+| Last attempt | What the model sees |
+| --- | --- |
+| It threw an error, such as an HTTP client's error for a 400 response, a failed request, or a task poll that kept failing | "The tool call's outcome is unknown: it ended with an error, so it may or may not have taken effect. It will not be retried automatically. Error: " and the error's message |
+| Dex ended it without an answer, such as a killed Worker or a passed time limit | "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically." |
+
+The call still records **outcome_unknown**, and the session still does not run
+its tool again. Only the text changes. A message longer than 1,024 UTF-8 bytes
+is cut there, with a marker that gives the omitted and total sizes; the record
+keeps the whole message. `ToolOutcomeUnknownError` and a `ToolExecutionError`
+on a retry keep the second text. Both texts start with "The tool call's outcome
+is unknown: ", so a job that finds these calls in the message history can match
+that, as [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown)
+does.
+
+A passed time limit usually shows the second text. The Python and TypeScript
+SDKs also end the handler at the same deadline, so when the Worker's error,
+such as "Worker task canceled" or the tool's abort error, reaches Dex first,
+the model reads that error under the first text. Both texts say that the
+outcome is unknown.
+
+The model now reads the message of any error a write tool throws, and so does
+a UI that shows tool results. Keep credentials out of it: an HTTP client's
+message can include the full request URL, with any key in its query string.
+Catch such an error and throw `ToolExecutionError` or
+`ToolOutcomeUnknownError` with a message you wrote instead.
+
+The record's **tool_step_threw** field tells the two apart, because both store
+an error: the thrown message, or Dex's text, such as "Worker disconnected during
+pull dispatch: Worker stream disconnected". The session sets it when the
+recovery error carries a Worker error type, such as `TypeError` or
+`builtins.RuntimeError`. Dex's own failure types, a **FLOW_ERROR_TYPE_** name or
+a time limit such as **StartToClose**, leave it false. The cases are in
+[`tool_step_failures.json`][tool-step-failures]. The Go core keeps the field
+when it rewrites a record but always shows the second text.
+
+Before 0.6.18 the model saw the second text for a thrown error too. A tool
+that threw a definite answer, such as "already refunded", then read as a call
+that returned nothing, and the model could not act on it.
+
 [py-kills]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_worker_kills.py
 [py-tools]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_deferred_tool_calls.py
 [py-stepwise]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_stepwise.py
@@ -134,3 +178,4 @@ as a Connector or MCP tool, because the source classifies its own errors. See
 [zd-queued]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/queued_restart.rs
 [zd-drain]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/attempt_drain.rs
 [zd-failover]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/standby_failover.rs
+[tool-step-failures]: https://github.com/superdurable/dex/blob/main/agents/conformance/tool_step_failures.json

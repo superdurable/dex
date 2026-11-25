@@ -20,19 +20,19 @@ Dex Skills 教 Claude Code、Codex、Cursor 等 coding agent 设计、构建和�
 
 ## 包含什么 {#whats-included}
 
-Dex Skills 是一个插件，包含一个主 Skill 和两个子 Skill。描述你的任务，coding agent 会加载合适的 Skill：构建应用用 Dex App Builder，单独的 SDK 工作用 Dex SDK，Connector 工作用 Dex Connector Contributor。Dex App Builder 在需要时也会加载另外两个 Skill。
+Dex Skills 是一个插件，包含一个主 Skill 和一个 Connector 子 Skill。描述你的任务，coding agent 会加载合适的 Skill：构建应用和 SDK 工作用 Dex App Builder，Connector 工作用 Dex Connector Contributor。Dex App Builder 在需要时也会加载 Dex Connector Contributor。
 
 | Skill | 角色 | 负责 |
 | --- | --- | --- |
-| [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) | 主 Skill | 产品、应用和业务流程类需求，从流程设计到经过测试、已经提交的 Go 应用 |
-| [Dex SDK](./dex-developer-skill/dex-sdk.mdx) | 子 Skill | 使用 Python、Go、Java、TypeScript 或 Rust 的 SDK 工作，例如调试一个 Flow，或添加一个 Step |
+| [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) | 主 Skill | 产品、应用和业务流程类需求，从流程设计到经过测试、已经提交的应用；以及使用 Python、Go、Java、TypeScript 或 Rust 的 SDK 工作，例如调试一个 Flow，或添加一个 Step |
 | [Dex Connector Contributor](./dex-developer-skill/dex-connector-contributor.mdx) | 子 Skill | 新增或修复官方 Connector、operation、Trigger 或配置界面单元 |
+| [Dex SDK](./dex-developer-skill/dex-sdk.mdx) | 旧名称 | 已合并进 Dex App Builder。按名字调用 `dex-sdk` 仍然可用，它会加载 Dex App Builder |
 
 <a id="what-app-builder-does"></a>
 <a id="before-implementation"></a>
 <a id="choose-a-skill"></a>
 
-[Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) 介绍它的四个阶段、[开始实现前](./dex-developer-skill/dex-app-builder.mdx#before-implementation)对工作区的要求，以及缺少 Connector 时如何处理。
+[Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) 介绍它的工作流程、[开始实现前](./dex-developer-skill/dex-app-builder.mdx#before-implementation)对工作区的要求，以及缺少 Connector 时如何处理。
 
 ## 给 coding agent 的文档 {#docs-for-coding-agents}
 

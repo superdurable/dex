@@ -99,10 +99,11 @@ such as the order of waiters and locks, cancellation and close corner cases,
 retry deduplication details, and naming-restriction corner cases. Skills link
 to that reference instead of restating it.
 
-Skills contain no Dex version numbers and no release-tag pins. A skills change
-does not wait for a Dex release, and a Dex release never requires a skills
-change. A skills release-prep pull request assembles the fragments and bumps
-the version. Merging it syncs `skills/` to the read-only
+Skills contain no Dex version numbers and no release-tag pins.
+Source skills link examples on `main`; the skills mirror sync pins them to the synced Dex commit.
+A skills change does not wait for a Dex release, and a Dex release never
+requires a skills change. A skills release-prep pull request assembles the
+fragments and bumps the version. Merging it syncs `skills/` to the read-only
 `superdurable/dex-skills` mirror, which publishes the skill release.
 
 If the skills mirror is unavailable or contains work that cannot be safely
@@ -120,7 +121,7 @@ A stable skills content change adds a fragment: run
 write the change-log bullets in the new `changelog.d/skills/` file. A typo,
 link, or wording-only change needs no fragment; its pull request description
 contains a line `skills-release: no bump needed: <reason>`. Never edit
-`skills/VERSION`, `skills/dex-sdk/VERSION`, the plugin and marketplace
+`skills/VERSION`, `skills/dex-app-builder/VERSION`, the plugin and marketplace
 manifests, or `skills/CHANGELOG.md` by hand. Only the release-prep pull
 request writes them. Check Gate CI rejects other edits unless the description
 contains a line `changelog: correction: <reason>`. See
@@ -157,8 +158,13 @@ fragment under `changelog.d/<target>/` must change that target's own paths.
 Check Gate CI rejects it otherwise, unless the description contains a line
 `changelog: cross-component: <reason>`. Never use GitHub-generated release
 notes, such as `gh release create --generate-notes`.
-`script/release/component_release_notes.py` builds every release's notes from
-its change log; see `changelog.d/README.md`.
+The body of every component GitHub Release is one line,
+`Change log: <URL>`, linking the version's anchor in the component's docs
+change log, such as
+`https://docs.superdurable.io/reference/cli/changelog/#v1-47-22`. Never paste
+change-log content into a release body: the docs change log is its single
+home, so users can browse one component's versions there. See
+`changelog.d/README.md`.
 
 A release-prep pull request of server-zd, an SDK, dexcli, or the agents
 packages also carries `docs/static/compatibility/server-zd.json`, the
@@ -250,8 +256,8 @@ still not describe downstream products.
 
 - Before changing or reviewing `examples/**`, application code snippets in
   product docs, or documented Flow application patterns, load the installed
-  `dex-sdk` skill through the host's native skill mechanism and follow its
-  routed references. Use the invocation syntax for the host's Plugin or
+  `dex-app-builder` skill through the host's native skill mechanism and
+  follow its SDK-only route and routed references. Use the invocation syntax for the host's Plugin or
   standalone installation.
 - Do not load it for pure Server, IDL, or SDK implementation work. When a
   change includes both an SDK API and examples, current source and API decisions

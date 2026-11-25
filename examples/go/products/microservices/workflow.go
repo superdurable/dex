@@ -52,7 +52,9 @@ func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
 
 func (flow *OrchestrationFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.Swap, nil),
+		dex.DefineRPC(flow.Swap, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(Data)},
+		}),
 		dex.DefineRPC(flow.SignalReady, nil),
 		dex.DefineRPC(flow.GetData, nil),
 	}

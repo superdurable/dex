@@ -4645,18 +4645,55 @@ def _recovered_tool_call(
 ) -> AgentToolCall:
     """Return the final record that a tool Step's failure route writes."""
     # An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
-    error = (
-        TOOL_TASK_ABANDONED_ERROR
-        if _is_abandoned_tool_task(tool_call) and tool_call.cancellation_reason is not None
-        else _recovery_error_detail(recovery_error)
-    )
+    is_abandoned = _is_abandoned_tool_task(tool_call) and tool_call.cancellation_reason is not None
+    error = TOOL_TASK_ABANDONED_ERROR if is_abandoned else _recovery_error_detail(recovery_error)
     if _is_tool_call_not_run(tool_call, recovery_error):
         return replace(
             tool_call,
             status=ToolCallStatus.FAILED,
             error=f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {error}",
         )
+    if (
+        status is ToolCallStatus.OUTCOME_UNKNOWN
+        and not is_abandoned
+        and _is_error_raised_by_worker(recovery_error)
+    ):
+        return replace(tool_call, status=status, error=error, tool_step_threw=True)
     return replace(tool_call, status=status, error=error)
+
+
+# Failure types server-zd reports for an attempt without a Worker error, compared like the Go SDK.
+_DEX_ATTEMPT_FAILURE_ERROR_TYPES = frozenset(
+    {
+        "STARTTOCLOSE",
+        "HEARTBEAT",
+        "SCHEDULETOCLOSE",
+        "SCHEDULETOSTART",
+        "UNSUPPORTEDFEATURE",
+        "VALUETOOLARGE",
+        "UNKNOWNSTEPFAILURE",
+    }
+)
+
+
+def _is_error_raised_by_worker(recovery_error: RecoveryErrorInfo | None) -> bool:
+    """Report whether the last attempt failed with an error that the Worker reported.
+
+    Returns:
+        ``True`` for a Worker error's type, such as ``builtins.RuntimeError`` or
+        ``TypeError``. ``False`` without a recovery error, for an empty type,
+        and for a type Dex reports itself, compared in upper case without
+        underscores: a ``FLOW_ERROR_TYPE_`` name, such as for a lost Worker, or
+        one of ``_DEX_ATTEMPT_FAILURE_ERROR_TYPES``.
+    """
+    if recovery_error is None:
+        return False
+    error_type = recovery_error.error_type.upper().replace("_", "")
+    return (
+        error_type != ""
+        and not error_type.startswith("FLOWERRORTYPE")
+        and error_type not in _DEX_ATTEMPT_FAILURE_ERROR_TYPES
+    )
 
 
 def _is_tool_call_not_run(

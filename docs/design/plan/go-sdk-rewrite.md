@@ -2057,6 +2057,7 @@ type AttributeDef interface {
 type ChannelDef interface {
 	channelName() string
 	channelIsMap() bool
+	channelPublishLock() lockRequirement
 }
 
 type PersistenceSchema struct {
@@ -2149,7 +2150,18 @@ type AttributeIndex struct {
 func Indexed(index AttributeIndex) AttributeOption
 func SyncToAttributeStore() AttributeOption
 func HardDeleteOnNull() AttributeOption
+func WritesRequireLock() AttributeOption
+func WritesRequireAttributeLock[T any](lockAttribute Attribute[T]) AttributeOption
 ```
+
+`WritesRequireLock` and `WritesRequireAttributeLock` (Go SDK 1.45.17) declare
+the lock every write of the definition must hold: the written key's own lock, or
+the lock of one singleton coordination Attribute. After each successful
+WaitFor, Execute, or RPC handler, the Worker compares the buffered writes with
+the handler's registration-time locks and returns `*MissingAttributeLockError`
+when one is missing. Per-call RPC locks and per-movement Step options do not
+count; Flow timeout handlers are not checked. `NewRegistry` rejects a lock
+Attribute that is not a singleton Attribute of the same `PersistenceSchema`.
 
 An empty `IndexKey` uses the concrete attribute key. A non-empty key supports
 dynamic attributes that write to a shared visibility key. Phase 2 validates
@@ -2184,7 +2196,15 @@ type ChannelMap[T any] struct {
 
 func DefineChannel[T any](name string) Channel[T]
 func DefineChannelMap[T any](name string) ChannelMap[T]
+func DefineChannelWithOptions[T any](name string, options ...ChannelOption) Channel[T]
+func DefineChannelMapWithOptions[T any](name string, options ...ChannelOption) ChannelMap[T]
+func PublishesRequireAttributeLock[T any](lockAttribute Attribute[T]) ChannelOption
 ```
+
+`PublishesRequireAttributeLock` (Go SDK 1.45.17) requires every publish to hold
+the lock of one singleton Attribute, with the same enforcement as
+`WritesRequireAttributeLock`. The `WithOptions` constructors take it, so the
+published `DefineChannel` and `DefineChannelMap` function types stay unchanged.
 
 Publishing uses invocation state, while wait construction does not:
 

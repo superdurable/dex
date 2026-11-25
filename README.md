@@ -14,9 +14,9 @@
 **Dex** is a lightweight durable execution platform for AI agents and workflows. Write normal code as a Flow of Steps, and Dex keeps it running through crashes, deploys, and long waits: every finished Step is saved, so an agent or a workflow picks up exactly where it left off.
 
 <p align="center">
-  <a href="https://youtu.be/fzl88JWt734"><img width="560" alt="Video: Dex vs Temporal, Ep. 1: one idle timer, three production problems" src="https://img.youtube.com/vi/fzl88JWt734/maxresdefault.jpg" /></a>
+  <a href="https://youtube.com/shorts/b0IyH3H5DpE"><img width="560" alt="Video: why Dex is more lightweight than Temporal" src="https://img.youtube.com/vi/b0IyH3H5DpE/maxresdefault.jpg" /></a>
   <br />
-  Watch <a href="https://youtu.be/fzl88JWt734">Dex vs Temporal, Ep. 1</a>: the same idle timer built on both, with real runs. Code: <a href="https://github.com/superdurable/dex-vs-temporal-demo">dex-vs-temporal-demo</a>.
+  Watch <a href="https://youtube.com/shorts/b0IyH3H5DpE">why Dex is more lightweight than Temporal</a> in two minutes. Full walkthrough: <a href="https://youtu.be/fzl88JWt734">Dex vs Temporal, Ep. 1</a>. Code: <a href="https://github.com/superdurable/dex-vs-temporal-demo">dex-vs-temporal-demo</a>.
 </p>
 
 <p align="center">

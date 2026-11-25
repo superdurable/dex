@@ -33,7 +33,7 @@ Connector 只提供它的服务商需要的能力。你的应用使用它所引�
 
 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含 manifest、生成的 API、服务商实现、界面单元和可运行示例。
 
-应用使用已发布的 Connector 时，用 [Dex SDK Skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor Skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。需要目录里缺少的 Connector 时，可以[提交请求](https://github.com/superdurable/dex-connectors-library/issues/new)。
+应用使用已发布的 Connector 时，用 [Dex App Builder Skill](../build-with-ai/dex-developer-skill/dex-app-builder.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor Skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。需要目录里缺少的 Connector 时，可以[提交请求](https://github.com/superdurable/dex-connectors-library/issues/new)。
 
 ## 操作就是现成的 Step {#operation-是-connector-step}
 
@@ -83,7 +83,7 @@ Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称�
 
 ## 在本地配置 Connector
 
-本地开发时，[Dex Web](/components/web) 为 Go 应用配置 Connector 连接和 Trigger 绑定。这个功能只在 **dexcli dev** 中提供。
+本地开发时，[Dex Web](/components/web) 为你的应用配置 Connector 连接和 Trigger 绑定。这个功能只在 **dexcli dev** 中提供。
 
 1. 用你的 Flow Definition Graph 目录启动 **dexcli dev**。
 2. 在 Dex Web 中打开 **Connectors** 页面。它列出 Flow 定义用到的连接名称。逐个授权。

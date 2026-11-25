@@ -20,7 +20,7 @@ import {
   InMemoryMediaStore,
   LocalDirectoryMediaStore,
   imageUri,
-  outcomeUnknownToolResult,
+  outcomeUnknownThrownErrorToolResult,
   sendAgentUserMessage,
   turnFailureNoteHeader,
   type AgentImageReference,
@@ -213,9 +213,11 @@ describe("images in a session with an in-process Worker and the in-memory store"
     const snapshot = await sessions.getAgentSnapshot(sessionId);
 
     const toolMessages = snapshot.messages.filter((message) => message.role === "tool");
+    const invalidImageError =
+      "images[0]: image reference mime_type must be one of image/png, image/jpeg, image/gif, image/webp";
     assert.deepEqual(
       toolMessages.map((message) => [message.toolOutput, message.images]),
-      [[outcomeUnknownToolResult, undefined]],
+      [[outcomeUnknownThrownErrorToolResult.replace("{error}", invalidImageError), undefined]],
     );
   });
 
