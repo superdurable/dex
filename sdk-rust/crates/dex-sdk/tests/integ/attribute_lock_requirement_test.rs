@@ -9,6 +9,7 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 use std::sync::LazyLock;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use dex_sdk::{
@@ -17,15 +18,19 @@ use dex_sdk::{
 };
 
 use crate::attribute_lock_requirement_workflow::{
-    AttributeLockRequirementRpcFlow, AttributeLockRequirementStepFlow,
-    AttributeLockRequirementTimeoutFlow, LOCK_REQ_FREE, LOCK_REQ_ITEMS, LOCK_REQ_SHARED,
-    LOCK_REQ_TOTAL, SPACED_INSTANCE, WRITTEN,
+    AttributeLockRequirementOptionsSnapshotFlow, AttributeLockRequirementRpcFlow,
+    AttributeLockRequirementStepFlow, AttributeLockRequirementTimeoutFlow,
+    DUPLICATE_EVENT_INSTANCE, LOCK_ONLY_ON_NEXT_OPTIONS_CALL, LOCK_REQ_FREE, LOCK_REQ_ITEMS,
+    LOCK_REQ_SHARED, LOCK_REQ_TOTAL, OPTIONS_SNAPSHOT_GATE, SPACED_INSTANCE, WRITTEN,
 };
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 const MISSING_LOCK_ERROR_TYPE: &str = "dex_sdk::MissingAttributeLockError";
 const FLOW_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Has the name and type of `LOCK_REQ_TOTAL` without its lock requirement.
+static LOCK_REQ_TOTAL_UNDECLARED: LazyLock<Attribute<i64>> =
+    LazyLock::new(|| Attribute::new("lock-req-total"));
 static LOCK_REQ_MISSING: LazyLock<Attribute<bool>> =
     LazyLock::new(|| Attribute::new("lock-req-missing"));
 static LOCK_REQ_MAP_LOCK: LazyLock<Attribute<bool>> =
@@ -338,6 +343,143 @@ fn attribute_lock_requirement_rpcs() {
         .get_attributes(&flow_id, (&*LOCK_REQ_TOTAL,))
         .expect("read total");
     assert_eq!(Some(7), total, "the rejected delete is discarded");
+    let (undeclared_total,) = client
+        .get_attributes(&flow_id, (&*LOCK_REQ_TOTAL_UNDECLARED,))
+        .expect("an undeclared definition of the same Attribute still reads");
+    assert_eq!(Some(7), undeclared_total);
+
+    // A ChannelMap publish with the registered coordination lock commits.
+    let flow_id = start_flow(client, &RpcFlow, ());
+    client
+        .invoke_rpc(
+            &flow_id,
+            RpcFlow::PUBLISH_EVENT_LOCKED,
+            SPACED_INSTANCE.to_string(),
+        )
+        .expect("locked ChannelMap publish");
+    let event_count = client
+        .invoke_rpc(&flow_id, RpcFlow::COUNT_EVENTS, SPACED_INSTANCE.to_string())
+        .expect("count events");
+    assert_eq!(1, event_count, "the locked publish commits");
+
+    // An unlocked AttributeMap delete fails and keeps the stored instance.
+    let flow_id = start_flow(client, &RpcFlow, ());
+    client
+        .invoke_rpc(
+            &flow_id,
+            RpcFlow::SET_ITEM_LOCKED,
+            SPACED_INSTANCE.to_string(),
+        )
+        .expect("locked write");
+    assert_missing_lock(
+        client.invoke_rpc(
+            &flow_id,
+            RpcFlow::DELETE_ITEM_UNLOCKED,
+            SPACED_INSTANCE.to_string(),
+        ),
+        "RPC \"delete_item_unlocked\" wrote AttributeMap \"lock-req-items\" instance \"item a\"",
+    );
+    assert!(
+        is_instance_set(client, &flow_id, &LOCK_REQ_ITEMS, SPACED_INSTANCE),
+        "the rejected delete is discarded"
+    );
+
+    // Repeated writes and publishes report each key once, writes before publishes.
+    let flow_id = start_flow(client, &RpcFlow, ());
+    let detail = match client.invoke_rpc_without_input(&flow_id, RpcFlow::WRITE_DUPLICATES_UNLOCKED)
+    {
+        Err(SdkError::WorkerInvocation { worker, .. }) => {
+            assert_eq!(MISSING_LOCK_ERROR_TYPE, worker.error_type());
+            worker.detail().to_owned()
+        }
+        other => panic!("expected a missing lock Worker error, got {other:?}"),
+    };
+    let accesses = [
+        "wrote AttributeMap \"lock-req-items\" instance \"item a\"",
+        "wrote AttributeMap \"lock-req-items\" instance \"item b\"",
+        "published to ChannelMap \"lock-req-events\" instance \"event a\"",
+    ];
+    let mut previous_position = 0;
+    for access in accesses {
+        assert_eq!(
+            1,
+            detail.matches(access).count(),
+            "{access:?} in {detail:?}"
+        );
+        let position = detail.find(access).expect("access is reported");
+        assert!(
+            position >= previous_position,
+            "order of {access:?} in {detail:?}"
+        );
+        previous_position = position;
+    }
+    assert!(!is_instance_set(
+        client,
+        &flow_id,
+        &LOCK_REQ_ITEMS,
+        SPACED_INSTANCE
+    ));
+    assert!(!is_instance_set(
+        client,
+        &flow_id,
+        &LOCK_REQ_ITEMS,
+        "item b"
+    ));
+    let event_count = client
+        .invoke_rpc(
+            &flow_id,
+            RpcFlow::COUNT_EVENTS,
+            DUPLICATE_EVENT_INSTANCE.to_string(),
+        )
+        .expect("count events");
+    assert_eq!(0, event_count, "the rejected publishes are discarded");
+
+    // Initial Attributes of a Flow start are not checked.
+    let initial_flow_id = crate::support::flow_id("rust-lock-req-initial");
+    client
+        .start_flow_with_options(
+            &RpcFlow,
+            &initial_flow_id,
+            (),
+            StartFlowOptions::new().initial_attribute(&LOCK_REQ_TOTAL, 3),
+        )
+        .expect("start with a declared initial Attribute");
+    let (total,) = client
+        .get_attributes(&initial_flow_id, (&*LOCK_REQ_TOTAL,))
+        .expect("read total");
+    assert_eq!(Some(3), total);
+}
+
+/// A normal Flow start dispatches the Step with the lock fields read at registration.
+#[test]
+#[ignore = "requires dexcli dev"]
+fn attribute_lock_requirement_dispatch_uses_registered_step_locks() {
+    use AttributeLockRequirementOptionsSnapshotFlow as SnapshotFlow;
+    OPTIONS_SNAPSHOT_GATE.reset();
+    LOCK_ONLY_ON_NEXT_OPTIONS_CALL.store(true, Ordering::SeqCst);
+    let registry = Registry::new().register(SnapshotFlow::default());
+    assert!(
+        !LOCK_ONLY_ON_NEXT_OPTIONS_CALL.load(Ordering::SeqCst),
+        "registration reads the Step options"
+    );
+    let environment = DexDevTestEnvironment::start(registry);
+    let client = &environment.client;
+    let flow_id = start_flow(client, &SnapshotFlow::default(), ());
+    assert!(
+        OPTIONS_SNAPSHOT_GATE.wait_until_entered(FLOW_WAIT_TIMEOUT),
+        "the Step started"
+    );
+    let conflict = client.invoke_rpc(&flow_id, SnapshotFlow::SET_TOTAL_LOCKED, 9);
+    OPTIONS_SNAPSHOT_GATE.release();
+    assert!(
+        matches!(conflict, Err(SdkError::RpcLockConflict { .. })),
+        "the running Step holds the registered lock, got {conflict:?}"
+    );
+    assert_eq!(WRITTEN, completed_output(client, &flow_id));
+    let (total,) = client
+        .get_attributes(&flow_id, (&*LOCK_REQ_TOTAL,))
+        .expect("read total");
+    assert_eq!(Some(1), total);
 }
 
 struct LockReqInvalidFlow {

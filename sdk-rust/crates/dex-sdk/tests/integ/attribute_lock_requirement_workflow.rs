@@ -8,7 +8,9 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Condvar, LazyLock, Mutex};
+use std::time::Duration;
 
 use dex_sdk::{
     Attribute, AttributeMap, Channel, ChannelMap, Context, Flow, FlowTimeoutHandler, HandlerError,
@@ -18,6 +20,7 @@ use dex_sdk::{
 
 /// Needs percent-encoding, so the tests cover encoded AttributeMap lock keys.
 pub(crate) const SPACED_INSTANCE: &str = "item a";
+pub(crate) const DUPLICATE_EVENT_INSTANCE: &str = "event a";
 pub(crate) const WRITTEN: &str = "written";
 
 pub(crate) static LOCK_REQ_TOTAL: LazyLock<Attribute<i64>> =
@@ -347,6 +350,23 @@ impl AttributeLockRequirementRpcFlow {
     pub(crate) const COUNT_EVENTS: Rpc<String, usize> = Rpc::new("count_events");
     pub(crate) const SET_TOTAL_LOCKED: Rpc<i64, ()> = Rpc::new("set_total_locked");
     pub(crate) const DELETE_TOTAL_UNLOCKED: Rpc<(), ()> = Rpc::new("delete_total_unlocked");
+    pub(crate) const PUBLISH_EVENT_LOCKED: Rpc<String, ()> = Rpc::new("publish_event_locked");
+    pub(crate) const DELETE_ITEM_UNLOCKED: Rpc<String, ()> = Rpc::new("delete_item_unlocked");
+    pub(crate) const WRITE_DUPLICATES_UNLOCKED: Rpc<(), ()> = Rpc::new("write_duplicates_unlocked");
+
+    fn delete_item(&self, context: &mut Context, instance: String) -> HandlerResult<()> {
+        LOCK_REQ_ITEMS.delete(context, &instance)
+    }
+
+    /// Publishes one key twice, then sets and deletes two declared keys twice each.
+    fn write_duplicates(&self, context: &mut Context) -> HandlerResult<()> {
+        LOCK_REQ_EVENTS.publish(context, DUPLICATE_EVENT_INSTANCE, "first".to_string())?;
+        LOCK_REQ_EVENTS.publish(context, DUPLICATE_EVENT_INSTANCE, "second".to_string())?;
+        LOCK_REQ_ITEMS.set(context, SPACED_INSTANCE, 1)?;
+        LOCK_REQ_ITEMS.delete(context, "item b")?;
+        LOCK_REQ_ITEMS.set(context, SPACED_INSTANCE, 2)?;
+        LOCK_REQ_ITEMS.set(context, "item b", 3)
+    }
 
     /// Also writes an undeclared Attribute, which the failure must discard too.
     fn publish_reply_unlocked(&self, context: &mut Context, reply: String) -> HandlerResult<()> {
@@ -369,6 +389,10 @@ impl AttributeLockRequirementRpcFlow {
     /// Also writes an undeclared Attribute, which the failure must discard too.
     fn publish_event_unlocked(&self, context: &mut Context, instance: String) -> HandlerResult<()> {
         LOCK_REQ_FREE.set(context, 1)?;
+        self.publish_event(context, instance)
+    }
+
+    fn publish_event(&self, context: &mut Context, instance: String) -> HandlerResult<()> {
         LOCK_REQ_EVENTS.publish(context, &instance, "event".to_string())
     }
 
@@ -416,6 +440,12 @@ impl Flow for AttributeLockRequirementRpcFlow {
                 Self::set_total,
             )
             .procedure_without_input(Self::DELETE_TOTAL_UNLOCKED, Self::delete_total)
+            .procedure(
+                Self::PUBLISH_EVENT_LOCKED.lock(LOCK_REQ_COORDINATION.lock()),
+                Self::publish_event,
+            )
+            .procedure(Self::DELETE_ITEM_UNLOCKED, Self::delete_item)
+            .procedure_without_input(Self::WRITE_DUPLICATES_UNLOCKED, Self::write_duplicates)
     }
 }
 
@@ -438,5 +468,108 @@ impl Flow for AttributeLockRequirementTimeoutFlow {
 
     fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
         Some(Self::handle_timeout)
+    }
+}
+
+/// Makes only the next `options()` call return the lock, which registration consumes.
+pub(crate) static LOCK_ONLY_ON_NEXT_OPTIONS_CALL: AtomicBool = AtomicBool::new(false);
+pub(crate) static OPTIONS_SNAPSHOT_GATE: LazyLock<StepGate> = LazyLock::new(StepGate::default);
+
+/// Holds a running Step until the test releases it.
+#[derive(Default)]
+pub(crate) struct StepGate {
+    state: Mutex<StepGateState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct StepGateState {
+    entered: bool,
+    released: bool,
+}
+
+impl StepGate {
+    pub(crate) fn reset(&self) {
+        *self.state.lock().expect("gate lock") = StepGateState::default();
+    }
+
+    /// Returns whether a Step entered the gate before `timeout`.
+    pub(crate) fn wait_until_entered(&self, timeout: Duration) -> bool {
+        let state = self.state.lock().expect("gate lock");
+        let (state, _) = self
+            .changed
+            .wait_timeout_while(state, timeout, |state| !state.entered)
+            .expect("gate wait");
+        state.entered
+    }
+
+    pub(crate) fn release(&self) {
+        self.state.lock().expect("gate lock").released = true;
+        self.changed.notify_all();
+    }
+
+    fn enter_and_wait_for_release(&self) {
+        let mut state = self.state.lock().expect("gate lock");
+        state.entered = true;
+        self.changed.notify_all();
+        let (_state, _) = self
+            .changed
+            .wait_timeout_while(state, Duration::from_secs(60), |state| !state.released)
+            .expect("gate wait");
+    }
+}
+
+/// Returns different lock options on later reads, so dispatch must use the registration snapshot.
+#[derive(Default)]
+struct OptionsSnapshotStep;
+
+impl Step for OptionsSnapshotStep {
+    type Input = ();
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        OPTIONS_SNAPSHOT_GATE.enter_and_wait_for_release();
+        LOCK_REQ_TOTAL.set(context, 1)?;
+        Ok(StepDecision::graceful_complete(WRITTEN.to_string()))
+    }
+
+    fn options(&self) -> StepOptions<()> {
+        if LOCK_ONLY_ON_NEXT_OPTIONS_CALL.swap(false, Ordering::SeqCst) {
+            StepOptions::new().execute_lock(LOCK_REQ_TOTAL.lock())
+        } else {
+            StepOptions::new()
+        }
+    }
+}
+
+/// Starts with a Step whose `options()` result changes after registration.
+#[derive(Default)]
+pub(crate) struct AttributeLockRequirementOptionsSnapshotFlow {
+    step: OptionsSnapshotStep,
+}
+
+impl AttributeLockRequirementOptionsSnapshotFlow {
+    pub(crate) const SET_TOTAL_LOCKED: Rpc<i64, ()> = Rpc::new("set_total_locked");
+
+    fn set_total(&self, context: &mut Context, total: i64) -> HandlerResult<()> {
+        LOCK_REQ_TOTAL.set(context, total)
+    }
+}
+
+impl Flow for AttributeLockRequirementOptionsSnapshotFlow {
+    type StartInput = ();
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.step)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        lock_requirement_schema()
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().procedure(
+            Self::SET_TOTAL_LOCKED.lock(LOCK_REQ_TOTAL.lock()),
+            Self::set_total,
+        )
     }
 }

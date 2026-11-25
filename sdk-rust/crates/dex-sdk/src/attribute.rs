@@ -135,7 +135,8 @@ impl<T> Attribute<T> {
     /// [`Self::set`] or [`Self::delete`] without holding the lock fails with
     /// [`MissingAttributeLockError`](crate::MissingAttributeLockError). Dex then discards the
     /// changes buffered for its result. The check is not a warning; declaring it opts in.
-    /// Use [`Self::writes_require_attribute_lock`] instead to require one shared lock.
+    /// Use [`Self::writes_require_attribute_lock`] instead to require one shared lock. When both
+    /// methods are called, the last call wins.
     ///
     /// Only the locks a handler registers count: [`StepOptions::wait_for_lock`] or
     /// [`StepOptions::execute_lock`] for a Step method, and [`RpcDefinition::lock`] for an RPC.
@@ -147,19 +148,26 @@ impl<T> Attribute<T> {
     /// reads are not checked. Every Client and Worker must register the same definition; a
     /// Worker built without the requirement does not check it.
     ///
-    /// The check compares writes with the registered locks, not with the locks Dex acquires for
-    /// the call. Options passed to [`StepMovement::to_with_options`] replace the registered
-    /// options, and an RPC takes its locks from the Client's definition. Keep the required lock
-    /// in such options.
+    /// A Flow that declares a requirement reads each Step's lock options once, at registration.
+    /// Dex sends those locks whenever it schedules the Step with its registered options. The check
+    /// compares writes with them, not with the locks Dex acquires for the call. Options passed to
+    /// [`StepMovement::to_with_options`] replace the registered options, and an RPC takes its
+    /// locks from the Client's definition. Keep the required lock in such options.
     ///
     /// # Examples
     ///
     /// ```
-    /// use dex_sdk::{Attribute, Context, HandlerResult, Step, StepDecision, StepOptions};
+    /// use dex_sdk::{
+    ///     Attribute, Context, HandlerResult, PersistenceSchema, Step, StepDecision, StepOptions,
+    /// };
     /// use std::sync::LazyLock;
     ///
     /// static ORDER_TOTAL: LazyLock<Attribute<u64>> =
     ///     LazyLock::new(|| Attribute::new("order-total").writes_require_lock());
+    ///
+    /// // Flow::persistence registers the same definition.
+    /// let schema = PersistenceSchema::new().attribute(&ORDER_TOTAL);
+    /// # let _ = schema;
     ///
     /// struct AddItemStep;
     ///
@@ -198,7 +206,7 @@ impl<T> Attribute<T> {
     /// The rules of [`Self::writes_require_lock`] apply: only locks that the handler registers
     /// count, and a write without the lock fails the invocation with
     /// [`MissingAttributeLockError`](crate::MissingAttributeLockError). The handler must register
-    /// `lock_attribute.lock()`.
+    /// `lock_attribute.lock()`. When both write-lock methods are called, the last call wins.
     ///
     /// `lock_attribute` must be in the same Flow's [`PersistenceSchema`](crate::PersistenceSchema).
     /// [`Registry::register`](crate::Registry::register) returns
@@ -509,9 +517,9 @@ impl<T> AttributeMap<T> {
     /// A write of instance `"line-1"` without `lock("line-1")` among the handler's registered
     /// locks fails the invocation with
     /// [`MissingAttributeLockError`](crate::MissingAttributeLockError), and Dex discards the
-    /// changes buffered for its result. The lock of another instance does not count. The other
-    /// rules, and an example, are in [`Attribute::writes_require_lock`]. Read that method before
-    /// declaring a requirement.
+    /// changes buffered for its result. The lock of another instance does not count. When both
+    /// write-lock methods are called, the last call wins. The other rules, and an example, are in
+    /// [`Attribute::writes_require_lock`]. Read that method before declaring a requirement.
     ///
     /// Since 1.45.9.
     #[must_use]
@@ -524,9 +532,9 @@ impl<T> AttributeMap<T> {
     /// Attribute `lock_attribute`.
     ///
     /// Use it when a coordination Attribute protects an invariant across the whole map. The
-    /// handler must register `lock_attribute.lock()`; instance locks do not count. The other
-    /// rules, the registration checks, and an example are in
-    /// [`Attribute::writes_require_attribute_lock`].
+    /// handler must register `lock_attribute.lock()`; instance locks do not count. When both
+    /// write-lock methods are called, the last call wins. The other rules, the registration
+    /// checks, and an example are in [`Attribute::writes_require_attribute_lock`].
     ///
     /// Since 1.45.9.
     #[must_use]

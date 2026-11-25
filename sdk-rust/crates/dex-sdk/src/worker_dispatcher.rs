@@ -713,7 +713,10 @@ pub(crate) fn map_step_options(
             })?;
             Ok((
                 target.name,
-                map_step_options_without_recovery(flow, flow.handler.step_options(target.name)?)?,
+                map_step_options_without_recovery(
+                    flow,
+                    flow.registered_step_options(target.name)?,
+                )?,
             ))
         })
         .transpose()?;
@@ -838,7 +841,7 @@ pub(crate) fn map_flow_timeout_handler_options(
             let step_options = failure
                 .options
                 .clone()
-                .map_or_else(|| flow.handler.step_options(target.name), Ok)?;
+                .map_or_else(|| flow.registered_step_options(target.name), Ok)?;
             (
                 ExecuteMethodFailurePolicy::ProceedToConfiguredStep as i32,
                 target.name.to_string(),
@@ -1214,7 +1217,7 @@ fn map_movement(flow: &RegisteredFlow, movement: StepMovement) -> HandlerResult<
     let step_input = movement.encode_input().map_err(handler_error)?;
     let options = movement
         .options_override
-        .map_or_else(|| flow.handler.step_options(target.name), Ok)?;
+        .map_or_else(|| flow.registered_step_options(target.name), Ok)?;
     Ok(ProtoStepMovement {
         step_type: target.name.to_string(),
         step_input: Some(step_input),
@@ -1352,7 +1355,7 @@ impl<'a> ConditionMapper<'a> {
                     )
                 })?;
                 let step_options =
-                    map_step_options(target, target.handler.step_options(start.name)?)?;
+                    map_step_options(target, target.registered_step_options(start.name)?)?;
                 let options = map_sub_flow_options(
                     target,
                     &definition.options,

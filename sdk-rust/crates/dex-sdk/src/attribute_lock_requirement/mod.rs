@@ -9,9 +9,11 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use crate::context::Context;
 use crate::persistence::{PersistenceDefinition, PersistenceKind};
+use crate::registry::decode_instance;
 use crate::rpc::RegisteredRpc;
 use crate::step_options::ErasedStepOptions;
 use crate::{AttributeLock, HandlerError, HandlerResult, SdkError, SdkResult};
@@ -35,25 +37,33 @@ pub(crate) struct DeclaredLockRequirement {
     pub(crate) requirement: LockRequirement,
 }
 
-/// Identifies one buffered Attribute write or Channel publish by definition name and instance.
+/// Identifies one buffered write of a declared Attribute or AttributeMap instance.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct BufferedAccessTarget {
+pub(crate) struct DeclaredWriteTarget {
     pub(crate) name: String,
     pub(crate) instance: Option<String>,
     pub(crate) physical_name: String,
 }
 
-/// Holds a Flow's declared requirements and the registration-time locks of its Steps.
+/// Shares a Flow's declared requirements; `None` when the Flow declares none.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RegisteredLockRequirements {
-    requirements: HashMap<String, LockRequirement>,
-    step_lock_keys: HashMap<&'static str, StepLockKeys>,
+    declared: Option<Arc<DeclaredLockRequirements>>,
 }
 
-#[derive(Clone, Debug, Default)]
-struct StepLockKeys {
-    wait_for: HashSet<String>,
-    execute: HashSet<String>,
+#[derive(Debug)]
+struct DeclaredLockRequirements {
+    requirements: HashMap<String, LockRequirement>,
+    step_locks: HashMap<&'static str, RegisteredStepLocks>,
+}
+
+/// Snapshots a Step's lock fields once, so dispatch and the Worker check agree.
+#[derive(Debug)]
+struct RegisteredStepLocks {
+    wait_for_locks: Vec<AttributeLock>,
+    execute_locks: Vec<AttributeLock>,
+    wait_for_keys: HashSet<String>,
+    execute_keys: HashSet<String>,
 }
 
 /// Selects the handler invocation whose registration-time locks a check compares.
@@ -96,20 +106,53 @@ impl RegisteredLockRequirements {
                 declaration.requirement.clone(),
             );
         }
-        let step_lock_keys = step_options
+        if requirements.is_empty() {
+            return Ok(Self::default());
+        }
+        let step_locks = step_options
             .into_iter()
             .map(|(step_type, options)| {
-                let keys = StepLockKeys {
-                    wait_for: lock_keys(&options.wait_for_locks),
-                    execute: lock_keys(&options.execute_locks),
+                let locks = RegisteredStepLocks {
+                    wait_for_locks: options.wait_for_locks.clone(),
+                    execute_locks: options.execute_locks.clone(),
+                    wait_for_keys: lock_keys(&options.wait_for_locks),
+                    execute_keys: lock_keys(&options.execute_locks),
                 };
-                (step_type, keys)
+                (step_type, locks)
             })
             .collect();
         Ok(Self {
-            requirements,
-            step_lock_keys,
+            declared: Some(Arc::new(DeclaredLockRequirements {
+                requirements,
+                step_locks,
+            })),
         })
+    }
+
+    /// Returns whether a write of the Attribute or AttributeMap `name` needs a lock check.
+    pub(crate) fn is_declared(&self, name: &str) -> bool {
+        self.declared
+            .as_ref()
+            .is_some_and(|declared| declared.requirements.contains_key(name))
+    }
+
+    /// Replaces the lock fields of `options` with `step_type`'s registration-time lock fields.
+    ///
+    /// Leaves `options` unchanged for a Flow without declared requirements.
+    pub(crate) fn apply_registered_step_locks(
+        &self,
+        step_type: &str,
+        options: &mut ErasedStepOptions,
+    ) {
+        let Some(locks) = self
+            .declared
+            .as_ref()
+            .and_then(|declared| declared.step_locks.get(step_type))
+        else {
+            return;
+        };
+        options.wait_for_locks.clone_from(&locks.wait_for_locks);
+        options.execute_locks.clone_from(&locks.execute_locks);
     }
 
     /// Returns `Ok(())` when every buffered write and publish of a declared definition holds its
@@ -122,24 +165,25 @@ impl RegisteredLockRequirements {
         invocation: CheckedInvocation<'_>,
         context: &Context,
     ) -> HandlerResult<()> {
-        if self.requirements.is_empty() {
+        let Some(declared) = &self.declared else {
             return Ok(());
-        }
+        };
         let rpc_lock_keys;
         let held_lock_keys = match invocation {
-            CheckedInvocation::WaitFor(step_type) => self
-                .step_lock_keys
+            CheckedInvocation::WaitFor(step_type) => declared
+                .step_locks
                 .get(step_type)
-                .map(|keys| &keys.wait_for),
-            CheckedInvocation::Execute(step_type) => {
-                self.step_lock_keys.get(step_type).map(|keys| &keys.execute)
-            }
+                .map(|locks| &locks.wait_for_keys),
+            CheckedInvocation::Execute(step_type) => declared
+                .step_locks
+                .get(step_type)
+                .map(|locks| &locks.execute_keys),
             CheckedInvocation::Rpc(rpc) => {
                 rpc_lock_keys = lock_keys(&rpc.locks);
                 Some(&rpc_lock_keys)
             }
         };
-        let accesses = self.missing_lock_accesses(held_lock_keys, context);
+        let accesses = declared.missing_lock_accesses(held_lock_keys, context);
         if accesses.is_empty() {
             return Ok(());
         }
@@ -167,7 +211,9 @@ impl RegisteredLockRequirements {
             error.to_string(),
         ))
     }
+}
 
+impl DeclaredLockRequirements {
     fn missing_lock_accesses(
         &self,
         held_lock_keys: Option<&HashSet<String>>,
@@ -175,7 +221,7 @@ impl RegisteredLockRequirements {
     ) -> Vec<MissingAttributeLockAccess> {
         let is_held = |lock_key: &str| held_lock_keys.is_some_and(|keys| keys.contains(lock_key));
         let mut missing = Vec::new();
-        for target in context.attribute_write_targets() {
+        for target in context.declared_write_targets() {
             let Some(requirement) = self.requirements.get(&target.name) else {
                 continue;
             };
@@ -204,22 +250,30 @@ impl RegisteredLockRequirements {
                 lock_instance,
             });
         }
-        for target in context.publish_targets() {
-            let Some(LockRequirement::Attribute(lock_name)) = self.requirements.get(&target.name)
-            else {
+        let mut published = HashSet::new();
+        for publication in context.publications() {
+            let physical_name = publication.channel_name.as_str();
+            let (name, encoded_instance) = match physical_name.split_once('/') {
+                Some((name, encoded_instance)) => (name, Some(encoded_instance)),
+                None => (physical_name, None),
+            };
+            let Some(LockRequirement::Attribute(lock_name)) = self.requirements.get(name) else {
                 continue;
             };
-            if is_held(lock_name) {
+            if !published.insert(physical_name) || is_held(lock_name) {
                 continue;
             }
             missing.push(MissingAttributeLockAccess {
-                kind: if target.instance.is_some() {
+                kind: if encoded_instance.is_some() {
                     MissingAttributeLockAccessKind::ChannelMapPublish
                 } else {
                     MissingAttributeLockAccessKind::ChannelPublish
                 },
-                name: target.name.clone(),
-                instance: target.instance.clone(),
+                name: name.to_owned(),
+                instance: encoded_instance.map(|encoded| {
+                    decode_instance(physical_name, &format!("{name}/"))
+                        .unwrap_or_else(|_| encoded.to_owned())
+                }),
                 lock_attribute_name: lock_name.clone(),
                 lock_instance: None,
             });

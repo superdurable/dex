@@ -59,6 +59,22 @@ pub(crate) struct RegisteredFlow {
     pub(crate) handler: Arc<dyn ErasedFlow>,
 }
 
+impl RegisteredFlow {
+    /// Returns a Step's options for default dispatch.
+    ///
+    /// A Flow with declared lock requirements sends the lock fields read at registration, which
+    /// the Worker check also uses.
+    pub(crate) fn registered_step_options(
+        &self,
+        step_type: &str,
+    ) -> HandlerResult<ErasedStepOptions> {
+        let mut options = self.handler.step_options(step_type)?;
+        self.lock_requirements
+            .apply_registered_step_locks(step_type, &mut options);
+        Ok(options)
+    }
+}
+
 impl Registry {
     /// Creates an empty registry.
     pub fn new() -> Self {

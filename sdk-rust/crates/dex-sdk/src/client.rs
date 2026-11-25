@@ -225,8 +225,7 @@ impl Client {
                     map_step_options(
                         registered,
                         registered
-                            .handler
-                            .step_options(step.name)
+                            .registered_step_options(step.name)
                             .map_err(sdk_handler_error)?,
                     )
                     .map_err(sdk_handler_error)?,

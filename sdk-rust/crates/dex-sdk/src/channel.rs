@@ -95,7 +95,7 @@ impl<T> Channel<T> {
     /// such as
     /// [`RpcInvokeOptions::lock_attribute_map_instance`](crate::RpcInvokeOptions::lock_attribute_map_instance)
     /// and the options of [`StepMovement::to_with_options`](crate::StepMovement::to_with_options),
-    /// do not count. A Flow timeout handler and Client publishes are not checked.
+    /// do not count. A Flow timeout handler is not checked.
     ///
     /// `lock_attribute` must be a named singleton Attribute in the same Flow's
     /// [`PersistenceSchema`](crate::PersistenceSchema).

@@ -21,7 +21,7 @@ use crate::attribute::{
     AttributeWriteSettings, require_registered_hard_delete_setting,
     validate_hard_delete_attribute_write,
 };
-use crate::attribute_lock_requirement::BufferedAccessTarget;
+use crate::attribute_lock_requirement::DeclaredWriteTarget;
 use crate::persistence::PersistenceKind;
 use crate::registry::{RegisteredFlow, decode_instance, physical_name, validate_map_instance};
 use crate::server_protocol::NegotiatedServerProtocolVersion;
@@ -179,12 +179,11 @@ pub struct Context {
     loaded_channel_names: HashSet<String>,
     loaded_channel_map_instances: HashSet<String>,
     attribute_writes: HashMap<String, AttributeWrite>,
-    attribute_write_targets: Vec<BufferedAccessTarget>,
+    declared_write_targets: Vec<DeclaredWriteTarget>,
     local_writes: HashMap<String, Kv>,
     events: Vec<Kv>,
     event_names: HashSet<String>,
     publications: Vec<ProtoChannelMessage>,
-    publish_targets: Vec<BufferedAccessTarget>,
     channel_deletions: Vec<ChannelMessageDeletion>,
     cancellation: InvocationCancellation,
     runtime: Option<tokio::runtime::Handle>,
@@ -234,12 +233,11 @@ impl Context {
             loaded_channel_names: input.loaded_channel_names.into_iter().collect(),
             loaded_channel_map_instances: input.loaded_channel_map_instances.into_iter().collect(),
             attribute_writes: HashMap::new(),
-            attribute_write_targets: Vec::new(),
+            declared_write_targets: Vec::new(),
             local_writes: HashMap::new(),
             events: Vec::new(),
             event_names: HashSet::new(),
             publications: Vec::new(),
-            publish_targets: Vec::new(),
             channel_deletions: Vec::new(),
             cancellation,
             runtime: tokio::runtime::Handle::try_current().ok(),
@@ -912,14 +910,14 @@ impl Context {
         self.cancellation.clone()
     }
 
-    /// Returns each buffered Attribute key in the order the handler first wrote it.
-    pub(crate) fn attribute_write_targets(&self) -> &[BufferedAccessTarget] {
-        &self.attribute_write_targets
+    /// Returns each buffered key of a declared definition in the order the handler first wrote it.
+    pub(crate) fn declared_write_targets(&self) -> &[DeclaredWriteTarget] {
+        &self.declared_write_targets
     }
 
-    /// Returns each Channel or ChannelMap instance in the order the handler first published to it.
-    pub(crate) fn publish_targets(&self) -> &[BufferedAccessTarget] {
-        &self.publish_targets
+    /// Returns the buffered Channel publications in publish order.
+    pub(crate) fn publications(&self) -> &[ProtoChannelMessage] {
+        &self.publications
     }
 
     pub(crate) fn take_outputs(self) -> InvocationOutputs {
@@ -1014,8 +1012,10 @@ impl Context {
                 .require_hard_delete_attribute_support(&key)
                 .map_err(|error| HandlerError::new("dex_sdk::HandlerError", error))?;
         }
-        if !self.attribute_writes.contains_key(&key) {
-            self.attribute_write_targets.push(BufferedAccessTarget {
+        if self.flow.lock_requirements.is_declared(name)
+            && !self.attribute_writes.contains_key(&key)
+        {
+            self.declared_write_targets.push(DeclaredWriteTarget {
                 name: name.to_owned(),
                 instance: instance.map(str::to_owned),
                 physical_name: key.clone(),
@@ -1033,17 +1033,6 @@ impl Context {
         value: ProtoValue,
     ) -> HandlerResult<()> {
         let channel_name = self.registered_name(name, kind, instance)?;
-        if !self
-            .publish_targets
-            .iter()
-            .any(|target| target.physical_name == channel_name)
-        {
-            self.publish_targets.push(BufferedAccessTarget {
-                name: name.to_owned(),
-                instance: instance.map(str::to_owned),
-                physical_name: channel_name.clone(),
-            });
-        }
         self.publications.push(ProtoChannelMessage {
             channel_name: channel_name.clone(),
             value: Some(value),
