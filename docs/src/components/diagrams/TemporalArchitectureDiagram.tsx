@@ -143,7 +143,7 @@ export default function TemporalArchitectureDiagram({markdownDescription}: {mark
             })}
             detail={translate({
               id: 'docs.temporal.overview.architecture.objectStorageDetail',
-              message: 'Amazon S3 or S3-compatible',
+              message: 'S3, GCS, Azure Blob, Aliyun OSS, Tencent COS, or S3-compatible',
               description: 'The object storage services Dex Server supports',
             })}
           />

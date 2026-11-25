@@ -538,7 +538,7 @@
     "description": "The object storage box under Dex Server"
   },
   "docs.temporal.overview.architecture.objectStorageDetail": {
-    "message": "Amazon S3 或兼容 S3 的服务",
+    "message": "S3、GCS、Azure Blob、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储",
     "description": "The object storage services Dex Server supports"
   },
   "docs.temporal.perf.chart.yAxis": {"message": "工作集（MiB）"},
@@ -590,5 +590,5 @@
   "docs.temporal.ops.deploy.dexStandby": {"message": "备用节点"},
   "docs.temporal.ops.deploy.dexStandbyDetail": {"message": "可选，负责接管"},
   "docs.temporal.ops.deploy.dexStorage": {"message": "对象存储"},
-  "docs.temporal.ops.deploy.dexStorageDetail": {"message": "Amazon S3 或兼容 S3 的服务，或 db9"}
+  "docs.temporal.ops.deploy.dexStorageDetail": {"message": "S3、GCS、Azure Blob、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储，或 db9"}
 }

@@ -17,12 +17,12 @@ import TemporalDeploymentDiagram from '@site/src/components/diagrams/TemporalDep
 
 ## 运行服务器 {#run-the-server}
 
-<TemporalDeploymentDiagram markdownDescription="Temporal Service：Frontend、History、Matching 和 Worker 四个服务，运行在一个数据库（Cassandra、MySQL 或 PostgreSQL）和一个 Visibility 存储（SQL 数据库或 Elasticsearch）上。Dex Server：一个二进制作为持有 lease 的活跃节点，一个可选的备用节点负责接管，以及对象存储（Amazon S3 或兼容 S3 的服务）或 db9。" />
+<TemporalDeploymentDiagram markdownDescription="Temporal Service：Frontend、History、Matching 和 Worker 四个服务，运行在一个数据库（Cassandra、MySQL 或 PostgreSQL）和一个 Visibility 存储（SQL 数据库或 Elasticsearch）上。Dex Server：一个二进制作为持有 lease 的活跃节点，一个可选的备用节点负责接管，以及对象存储（Amazon S3、Google Cloud Storage、Azure Blob Storage、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储（例如 MinIO））或 db9。" />
 
 | | Temporal Service | Dex Server |
 | --- | --- | --- |
 | 进程 | Frontend、History、Matching 和 Worker 服务。它们可以共用一个进程。Temporal 建议在生产环境中分开运行。 | 一个二进制。一个活跃节点在对象存储里持有 lease。见 [Dex Server](/components/server)。 |
-| 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发和测试。 | [对象存储](/reference/server/object-storage)（英文）：Amazon S3、Google Cloud Storage、Azure Blob Storage、Aliyun OSS、Tencent COS，或 MinIO 这类兼容 S3 的存储。也可以用 [db9](/reference/server/object-storage#db9)（英文）代替。 |
+| 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发和测试。 | [对象存储](/reference/server/object-storage)（英文）：Amazon S3、Google Cloud Storage、Azure Blob Storage、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储（例如 MinIO）。也可以用 [db9](/reference/server/object-storage#db9)（英文）代替。 |
 | 搜索存储 | Visibility 存储：Elasticsearch、OpenSearch、MySQL、PostgreSQL 或 SQLite。Temporal 建议生产环境使用 Elasticsearch。Cassandra 不支持自定义 Search Attribute。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
 
 关于 Temporal 的事实来自 [Temporal Server](https://docs.temporal.io/temporal-service/temporal-server)、[Persistence](https://docs.temporal.io/temporal-service/persistence)、[Visibility](https://docs.temporal.io/self-hosted-guide/visibility) 和[生产环境检查清单](https://docs.temporal.io/self-hosted-guide/production-checklist)。

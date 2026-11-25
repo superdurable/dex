@@ -53,7 +53,7 @@ export default function TemporalDeploymentDiagram({markdownDescription}: {markdo
           <TemporalLaneBox
             icon={Cloud}
             title={translate({id: 'docs.temporal.ops.deploy.dexStorage', message: 'Object storage'})}
-            detail={translate({id: 'docs.temporal.ops.deploy.dexStorageDetail', message: 'Amazon S3 or S3-compatible, or db9'})}
+            detail={translate({id: 'docs.temporal.ops.deploy.dexStorageDetail', message: 'S3, GCS, Azure Blob, Aliyun OSS, Tencent COS, or S3-compatible, or db9'})}
           />
         </TemporalLane>
       </TemporalLaneLayout>

@@ -15,7 +15,7 @@ A self-hosted Temporal Service runs four services on a database, and Temporal ap
 
 ## Run the server {#run-the-server}
 
-<TemporalDeploymentDiagram markdownDescription="Temporal Service: the Frontend, History, Matching, and Worker services, on a database (Cassandra, MySQL, or PostgreSQL) and a Visibility store (SQL or Elasticsearch). Dex Server: one binary as the active node that holds the lease, an optional standby node that takes over, and object storage (Amazon S3 or an S3-compatible service) or db9." />
+<TemporalDeploymentDiagram markdownDescription="Temporal Service: the Frontend, History, Matching, and Worker services, on a database (Cassandra, MySQL, or PostgreSQL) and a Visibility store (SQL or Elasticsearch). Dex Server: one binary as the active node that holds the lease, an optional standby node that takes over, and object storage (Amazon S3, Google Cloud Storage, Azure Blob Storage, Aliyun OSS, Tencent COS, or an S3-compatible store such as MinIO) or db9." />
 
 | | Temporal Service | Dex Server |
 | --- | --- | --- |
