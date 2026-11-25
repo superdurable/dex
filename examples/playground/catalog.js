@@ -373,10 +373,10 @@ window.PLAYGROUND_CATALOG = [
     endpoints: [
       endpoint("GET", "/patterns/child-flows-business-identity/start", "Start order", [flowId()]),
       endpoint("GET", "/patterns/child-flows-business-identity/shipment", "Look up shipment", [
-        query("shipmentNumber", { default: "order-1-2" }),
+        query("shipmentNumber", { deriveFromFlowId: "-2" }),
       ]),
       endpoint("GET", "/patterns/child-flows-business-identity/cancel-shipment", "Cancel shipment", [
-        query("shipmentNumber", { default: "order-1-2" }),
+        query("shipmentNumber", { deriveFromFlowId: "-2" }),
       ]),
     ],
   },
