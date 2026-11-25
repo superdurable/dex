@@ -306,3 +306,83 @@ func approvalTimer(request string) (dex.Condition, error) {
 	return dex.Timer(0), nil
 }
 `
+
+// TestGoAnalyzerChannelConstructorsWithOptions keeps Channel nodes and edges for the WithOptions constructors.
+func TestGoAnalyzerChannelConstructorsWithOptions(t *testing.T) {
+	graph := analyzeGoSpreadWaitSource(t, goChannelWithOptionsSource)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	channelNodes := map[string]Node{}
+	for _, node := range graph.Nodes {
+		if strings.HasPrefix(node.ID, "resource:channel:") {
+			channelNodes[node.Name] = node
+		}
+	}
+	require.Contains(t, channelNodes, "replies")
+	require.Contains(t, channelNodes, "events")
+	require.NotNil(t, channelNodes["replies"].Resource)
+	require.False(t, channelNodes["replies"].Resource.Map)
+	require.NotNil(t, channelNodes["events"].Resource)
+	require.True(t, channelNodes["events"].Resource.Map, "the ChannelMap variant keeps its map marker")
+	edgeKinds := map[string]string{}
+	for _, edge := range graph.Edges {
+		for name, node := range channelNodes {
+			if edge.From == node.ID || edge.To == node.ID {
+				edgeKinds[name] = edge.Kind
+			}
+		}
+	}
+	require.Equal(t, "wait_condition", edgeKinds["replies"])
+	require.Equal(t, "resource_publish", edgeKinds["events"])
+}
+
+const goChannelWithOptionsSource = `package spreadwait
+
+import "github.com/superdurable/dex/sdk-go/dex"
+
+var conversationLock = dex.DefineAttribute[bool]("conversation-lock")
+var replies = dex.DefineChannelWithOptions[string]("replies", dex.PublishesRequireAttributeLock(conversationLock))
+var events = dex.DefineChannelMapWithOptions[string]("events", dex.PublishesRequireAttributeLock(conversationLock))
+
+type ParentFlow struct { dex.FlowDefaults }
+func (*ParentFlow) GetSteps() []dex.StepDef { return []dex.StepDef{dex.DefineStartStep(AwaitReply{})} }
+func (*ParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{conversationLock},
+		Channels:   []dex.ChannelDef{replies, events},
+	}
+}
+
+func (flow *ParentFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.RecordEvent, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(conversationLock)},
+		}),
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+	}
+}
+
+func (*ParentFlow) RecordEvent(ctx dex.Context, instance string) (*dex.RPCResult[dex.None], error) {
+	return &dex.RPCResult[dex.None]{}, events.Publish(ctx, instance, "event")
+}
+
+func (*ParentFlow) GetDexSummary(dex.Context, dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+func (*ParentFlow) GetDexDisplay(dex.Context, dex.None) (*dex.RPCResult[map[string]any], error) {
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+}
+
+// dex:group group-id:replies group-label:"Replies"
+// dex:explanation text:"Waits for one reply."
+type AwaitReply struct { dex.StepDefaults }
+
+func (AwaitReply) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+	return dex.Until(replies.ForOne()), nil
+}
+
+func (AwaitReply) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(nil), nil
+}
+`
