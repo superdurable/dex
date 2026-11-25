@@ -57,6 +57,6 @@ export class NonRetryableError extends Error {
     } else {
       throw new TypeError("causeOrMessage must be an Error or a string");
     }
-    this.name = "NonRetryableError";
+    this.name = new.target.name;
   }
 }

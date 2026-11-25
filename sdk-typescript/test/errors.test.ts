@@ -162,6 +162,10 @@ test("non-retryable worker errors report the cause in either nesting order", () 
   const fromMessage = workerErrorResponse(new NonRetryableError("bad input"));
   assert.equal(fromMessage.nonRetryable, true);
   assert.equal(fromMessage.errorType, "NonRetryableError");
+  class InvalidOrderError extends NonRetryableError {}
+  const fromSubclass = workerErrorResponse(new InvalidOrderError("invalid order"));
+  assert.equal(fromSubclass.nonRetryable, true);
+  assert.equal(fromSubclass.errorType, "InvalidOrderError");
   assert.equal(workerErrorResponse(cause).nonRetryable, false);
 });
 

@@ -507,6 +507,14 @@ func TestLocalErrorContracts(t *testing.T) {
 		dex.IsClientOnlyFlow(nil) || clientOnlyMarker != (dex.ClientOnlyFlow{}) {
 		t.Fatal("client-only Flow contracts changed")
 	}
+
+	cause := errors.New("card rejected")
+	var nonRetryableError error = dex.NonRetryable(cause)
+	var nonRetryable *dex.NonRetryableError
+	if !errors.As(nonRetryableError, &nonRetryable) || nonRetryable.Cause != cause ||
+		!errors.Is(nonRetryableError, cause) {
+		t.Fatal("NonRetryable contracts changed")
+	}
 }
 
 func TestRecoveryErrorInfoRecognizesTimeLimitsAcrossBackendSpellings(t *testing.T) {
