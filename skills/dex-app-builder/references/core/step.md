@@ -24,9 +24,10 @@ Each WaitFor call, each Execute call, and each RPC call is a separate commit bou
 Use Execute for work and WaitFor for durable waiting. One rule holds in every SDK:
 
 - Prefer calls that can fail in Execute. WaitFor returns the Conditions to wait on. It may write the Dex state needed to establish the wait: Attributes, Channel publications, and Step execution local values.
-- WaitFor never mutates an external system and has no irreversible side effect. Put every provider mutation in Execute, and keep it idempotent or compensatable there.
-- If WaitFor must call a provider and gets a permanent error, record the error in a [Step execution local value](#step-execution-local-values), return SkipWaitImmediately, and let Execute route on it. Never let a permanent error loop in Step retry.
-- WaitFor may run more than once, because a failed WaitFor retries. Keep it cheap, deterministic, and safe to repeat.
+- WaitFor never mutates an external system and has no irreversible side effect. Put every provider mutation, including Connector write operations, in Execute, and keep it idempotent or compensatable there.
+- WaitFor may make read-only, idempotent, time-bounded calls, for example to read a due date that sets a Timer. The Timer is durable once WaitFor's result commits.
+- If a WaitFor read gets a permanent error, record the error in a [Step execution local value](#step-execution-local-values), return SkipWaitImmediately, and let Execute route on it. Never let a permanent error loop in Step retry.
+- WaitFor may run more than once, because a failed WaitFor retries. Keep it cheap and safe to repeat. A retry may read a different value; the Wait that commits is the one that counts.
 - Never poll a provider from WaitFor or with a Timer loop. Waiting for an external system uses the [Polling pattern](patterns.md#polling): one long-running Execute that loops and heartbeats.
 - Never use the Client from WaitFor to start or mutate another Flow. To wait on a child Flow, return a SubFlow Condition.
 - To pass a value that WaitFor computed to Execute of the same Step execution, use a Step execution local value. See [Step execution local values](#step-execution-local-values).

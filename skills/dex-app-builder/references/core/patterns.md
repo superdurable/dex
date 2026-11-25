@@ -440,7 +440,7 @@ A failure while establishing the wait is recoverable. Go folder: `primitives/pro
 
 ```text
 Lookup options: bounded WaitFor retry; WaitFor failure policy = proceed
-Lookup.waitFor -> may fail (for example a check of Dex state or input; never an external call)
+Lookup.waitFor -> may fail (for example a check of Dex state or input, or a read-only external call)
 Lookup.execute(context, input)
     if context.waitForMethodFailed(): goTo(Recover, input)    // read context.recoveryError()
     else: normal path
@@ -468,7 +468,7 @@ RestoreQuantity.execute -> compensate; forceFail("payment failed")
 Stop retrying when a provider confirms that an error is permanent, such as a rejected input or a closed account.
 
 - Execute classifies the provider error. A permanent error routes to a failure-handling Step or returns ForceFail. Only an error that can succeed on a later attempt goes to Step retry.
-- If WaitFor must call a provider, it records a permanent error in a Step execution local value and returns SkipWaitImmediately; Execute routes on it. See [step.md](step.md#waitfor-versus-execute).
+- When a read-only provider call in WaitFor gets a permanent error, WaitFor records it in a Step execution local value and returns SkipWaitImmediately; Execute routes on it. See [step.md](step.md#waitfor-versus-execute).
 - Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/fail-fast), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/fail-fast), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/failfast), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/fail-fast), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/fail_fast).
 
 ### Manual recovery
