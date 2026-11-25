@@ -31,7 +31,67 @@ import (
 //	var approvals = dex.DefineChannel[Approval]("approvals")
 //	return dex.AnyOf(approvals.ForOne(), dex.Timer(5*time.Minute)), nil
 type Channel[T any] struct {
-	name string
+	name                     string
+	publishLockAttributeName string
+}
+
+// ChannelOption configures a Channel or ChannelMap definition.
+// Use PublishesRequireAttributeLock to create a value; custom implementations are not supported.
+//
+// Since 1.45.17.
+type ChannelOption interface {
+	applyChannel(*channelConfig)
+}
+
+type channelConfig struct {
+	publishLockAttributeName string
+}
+
+func applyChannelOptions(options []ChannelOption) channelConfig {
+	var config channelConfig
+	for _, option := range options {
+		option.applyChannel(&config)
+	}
+	return config
+}
+
+// PublishesRequireAttributeLock declares that every publish to a Channel, or to any ChannelMap
+// instance, requires holding the lock of the singleton Attribute lockAttribute.
+//
+// Use it when the messages of a Channel must follow from a state change that a lock protects,
+// for example a reply Channel that only the holder of a conversation lock may publish to. The
+// Worker enforces the requirement: a WaitFor, Execute, or RPC invocation that publishes without
+// holding the lock fails with MissingAttributeLockError, and Dex discards the changes buffered for
+// its result. Waiting on the Channel and reading its messages are not affected.
+//
+// Only the locks a handler registers count: StepOptions.WaitForLockAttributes or
+// StepOptions.ExecuteLockAttributes for a Step method, and RPCOptions.LockAttributes for an RPC.
+// Locks added for one call, such as RPCInvokeOptions.LockAttributeMapInstances and StepOptions
+// passed with WithStepOptions, do not count. A Flow timeout handler is not checked. lockAttribute
+// must be in the same Flow's PersistenceSchema; NewRegistry returns an error otherwise.
+//
+// Example:
+//
+//	var conversationLock = dex.DefineAttribute[bool]("conversation-lock")
+//	var replies = dex.DefineChannel[string]("replies", dex.PublishesRequireAttributeLock(conversationLock))
+//
+//	func (flow ChatFlow) GetRPCs() []dex.RPCDef {
+//		return []dex.RPCDef{dex.DefineRPC(flow.Reply, &dex.RPCOptions{
+//			LockAttributes: []dex.AttributeLock{dex.LockAttribute(conversationLock)},
+//		})}
+//	}
+//
+// Since 1.45.17.
+func PublishesRequireAttributeLock[T any](lockAttribute Attribute[T]) ChannelOption {
+	return publishLockChannelOption{lockAttributeName: lockAttribute.name}
+}
+
+type publishLockChannelOption struct {
+	lockAttributeName string
+}
+
+func (option publishLockChannelOption) applyChannel(config *channelConfig) {
+	config.publishLockAttributeName = option.lockAttributeName
 }
 
 // ChannelMapLoad selects one ChannelMap instance for a handler invocation.
@@ -53,8 +113,10 @@ type ChannelMessage[T any] struct {
 
 // DefineChannel creates a typed Channel with a stable name without performing I/O.
 // "/" is reserved as the ChannelMap separator and is prohibited in Channel names.
-func DefineChannel[T any](name string) Channel[T] {
-	return Channel[T]{name: name}
+// Changed in 1.45.17: options such as PublishesRequireAttributeLock configure the definition.
+func DefineChannel[T any](name string, options ...ChannelOption) Channel[T] {
+	config := applyChannelOptions(options)
+	return Channel[T]{name: name, publishLockAttributeName: config.publishLockAttributeName}
 }
 
 // ChannelDef is the interface of Channel, without Go's generic
@@ -64,6 +126,7 @@ func DefineChannel[T any](name string) Channel[T] {
 type ChannelDef interface {
 	channelName() string
 	channelIsMap() bool
+	channelPublishLockAttributeName() string
 }
 
 // Publish stages one message from the current Step or RPC invocation.
@@ -194,18 +257,25 @@ func (Channel[T]) channelIsMap() bool {
 	return false
 }
 
+func (c Channel[T]) channelPublishLockAttributeName() string {
+	return c.publishLockAttributeName
+}
+
 // ChannelMap defines independently queued Channel instances under one shared name.
 // Register the map once in PersistenceSchema and supply an instance string to each operation.
 // Slash is prohibited in instance keys because it is a reserved character.
 // To wait for parallel branches of the same Flow, use a Join, which keys a ChannelMap by round.
 type ChannelMap[T any] struct {
-	name string
+	name                     string
+	publishLockAttributeName string
 }
 
 // DefineChannelMap creates a typed Channel map with a stable name.
 // "/" is reserved as the ChannelMap separator and is prohibited in ChannelMap names.
-func DefineChannelMap[T any](name string) ChannelMap[T] {
-	return ChannelMap[T]{name: name}
+// Changed in 1.45.17: options such as PublishesRequireAttributeLock configure the definition.
+func DefineChannelMap[T any](name string, options ...ChannelOption) ChannelMap[T] {
+	config := applyChannelOptions(options)
+	return ChannelMap[T]{name: name, publishLockAttributeName: config.publishLockAttributeName}
 }
 
 // Publish stages one typed message for instance from the current invocation.
@@ -384,6 +454,10 @@ func (c ChannelMap[T]) channelName() string {
 
 func (ChannelMap[T]) channelIsMap() bool {
 	return true
+}
+
+func (c ChannelMap[T]) channelPublishLockAttributeName() string {
+	return c.publishLockAttributeName
 }
 
 type channelInvocation interface {

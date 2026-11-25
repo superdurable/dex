@@ -66,12 +66,14 @@ type registeredAttribute struct {
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
 	isPlaintext          bool
+	writeLock            attributeWriteLockRequirement
 }
 
 type registeredChannel struct {
-	def   ChannelDef
-	name  string
-	isMap bool
+	def                      ChannelDef
+	name                     string
+	isMap                    bool
+	publishLockAttributeName string
 }
 
 type registeredStream struct {
@@ -230,7 +232,7 @@ func (flow *registeredFlow) registerPersistence(
 			return err
 		}
 	}
-	return nil
+	return flow.validateRequiredLockAttributes()
 }
 
 func (flow *registeredFlow) registerAttribute(
@@ -285,6 +287,7 @@ func (flow *registeredFlow) registerAttribute(
 		syncToAttributeStore: definition.attributeSyncToAttributeStore(),
 		isHardDeleteOnNull:   definition.attributeIsHardDeleteOnNull(),
 		isPlaintext:          definition.attributeIsPlaintext(),
+		writeLock:            definition.attributeWriteLock(),
 	}
 	return nil
 }
@@ -321,9 +324,42 @@ func (flow *registeredFlow) registerChannel(
 		return fmt.Errorf("duplicate channel %q", name)
 	}
 	flow.channels[name] = registeredChannel{
-		def:   definition,
-		name:  name,
-		isMap: definition.channelIsMap(),
+		def:                      definition,
+		name:                     name,
+		isMap:                    definition.channelIsMap(),
+		publishLockAttributeName: definition.channelPublishLockAttributeName(),
+	}
+	return nil
+}
+
+// validateRequiredLockAttributes checks that every declared lock names a singleton Attribute of this Flow.
+func (flow *registeredFlow) validateRequiredLockAttributes() error {
+	for _, attribute := range flow.attributes {
+		if !attribute.writeLock.isRequired || attribute.writeLock.lockAttributeName == "" {
+			continue
+		}
+		if err := flow.validateRequiredLockAttribute(attribute.writeLock.lockAttributeName); err != nil {
+			return fmt.Errorf("attribute %q write lock: %w", attribute.name, err)
+		}
+	}
+	for _, channel := range flow.channels {
+		if channel.publishLockAttributeName == "" {
+			continue
+		}
+		if err := flow.validateRequiredLockAttribute(channel.publishLockAttributeName); err != nil {
+			return fmt.Errorf("channel %q publish lock: %w", channel.name, err)
+		}
+	}
+	return nil
+}
+
+func (flow *registeredFlow) validateRequiredLockAttribute(name string) error {
+	lockAttribute, found := flow.attributes[name]
+	if !found {
+		return fmt.Errorf("lock attribute %q is not in the PersistenceSchema", name)
+	}
+	if lockAttribute.isMap {
+		return fmt.Errorf("lock attribute %q is an AttributeMap; use a singleton Attribute", name)
 	}
 	return nil
 }

@@ -784,7 +784,29 @@ class Registry:
                 raise ValueError(f"duplicate persistence definition {definition.name}")
             persistence[definition.name] = definition
             Registry._register_attribute_index(definition, attribute_indexes)
+        Registry._validate_required_lock_attributes(persistence)
         return persistence
+
+    @staticmethod
+    def _validate_required_lock_attributes(
+        persistence: dict[str, _PersistenceDefinition],
+    ) -> None:
+        for definition in persistence.values():
+            if isinstance(definition, (Attribute, AttributeMap)):
+                requirement: object = definition.writes_require_lock
+                usage = "writes_require_lock"
+            elif isinstance(definition, (Channel, ChannelMap)):
+                requirement = definition.publishes_require_lock
+                usage = "publishes_require_lock"
+            else:
+                continue
+            if not isinstance(requirement, Attribute):
+                continue
+            if persistence.get(requirement.name) is not requirement:
+                raise ValueError(
+                    f"{definition.name} {usage} names Attribute {requirement.name}, "
+                    "which is not registered in the Flow's PersistenceSchema"
+                )
 
     @staticmethod
     def _register_attribute_index(

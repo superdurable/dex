@@ -37,6 +37,7 @@ type Attribute[T any] struct {
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
 	isPlaintext          bool
+	writeLock            attributeWriteLockRequirement
 }
 
 // DefineAttribute creates a typed Attribute with a stable name and definition options.
@@ -50,6 +51,7 @@ func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T]
 		syncToAttributeStore: config.syncToAttributeStore,
 		isHardDeleteOnNull:   config.isHardDeleteOnNull,
 		isPlaintext:          config.isPlaintext,
+		writeLock:            config.writeLock,
 	}
 }
 
@@ -66,6 +68,7 @@ type AttributeDef interface {
 	attributeSyncToAttributeStore() bool
 	attributeIsHardDeleteOnNull() bool
 	attributeIsPlaintext() bool
+	attributeWriteLock() attributeWriteLockRequirement
 }
 
 // Get returns the current value. Missing values return AttributeNotFoundError.
@@ -138,6 +141,10 @@ func (a Attribute[T]) attributeIsPlaintext() bool {
 	return a.isPlaintext
 }
 
+func (a Attribute[T]) attributeWriteLock() attributeWriteLockRequirement {
+	return a.writeLock
+}
+
 // AttributeMap defines keyed typed persisted values.
 //
 // Register the map once in PersistenceSchema, then supply an instance string for every access and lock.
@@ -149,6 +156,7 @@ type AttributeMap[T any] struct {
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
 	isPlaintext          bool
+	writeLock            attributeWriteLockRequirement
 }
 
 // AttributeMapLoad selects one AttributeMap instance for a handler invocation.
@@ -175,6 +183,7 @@ func DefineAttributeMap[T any](name string, options ...AttributeOption) Attribut
 		syncToAttributeStore: config.syncToAttributeStore,
 		isHardDeleteOnNull:   config.isHardDeleteOnNull,
 		isPlaintext:          config.isPlaintext,
+		writeLock:            config.writeLock,
 	}
 }
 
@@ -266,6 +275,10 @@ func (a AttributeMap[T]) attributeIsHardDeleteOnNull() bool {
 
 func (a AttributeMap[T]) attributeIsPlaintext() bool {
 	return a.isPlaintext
+}
+
+func (a AttributeMap[T]) attributeWriteLock() attributeWriteLockRequirement {
+	return a.writeLock
 }
 
 // AttributeOption configures an Attribute or AttributeMap definition.
@@ -423,6 +436,70 @@ func Plaintext() AttributeOption {
 	return plaintextAttributeOption{}
 }
 
+// WritesRequireLock declares that every write of an Attribute or AttributeMap instance requires
+// holding that key's own lock.
+//
+// Two Steps or RPCs that read a value and then write it can overwrite each other's update unless
+// both hold the same lock. Declare the requirement on the definition, and the Worker enforces it:
+// a WaitFor, Execute, or RPC invocation that writes the value with Set or Delete without holding
+// the lock fails with MissingAttributeLockError, and Dex discards the changes buffered for its
+// result. The check is not a warning; declaring the option opts in to it.
+//
+// For an Attribute, the required lock is LockAttribute(attribute). For an AttributeMap, a write of
+// one instance requires LockAttributeMap(attributeMap, instance) for that same instance. Use
+// WritesRequireAttributeLock instead to require one shared lock, such as a coordination Attribute
+// for a whole AttributeMap.
+//
+// Only the locks a handler registers count: StepOptions.WaitForLockAttributes or
+// StepOptions.ExecuteLockAttributes for a Step method, and RPCOptions.LockAttributes for an RPC.
+// Locks added for one call do not count, so RPCInvokeOptions.LockAttributeMapInstances and
+// StepOptions passed with WithStepOptions cannot satisfy the requirement. Register the lock
+// instead. A Flow timeout handler is not checked, because its locks come from
+// StartFlowOptions. Reads are not checked. Every Client and Worker must register the same
+// definition; a Worker built without the option does not check the requirement.
+//
+// Example:
+//
+//	var orderTotal = dex.DefineAttribute[int]("order-total", dex.WritesRequireLock())
+//
+//	func (AddItemStep) GetStepOptions() *dex.StepOptions {
+//		return &dex.StepOptions{
+//			ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(orderTotal)},
+//		}
+//	}
+//
+// Since 1.45.17.
+func WritesRequireLock() AttributeOption {
+	return writeLockAttributeOption{}
+}
+
+// WritesRequireAttributeLock declares that every write of an Attribute or AttributeMap instance
+// requires holding the lock of the singleton Attribute lockAttribute.
+//
+// Use it when several values share one invariant, for example every instance of an AttributeMap
+// that a coordination Attribute protects. The rules of WritesRequireLock apply: only locks that
+// the handler registers count, and a write without the lock fails the invocation with
+// MissingAttributeLockError. The handler must register LockAttribute(lockAttribute).
+//
+// lockAttribute must be in the same Flow's PersistenceSchema. NewRegistry returns an error when it
+// is missing there. The coordination Attribute needs no stored value.
+//
+// Example:
+//
+//	var cartLock = dex.DefineAttribute[bool]("cart-lock")
+//	var cartItems = dex.DefineAttributeMap[int]("cart-items", dex.WritesRequireAttributeLock(cartLock))
+//
+//	func (UpdateCartStep) GetStepOptions() *dex.StepOptions {
+//		return &dex.StepOptions{
+//			ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},
+//		}
+//	}
+//
+// Since 1.45.17.
+func WritesRequireAttributeLock[T any](lockAttribute Attribute[T]) AttributeOption {
+	return writeLockAttributeOption{lockAttributeName: lockAttribute.name}
+}
+
 // AttributeLock identifies one Attribute or Attribute-map instance lock.
 // Create locks with LockAttribute or LockAttributeMap, then place them in StepOptions or RPCOptions.
 // Locks serialize participating handlers within one Flow; they do not coordinate different Flows.
@@ -520,6 +597,13 @@ type attributeConfig struct {
 	syncToAttributeStore bool
 	isHardDeleteOnNull   bool
 	isPlaintext          bool
+	writeLock            attributeWriteLockRequirement
+}
+
+// attributeWriteLockRequirement is a declared write lock; an empty lockAttributeName means the written key's own lock.
+type attributeWriteLockRequirement struct {
+	isRequired        bool
+	lockAttributeName string
 }
 
 func applyAttributeOptions(options []AttributeOption) attributeConfig {
@@ -555,6 +639,17 @@ type plaintextAttributeOption struct{}
 
 func (plaintextAttributeOption) applyAttribute(config *attributeConfig) {
 	config.isPlaintext = true
+}
+
+type writeLockAttributeOption struct {
+	lockAttributeName string
+}
+
+func (option writeLockAttributeOption) applyAttribute(config *attributeConfig) {
+	config.writeLock = attributeWriteLockRequirement{
+		isRequired:        true,
+		lockAttributeName: option.lockAttributeName,
+	}
 }
 
 type attributeLock struct {

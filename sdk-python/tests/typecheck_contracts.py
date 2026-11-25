@@ -7,7 +7,7 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 from dataclasses import dataclass
-from typing import Generator, assert_type, cast
+from typing import Any, Generator, assert_type, cast
 
 from dex import (
     ApiKeyCredential,
@@ -18,6 +18,7 @@ from dex import (
     AttributeMapInstance,
     AttributeValues,
     BlobCache,
+    Channel,
     ChannelMap,
     Client,
     ClientOptions,
@@ -207,6 +208,19 @@ def compile_lifecycle(client: Client, worker: Worker) -> None:
 pull_worker_options: WorkerOptions = WorkerOptions(
     pull=PullWorkerOptions(max_concurrent_tasks=8, idle_streams_per_queue=1)
 )
+contract_lock: Attribute[bool] = Attribute("contract-lock", bool)
+locked_total: Attribute[int] = Attribute("locked-total", int, writes_require_lock=True)
+locked_items: AttributeMap[int] = AttributeMap(
+    "locked-items", int, writes_require_lock=contract_lock
+)
+locked_replies: Channel[str] = Channel(
+    "locked-replies", str, publishes_require_lock=contract_lock
+)
+locked_events: ChannelMap[str] = ChannelMap(
+    "locked-events", str, publishes_require_lock=contract_lock
+)
+assert_type(locked_total.writes_require_lock, bool | Attribute[Any])
+assert_type(locked_replies.publishes_require_lock, Attribute[Any] | None)
 pull_start_options: StartFlowOptions = StartFlowOptions(
     config_override=FlowConfig(step_durability=StepDurability.SYNC)
 )
