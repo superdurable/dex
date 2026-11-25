@@ -114,13 +114,21 @@ Flow structure still travel in each request.
 Some data stays plaintext even with payload encryption, because the server
 needs it:
 
-- Names and IDs, such as Flow types, Flow IDs, Attribute keys, and Channel
-  names. Keep sensitive data out of them.
+- Names and IDs, such as Flow types, Step types, RPC names, Flow IDs,
+  Attribute keys, and Channel names. Keep sensitive data out of them.
 - Attributes that you index or declare plaintext, so search, Attribute-match
   waits, and Action conditions keep working.
 - Configuration, Step and Flow states, times, and error types.
 
-Every Worker and Client that reads encrypted values needs the same keys. Dex
+The server compares some Attribute values itself. Attribute-match waits,
+Action conditions, and indexes all need the plaintext value. Index such an
+Attribute or declare it plaintext. With a codec, the SDK refuses an
+Attribute-match wait or an Action condition on an Attribute that it would
+encrypt. It refuses before any request reaches the server. Store sensitive
+values in other Attributes, which stay encrypted.
+
+Every Worker and Client of the application needs the same codec and the same
+keys. They also register the same plaintext declarations. Dex
 Web shows encrypted values through a codec server that you run. dexcli uses
 either the key file or a codec server. The
 [Payload encryption reference](/reference/server/payload-encryption) lists

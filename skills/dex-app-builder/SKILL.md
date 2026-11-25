@@ -208,7 +208,7 @@ Rules:
 | Provider integrations, local or deployed Connector configuration | [connector.md](references/core/connector.md) |
 | Client calls, reads, waits, lifecycle APIs | [client.md](references/core/client.md) |
 | Errors, recovery types, diagnosis, operator recovery | [error-handling.md](references/core/error-handling.md) |
-| Large values, BlobCache, whether to add a database | [data-handling.md](references/core/data-handling.md) |
+| Large values, BlobCache, whether to add a database, sensitive data and payload encryption | [data-handling.md](references/core/data-handling.md) |
 | Pattern choice and skeletons, durable AI agents | [patterns.md](references/core/patterns.md) |
 | Integration tests | [testing.md](references/core/testing.md) |
 | Server behavior, search backends, deployment | [server.md](references/core/server.md) |

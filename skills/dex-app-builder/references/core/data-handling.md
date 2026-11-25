@@ -1,6 +1,6 @@
 # Data handling
 
-Read this when a Flow stores large documents, conversation history, model context, or API results, or when you are tempted to add a database.
+Read this when a Flow stores large documents, conversation history, model context, API results, or sensitive data, or when you are tempted to add a database.
 
 ## Dex-first state ownership
 
@@ -53,6 +53,21 @@ Null is an ordinary application value in inputs, Channel messages, and RPC value
 - Flow completion with null output stores no output.
 
 Return an explicit result object when "completed with null" must differ from "completed without output".
+
+## Sensitive data and payload encryption
+
+Payload encryption encrypts values in your Workers and Clients, with your codec and keys, before they reach Dex Server. The server and its storage hold only ciphertext and never hold a key.
+
+Rules:
+
+- Enable payload encryption when the application handles data that Dex Server, its storage, or its operators must not read. Keep TLS on as well; it protects the network, not the stored values.
+- Give every Worker and Client of the application the same codec, the same keys, and the same Attribute definitions, including plaintext declarations. Every one of them must use an SDK that supports payload encryption. A Worker without the codec cannot read encrypted values and fails the Step attempt.
+- The codec encrypts values: Step inputs and outputs, Attribute values, Channel and Stream messages, RPC inputs and outputs, and error text.
+- Names and IDs are never encrypted: Flow IDs, Flow types, Step types, RPC names, Attribute and AttributeMap keys and instances, Channel and Stream names, and Channel message IDs. Never put sensitive data, such as email addresses or ID numbers, into them. Derive Flow IDs from opaque business identifiers.
+- Dex Server compares some Attribute values itself: Attribute-match waits, Action conditions, indexes and search, and typed Attribute Store columns. Those Attributes stay plaintext. An indexed Attribute is always written in clear; declare every other compared Attribute plaintext. Keep sensitive values out of them and store those values in separate, encrypted Attributes.
+- With a codec, the SDK rejects an Attribute-match wait or an Action condition on an Attribute it would encrypt. It rejects it before any request reaches the server. Declare such Attributes plaintext when you define them.
+
+The [Payload encryption reference](https://docs.superdurable.io/reference/server/payload-encryption) has the setup for each SDK, the options, the key file, the envelope limits, rollout and key rotation, and the full list of what stays plaintext.
 
 ## Sticky routing and cache locality
 

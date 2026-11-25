@@ -22,7 +22,7 @@ dexcli, Dex Web  ------------>  Dex Server
 ## Wiring
 
 - Build one registry that registers every Flow type, with every Step, RPC, Attribute, Channel, and Stream in its persistence schema.
-- Construct the Worker and the Client from the same registry, payload codecs, and blob cache configuration.
+- Construct the Worker and the Client from the same registry, payload codec and keys, and blob cache configuration. See [payload encryption](data-handling.md#sensitive-data-and-payload-encryption).
 - Inject dependencies through constructors. Keep Flow and Step objects free of per-request mutable state.
 - Start the Worker and wait for its registration before accepting application requests.
 - Shut down in this order before process exit: stop admitting new requests, stop the Worker and wait for its handlers to drain, then close the Client and the blob cache. See [Graceful shutdown](#graceful-shutdown).
