@@ -105,8 +105,8 @@ func (a Attribute[T]) Delete(ctx Context) error {
 	return invocation.deleteAttribute(a.name, a.index)
 }
 
-// DeclareSingleWriter tells the Worker's unlocked read-modify-write check that only this handler
-// writes the Attribute, so the current invocation needs no lock for it.
+// DeclareSingleWriter tells the Worker's unlocked read-modify-write check that no other invocation
+// can write the Attribute while the current invocation runs, so it needs no lock.
 //
 // A Worker checks every successful WaitFor, Execute, and RPC invocation. When the invocation reads
 // an Attribute with Get and later writes it with Set or Delete, and the handler's registered
@@ -115,12 +115,21 @@ func (a Attribute[T]) Delete(ctx Context) error {
 // UnlockedAttributeReadModifyWriteError instead. See WorkerOptions.FailOnUnlockedAttributeReadModifyWrite
 // for the exact rule.
 //
-// Call DeclareSingleWriter when no other Step or RPC can write the Attribute while this handler
-// runs. One example is an Attribute that only one sequential Step of the Flow writes. The
-// declaration applies to the current invocation only, and it may come before or after the read
-// and the write. It changes nothing that Dex stores, and it does not lock the Attribute. When two
-// handlers can run at the same time and both write the Attribute, lock it with LockAttribute
-// instead.
+// The declaration is a promise about every invocation of the Flow run, not about the handler's
+// code. Call DeclareSingleWriter only when no other invocation can write the Attribute while this
+// one runs. That includes another execution of the same Step type and another call of the same
+// RPC: every RPC call can run in parallel with others, and a Flow can run several executions of
+// one Step type at once, for example after GoToMany. One valid case is an Attribute that only one
+// Step writes, where the Flow's decisions never schedule a second execution of that Step before
+// the first one ends. When the promise does not hold, lock the Attribute with LockAttribute.
+//
+// Do not use the declaration to silence a report about a lock the Worker cannot see, such as a
+// WithStepOptions lock: a later call that leaves out the lock would be accepted too. Move a fixed
+// lock into the handler's registered options instead, or keep the default warning mode for that
+// Worker.
+//
+// The declaration applies to the current invocation only, and it may come before or after the
+// read and the write. It changes nothing that Dex stores, and it does not lock the Attribute.
 //
 // Example:
 //
@@ -266,14 +275,18 @@ func (a AttributeMap[T]) Delete(ctx Context, instance string) error {
 	return invocation.deleteAttributeMap(a.name, instance, a.index)
 }
 
-// DeclareSingleWriter tells the Worker's unlocked read-modify-write check that only this handler
-// writes one map instance, so the current invocation needs no lock for it.
+// DeclareSingleWriter tells the Worker's unlocked read-modify-write check that no other invocation
+// can write one map instance while the current invocation runs, so it needs no lock.
 //
 // The Worker checks each AttributeMap instance on its own, the same way Attribute.DeclareSingleWriter
-// describes for a singleton Attribute. The declaration covers only the given instance and only the
-// current invocation. It may come before or after the read and the write. It changes nothing that
-// Dex stores, and it does not lock the instance. When two handlers can write the same instance at
-// the same time, lock it with LockAttributeMap instead.
+// describes for a singleton Attribute. The same promise applies: no other invocation, including
+// another execution of the same Step type or another call of the same RPC, writes the instance
+// while this one runs. Do not use it to silence a report about a per-call lock the Worker cannot
+// see. When the promise does not hold, lock the instance with LockAttributeMap.
+//
+// The declaration covers only the given instance and only the current invocation. It may come
+// before or after the read and the write. It changes nothing that Dex stores, and it does not lock
+// the instance.
 //
 // Example:
 //

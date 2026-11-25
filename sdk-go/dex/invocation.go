@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -55,6 +56,8 @@ type invocationContext struct {
 	attributes          map[string]*dexpb.Value
 	attributeWrites     map[string]*dexpb.AttributeWrite
 	attributeWriteOrder []string
+	// attributeAccessTrackingMu guards the two maps below; concurrent Gets in one handler are valid.
+	attributeAccessTrackingMu sync.Mutex
 	// attributeSnapshotReads holds keys read before this invocation wrote them.
 	attributeSnapshotReads            map[string]attributeAccessKey
 	attributeSingleWriterDeclarations map[string]struct{}
@@ -592,12 +595,14 @@ func (invocation *invocationContext) getAttributeValue(
 		}
 		return true, nil
 	}
+	invocation.attributeAccessTrackingMu.Lock()
 	invocation.attributeSnapshotReads[physical] = attributeAccessKey{
 		physical: physical,
 		name:     name,
 		instance: instance,
 		isMap:    isMap,
 	}
+	invocation.attributeAccessTrackingMu.Unlock()
 	value, found := invocation.attributes[physical]
 	if !found {
 		return false, nil
@@ -759,6 +764,8 @@ func (invocation *invocationContext) declareAttributeSingleWriter(
 	if err != nil {
 		return err
 	}
+	invocation.attributeAccessTrackingMu.Lock()
+	defer invocation.attributeAccessTrackingMu.Unlock()
 	invocation.attributeSingleWriterDeclarations[physical] = struct{}{}
 	return nil
 }
@@ -766,6 +773,8 @@ func (invocation *invocationContext) declareAttributeSingleWriter(
 // attributeReadModifyWriteCandidates returns keys read from the snapshot and then written, sorted by key.
 // Keys declared with DeclareSingleWriter are excluded.
 func (invocation *invocationContext) attributeReadModifyWriteCandidates() []attributeAccessKey {
+	invocation.attributeAccessTrackingMu.Lock()
+	defer invocation.attributeAccessTrackingMu.Unlock()
 	var candidates []attributeAccessKey
 	for _, physical := range invocation.attributeWriteOrder {
 		read, found := invocation.attributeSnapshotReads[physical]

@@ -31,11 +31,19 @@ type attributeLockCheckHandler struct {
 	loads    stateLoads
 }
 
+// attributeLockCheckReportKey deduplicates warnings; a struct avoids collisions between joined names.
+type attributeLockCheckReportKey struct {
+	flowType      string
+	method        string
+	stepType      string
+	rpcName       string
+	attributeName string
+}
+
 // unlockedAttributeReadModifyWriteCheck reports Attributes that one invocation read and wrote without a lock.
 type unlockedAttributeReadModifyWriteCheck struct {
-	failsInvocation bool
-	logger          Logger
-	// reportedAttributes deduplicates warnings by Flow type, handler, and Attribute name.
+	failsInvocation    bool
+	logger             Logger
 	reportedAttributes sync.Map
 	detectionCount     atomic.Uint64
 }
@@ -67,7 +75,10 @@ func (check *unlockedAttributeReadModifyWriteCheck) checkInvocation(
 		if check.failsInvocation {
 			return fmt.Errorf("dex: map registered Attribute locks and loads: %w", err)
 		}
-		check.logger.Error("skip unlocked Attribute read-modify-write check", "flowType", handler.flowType, "error", err)
+		check.logSafely(func() {
+			check.logger.Error("skip unlocked Attribute read-modify-write check",
+				"flowType", handler.flowType, "error", err)
+		})
 		return nil
 	}
 	lockedKeys := stringSet(lockKeys)
@@ -112,19 +123,35 @@ func (check *unlockedAttributeReadModifyWriteCheck) warnOncePerAttribute(
 		handlerName = "RPC." + detection.RPCName
 	}
 	for _, access := range detection.Attributes {
-		reportKey := detection.FlowType + "\x00" + handlerName + "\x00" + access.AttributeName
+		reportKey := attributeLockCheckReportKey{
+			flowType:      detection.FlowType,
+			method:        detection.Method,
+			stepType:      detection.StepType,
+			rpcName:       detection.RPCName,
+			attributeName: access.AttributeName,
+		}
 		if _, reported := check.reportedAttributes.LoadOrStore(reportKey, struct{}{}); reported {
 			continue
 		}
-		check.logger.Warn(
-			"unlocked Attribute read-modify-write: another Step or RPC can overwrite this update; "+
-				"lock the Attribute or call DeclareSingleWriter",
-			"flowType", detection.FlowType,
-			"handler", handlerName,
-			"attribute", access.AttributeName,
-			"instance", access.Instance,
-		)
+		check.logSafely(func() {
+			check.logger.Warn(
+				"unlocked Attribute read-modify-write: a concurrent invocation can overwrite this update; "+
+					"lock the Attribute in the handler's registered options",
+				"flowType", detection.FlowType,
+				"handler", handlerName,
+				"attribute", access.AttributeName,
+				"instance", access.Instance,
+			)
+		})
 	}
+}
+
+// logSafely keeps a failing application Logger from failing a successful invocation.
+func (check *unlockedAttributeReadModifyWriteCheck) logSafely(log func()) {
+	defer func() {
+		_ = recover()
+	}()
+	log()
 }
 
 func (check *unlockedAttributeReadModifyWriteCheck) count() uint64 {

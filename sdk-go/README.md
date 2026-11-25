@@ -709,8 +709,9 @@ worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
 })
 ```
 
-When only one handler writes an Attribute, call `DeclareSingleWriter` in that
-handler instead of locking. See the doc comment of
+Call `DeclareSingleWriter` instead of locking only when no other invocation,
+including another execution of the same Step type or another call of the same
+RPC, can write the Attribute at the same time. See the doc comment of
 `WorkerOptions.FailOnUnlockedAttributeReadModifyWrite` for the exact rule.
 
 ## Attribute Store synchronization

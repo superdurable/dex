@@ -108,18 +108,30 @@ type WorkerOptions struct {
 	//     whole map or that instance.
 	//
 	// A Step that only reads, a Step that only writes, and a read of one Attribute that computes a
-	// write of another are not reported. The Worker cannot see locks chosen for one call:
-	// RPCInvokeOptions.LockAttributeMapInstances and the locks of a WithStepOptions movement. The last
-	// condition skips an AttributeMap instance that only such a call loads, so the common
-	// runtime-selected lock pattern is not reported. A singleton Attribute locked only by
-	// WithStepOptions, or a registered map load combined with a per-call instance lock, is reported;
-	// call DeclareSingleWriter in that handler. Flow timeout handlers are not checked, because their
-	// locks come from the StartFlow options.
+	// write of another are not reported.
+	//
+	// The Worker sees only the locks that the handler registers. It cannot see locks chosen for
+	// one call: RPCInvokeOptions.LockAttributeMapInstances, the locks of a WithStepOptions movement,
+	// and FlowTimeoutHandlerOptions. This limits the check:
+	//   - The last condition skips an AttributeMap instance that only a per-call selection loads,
+	//     so the runtime-selected lock and load pattern is not reported. A call that loads the
+	//     instance but leaves out the lock is not reported either.
+	//   - A singleton Attribute locked only by WithStepOptions, or a registered map load combined
+	//     with a per-call instance lock, is reported. Move a fixed lock into the registered
+	//     options, or keep the default warning mode for that Worker.
+	//   - The Worker assumes that a Client sent the RPC's registered locks. A Client built from an
+	//     older definition without the lock is not reported, and neither is a movement that drops
+	//     a registered lock.
+	//   - Flow timeout handlers are not checked.
+	//   - Counting instances with MapSize or listing them with AllInstanceKeys and then writing a
+	//     new instance is not reported, and neither is an invariant across several keys.
 	//
 	// When this field is false, the Worker logs one warning per Flow type, handler, and Attribute
 	// name, and the invocation succeeds unchanged. When it is true, the invocation returns
-	// UnlockedAttributeReadModifyWriteError and saves none of its changes. Dex retries a failed
-	// Step method under its retry policy and returns the error to an RPC caller. Either way,
+	// UnlockedAttributeReadModifyWriteError, and Dex discards the changes buffered for its result.
+	// Stream writes that the Step already sent and external side effects stay. Dex retries a failed
+	// Step method under its retry policy and returns the error to an RPC caller. Each attempt is
+	// checked on its own, so an attempt that repeats the access fails again. Either way,
 	// UnlockedAttributeReadModifyWriteCount counts each detection.
 	//
 	// Turn it on in tests and in local development with dexcli dev, so an unlocked

@@ -125,22 +125,28 @@ func (e *InvalidStepResultError) Unwrap() error {
 // UnlockedAttributeReadModifyWriteError reports a handler invocation that read and then wrote an
 // Attribute without locking it.
 //
-// A Worker returns it only when WorkerOptions.FailOnUnlockedAttributeReadModifyWrite is set. The
-// failed invocation saves none of its changes. Dex reports it like any other handler error: it
-// retries a Step method under the Step's retry policy and returns the failure to the RPC caller,
-// whose error carries the Go type name *dex.UnlockedAttributeReadModifyWriteError. A retry fails the
-// same way, because the handler code is the cause. Fix the handler: lock the Attribute with
-// LockAttribute or LockAttributeMap in the handler's registered options, or call
-// Attribute.DeclareSingleWriter or AttributeMap.DeclareSingleWriter when only this handler writes it.
-// See WorkerOptions.FailOnUnlockedAttributeReadModifyWrite for the exact rule.
+// A Worker returns it only when WorkerOptions.FailOnUnlockedAttributeReadModifyWrite is set. Dex
+// then discards the changes buffered for the invocation's result. Stream writes that the Step
+// already sent and external side effects stay. Dex reports it like any other handler error: it
+// retries a Step method under the Step's retry policy and returns the failure to the RPC caller.
+// Each attempt is checked on its own, so an attempt that repeats the access fails again.
+//
+// Fix the handler: lock the Attribute with LockAttribute or LockAttributeMap in the handler's
+// registered options. Call Attribute.DeclareSingleWriter or AttributeMap.DeclareSingleWriter only
+// when no other invocation, including another invocation of the same handler, can write it at the
+// same time. See WorkerOptions.FailOnUnlockedAttributeReadModifyWrite for the exact rule.
+//
+// The value exists only inside the Worker. A Client that invokes the RPC receives a
+// *WorkerInvocationError whose Worker.Type is "*dex.UnlockedAttributeReadModifyWriteError" and
+// whose Worker.Detail is this error's message.
 //
 // Example:
 //
-//	var unlocked *dex.UnlockedAttributeReadModifyWriteError
-//	if errors.As(err, &unlocked) {
-//		for _, access := range unlocked.Attributes {
-//			log.Printf("lock %s %s in %s", access.AttributeName, access.Instance, unlocked.StepType)
-//		}
+//	err := client.InvokeRPC(ctx, flowID, flow.IncrementCounter, nil, new(dex.None))
+//	var invocationErr *dex.WorkerInvocationError
+//	if errors.As(err, &invocationErr) && invocationErr.Worker != nil &&
+//		invocationErr.Worker.Type == "*dex.UnlockedAttributeReadModifyWriteError" {
+//		log.Printf("fix the RPC's Attribute locks: %s", invocationErr.Worker.Detail)
 //	}
 //
 // Since 1.45.17.
@@ -187,9 +193,8 @@ func (e *UnlockedAttributeReadModifyWriteError) Error() string {
 		}
 	}
 	return fmt.Sprintf(
-		"dex: %s read and then wrote %s without a lock, so a concurrent Step or RPC can overwrite "+
-			"the update; lock it in the handler's options, or call DeclareSingleWriter when only "+
-			"this handler writes it",
+		"dex: %s read and then wrote %s without a lock, so a concurrent invocation can overwrite "+
+			"the update; lock it in the handler's registered options",
 		handler,
 		strings.Join(accesses, ", "),
 	)
