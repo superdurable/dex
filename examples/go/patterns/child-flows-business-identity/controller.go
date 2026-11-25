@@ -30,6 +30,9 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
+// shipmentFlowType is the registered Flow type of ShipmentFlow.
+const shipmentFlowType = "ShipmentFlow"
+
 type controller struct {
 	client    *dex.Client
 	orderFlow *OrderFulfillmentFlow
@@ -62,23 +65,13 @@ func (controller *controller) startOrder(request *gin.Context) {
 
 // getShipment looks a shipment up by its shipment number, which is its Flow ID.
 func (controller *controller) getShipment(request *gin.Context) {
-	number, found := httputil.RequiredQuery(request, "shipmentNumber")
+	number, info, found := controller.describeShipment(request)
 	if !found {
 		return
 	}
-	ctx := request.Request.Context()
-	info, err := controller.client.DescribeFlow(ctx, number)
-	var notFound *dex.FlowNotFoundError
-	if errors.As(err, &notFound) {
-		request.JSON(http.StatusNotFound, gin.H{"error": "shipment " + number + " not found"})
-		return
-	}
-	if err != nil {
-		httputil.Respond(request, nil, err)
-		return
-	}
 	var outcome string
-	_, err = controller.client.GetAttributes(ctx, number, dex.ReadAttribute(ShipmentOutcome, &outcome))
+	_, err := controller.client.GetAttributes(request.Request.Context(), number,
+		dex.ReadAttribute(ShipmentOutcome, &outcome))
 	httputil.Respond(request, gin.H{
 		"shipmentNumber": number,
 		"status":         info.Status.String(),
@@ -88,7 +81,7 @@ func (controller *controller) getShipment(request *gin.Context) {
 
 // cancelShipment stops a shipment by its number. Its order records it at the next reconcile read.
 func (controller *controller) cancelShipment(request *gin.Context) {
-	number, found := httputil.RequiredQuery(request, "shipmentNumber")
+	number, _, found := controller.describeShipment(request)
 	if !found {
 		return
 	}
@@ -97,4 +90,24 @@ func (controller *controller) cancelShipment(request *gin.Context) {
 		Reason: "shipment canceled",
 	})
 	httputil.RespondString(request, "canceled", err)
+}
+
+// describeShipment describes the Flow named by the shipmentNumber query.
+// It returns found as false after it responded: 404 when no ShipmentFlow has that Flow ID.
+func (controller *controller) describeShipment(request *gin.Context) (string, dex.FlowInfo, bool) {
+	number, found := httputil.RequiredQuery(request, "shipmentNumber")
+	if !found {
+		return "", dex.FlowInfo{}, false
+	}
+	info, err := controller.client.DescribeFlow(request.Request.Context(), number)
+	var notFound *dex.FlowNotFoundError
+	if errors.As(err, &notFound) || (err == nil && info.FlowType != shipmentFlowType) {
+		request.JSON(http.StatusNotFound, gin.H{"error": "shipment " + number + " not found"})
+		return "", dex.FlowInfo{}, false
+	}
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return "", dex.FlowInfo{}, false
+	}
+	return number, info, true
 }

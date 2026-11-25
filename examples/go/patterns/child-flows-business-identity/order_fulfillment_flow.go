@@ -22,6 +22,9 @@ package childflows
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -37,10 +40,12 @@ const (
 	ShipmentUnavailable = "unavailable"
 )
 
+const duplicateShipmentPrefix = "duplicate shipment number: "
+
 // Order is the input of OrderFulfillmentFlow. The order number is the Flow ID.
 type Order struct {
 	Shipments []Shipment `json:"shipments"`
-	// ReconcileIntervalSeconds is how long the order waits for a report before it reads the shipment.
+	// ReconcileIntervalSeconds is how often the order reads a shipment that has not ended.
 	ReconcileIntervalSeconds int `json:"reconcileIntervalSeconds"`
 }
 
@@ -56,8 +61,8 @@ type ShipmentReport struct {
 	Outcome        string `json:"outcome"`
 }
 
-// ShipmentRecord is the order's record of one shipment. A report fills Outcome;
-// a reconcile read fills Status and, when the shipment stored one, Outcome.
+// ShipmentRecord is the order's record of one shipment. A report or a reconcile
+// read fills Outcome; a reconcile read fills Status.
 type ShipmentRecord struct {
 	Status  string `json:"status,omitempty"`
 	Outcome string `json:"outcome,omitempty"`
@@ -66,8 +71,8 @@ type ShipmentRecord struct {
 var (
 	// ShipmentRecords holds one record per shipment, keyed by shipment number.
 	ShipmentRecords = dex.DefineAttributeMap[ShipmentRecord]("shipmentRecords")
-	// ShipmentReports receives each shipment's report, keyed by shipment number.
-	ShipmentReports      = dex.DefineChannelMap[string]("shipmentReports")
+	// ShipmentRecordsLock serializes the report RPC and AwaitShipment writes; it stores no value.
+	ShipmentRecordsLock  = dex.DefineAttribute[bool]("shipmentRecordsLock")
 	errClientUnavailable = errors.New("childflows: Client is not ready")
 )
 
@@ -99,27 +104,37 @@ func (flow *OrderFulfillmentFlow) GetSteps() []dex.StepDef {
 }
 
 func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{dex.DefineRPC(flow.RecordShipmentOutcome, nil)}
+	return []dex.RPCDef{dex.DefineRPC(flow.RecordShipmentOutcome, &dex.RPCOptions{
+		LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+		LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+	})}
 }
 
 func (*OrderFulfillmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{ShipmentRecords},
-		Channels:   []dex.ChannelDef{ShipmentReports},
+		Attributes: []dex.AttributeDef{ShipmentRecords, ShipmentRecordsLock},
 	}
 }
 
-// RecordShipmentOutcome receives a shipment's report. The shipment sends it with
-// a stable Request ID, so a retried report is applied once.
+// RecordShipmentOutcome fills the outcome of a shipment's record. The first report
+// wins; a repeated or late report changes nothing.
 func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report ShipmentReport) (*dex.RPCResult[dex.None], error) {
-	if err := ShipmentReports.Publish(ctx, report.ShipmentNumber, report.Outcome); err != nil {
+	record, err := loadShipmentRecord(ctx, report.ShipmentNumber)
+	if err != nil {
+		return nil, err
+	}
+	if record.Outcome != "" {
+		return &dex.RPCResult[dex.None]{}, nil
+	}
+	record.Outcome = report.Outcome
+	if err := ShipmentRecords.Set(ctx, report.ShipmentNumber, record); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts one branch per shipment in the order."
+// dex:explanation text:"Starts one branch per shipment, after checking that shipment numbers are unique."
 type StartShipments struct {
 	dex.StepDefaultsNoWaitFor[Order]
 }
@@ -128,14 +143,35 @@ func (StartShipments) Execute(_ dex.Context, order Order) (*dex.StepDecision, er
 	if len(order.Shipments) == 0 {
 		return dex.GracefulComplete(nil), nil
 	}
+	numbers := make(map[string]bool, len(order.Shipments))
 	movements := make([]dex.StepMovement, 0, len(order.Shipments))
 	for _, shipment := range order.Shipments {
+		if numbers[shipment.ShipmentNumber] {
+			return dex.ForceFail(duplicateShipmentPrefix + shipment.ShipmentNumber), nil
+		}
+		numbers[shipment.ShipmentNumber] = true
 		movements = append(movements, dex.MovementOf(StartShipment{}, TrackedShipment{
 			Shipment:                 shipment,
 			ReconcileIntervalSeconds: order.ReconcileIntervalSeconds,
 		}))
 	}
 	return dex.GoToMany(movements...), nil
+}
+
+// ShipmentStartRequestID derives the start request ID from the complete start request.
+// A retried Execute sends the same ID, so it repeats the same start. Any other request for
+// the same shipment number sends another ID, so Dex rejects it as already started.
+// It returns an error only when the request cannot be encoded.
+func ShipmentStartRequestID(orderFlowID string, shipment Shipment) (string, error) {
+	request, err := json.Marshal([]any{
+		shipmentFlowType, shipment.ShipmentNumber, orderFlowID, shipment.Destination,
+		shipment.DeliveryDelaySeconds, int64(ShipmentTimeout / time.Second), "disallow",
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(request)
+	return "start:" + hex.EncodeToString(digest[:]), nil
 }
 
 // dex:group group-id:start group-label:"Start shipments"
@@ -152,10 +188,12 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return nil, errClientUnavailable
 	}
 	number := tracked.Shipment.ShipmentNumber
-	// Derived from this order and shipment, so a retried Execute repeats the same start.
-	requestID := "start:" + ctx.FlowID() + ":" + number
+	requestID, err := ShipmentStartRequestID(ctx.FlowID(), tracked.Shipment)
+	if err != nil {
+		return nil, err
+	}
 	timeout := ShipmentTimeout
-	_, err := client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
+	_, err = client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
 		OrderFlowID: ctx.FlowID(),
 		Shipment:    tracked.Shipment,
 	}, dex.StartFlowOptions{
@@ -179,41 +217,45 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+// dex:explanation text:"Reads the shipment at each interval and records how it ended."
 type AwaitShipment struct {
 	dex.StepDefaults
 	getClient func() *dex.Client
 }
 
+// GetStepOptions takes the same lock as the report RPC and loads the records.
+func (AwaitShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+		ExecuteLoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+	}
+}
+
 func (AwaitShipment) WaitFor(_ dex.Context, tracked TrackedShipment) (*dex.Wait, error) {
-	interval := time.Duration(tracked.ReconcileIntervalSeconds) * time.Second
-	return dex.AnyOf(
-		ShipmentReports.ForOne(tracked.Shipment.ShipmentNumber),
-		dex.Timer(interval),
-	), nil
+	return dex.Until(dex.Timer(time.Duration(tracked.ReconcileIntervalSeconds) * time.Second)), nil
 }
 
 func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*dex.StepDecision, error) {
+	client := step.getClient()
+	if client == nil {
+		return nil, errClientUnavailable
+	}
 	number := tracked.Shipment.ShipmentNumber
-	outcomes, err := ShipmentReports.GetConditionResults(ctx, number)
+	reading, err := reconcileShipment(ctx, client, number)
 	if err != nil {
 		return nil, err
 	}
-	record := ShipmentRecord{}
-	if len(outcomes) > 0 {
-		record.Outcome = outcomes[0]
-	} else {
-		client := step.getClient()
-		if client == nil {
-			return nil, errClientUnavailable
-		}
-		record, err = reconcileShipment(ctx, client, number)
-		if err != nil {
-			return nil, err
-		}
-		if record.Status == dex.FlowRunning.String() {
-			return dex.GoTo(AwaitShipment{}, tracked), nil
-		}
+	if reading.Status == dex.FlowRunning.String() {
+		return dex.GoTo(AwaitShipment{}, tracked), nil
+	}
+	// Merge with the record, which may already hold the reported outcome.
+	record, err := loadShipmentRecord(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	record.Status = reading.Status
+	if record.Outcome == "" {
+		record.Outcome = reading.Outcome
 	}
 	if err := ShipmentRecords.Set(ctx, number, record); err != nil {
 		return nil, err
@@ -221,7 +263,18 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	return dex.GracefulComplete(nil), nil
 }
 
-// reconcileShipment reads a shipment that has not reported: its status first, then its outcome.
+// loadShipmentRecord returns the loaded record of a shipment, or an empty record when it has none.
+// It returns an error when the record cannot be read.
+func loadShipmentRecord(ctx dex.Context, number string) (ShipmentRecord, error) {
+	record, err := ShipmentRecords.Get(ctx, number)
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		return ShipmentRecord{}, nil
+	}
+	return record, err
+}
+
+// reconcileShipment reads a shipment: its status first, then its outcome.
 // It returns a "running" record while the shipment runs, an "unavailable" record when the
 // shipment does not exist, and an error for any other failure so the Step retries.
 func reconcileShipment(ctx context.Context, client *dex.Client, number string) (ShipmentRecord, error) {

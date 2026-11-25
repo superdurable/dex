@@ -74,11 +74,15 @@ func (*ShipmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 // dex:explanation text:"Waits for the carrier, then commits the delivered outcome."
 type DeliverShipment struct{ dex.StepDefaults }
 
+// GetStepOptions stores the outcome before the report Step starts, even when the Flow defaults to ASYNC.
+func (DeliverShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
 func (DeliverShipment) WaitFor(_ dex.Context, request ShipmentRequest) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(time.Duration(request.Shipment.DeliveryDelaySeconds) * time.Second)), nil
 }
 
-// Execute keeps the default SYNC durability, so the outcome is stored before the report Step starts.
 func (DeliverShipment) Execute(ctx dex.Context, request ShipmentRequest) (*dex.StepDecision, error) {
 	outcome := "delivered to " + request.Shipment.Destination
 	if err := ShipmentOutcome.Set(ctx, outcome); err != nil {
@@ -103,6 +107,11 @@ type ReportShipmentOutcome struct {
 	getClient func() *dex.Client
 }
 
+// GetStepOptions keeps the report SYNC, like the Step that stores the outcome.
+func (ReportShipmentOutcome) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
 func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport) (*dex.StepDecision, error) {
 	client := step.getClient()
 	if client == nil {
@@ -112,7 +121,7 @@ func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport
 	requestID := "report:" + ctx.FlowID()
 	err := client.InvokeRPCWithOptions(ctx, pending.OrderFlowID, (&OrderFulfillmentFlow{}).RecordShipmentOutcome,
 		pending.Report, nil, dex.RPCInvokeOptions{RequestID: &requestID})
-	// A closed order ends the attempts; it reads the shipment's outcome instead.
+	// A closed order ends the attempts; the outcome stays readable through the Client.
 	var notFound *dex.FlowNotFoundError
 	var notActive *dex.FlowNotActiveOrNotFoundError
 	if err != nil && !errors.As(err, &notFound) && !errors.As(err, &notActive) {

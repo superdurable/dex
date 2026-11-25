@@ -22,6 +22,7 @@ package integ
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"testing"
@@ -567,20 +568,34 @@ func verifyWaitForHalfParentCompletes(t *testing.T, flowID string) {
 
 func verifyShipmentLookupByNumber(t *testing.T, orderID string) {
 	t.Helper()
-	lookupURL := examplesAPIURL + "/patterns/child-flows-business-identity/shipment?" +
-		url.Values{"shipmentNumber": {orderID + "-2"}}.Encode()
+	shipmentNumber := orderID + "-2"
 	require.Eventually(t, func() bool {
-		response, err := http.Get(lookupURL)
-		if err != nil {
-			return false
-		}
-		defer response.Body.Close()
+		status, body := getChildFlowsRoute(t, "/shipment", shipmentNumber)
 		var shipment map[string]string
-		if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&shipment) != nil {
-			return false
-		}
-		return shipment["status"] == "running"
+		return status == http.StatusOK && json.Unmarshal(body, &shipment) == nil && shipment["status"] == "running"
 	}, 30*time.Second, 200*time.Millisecond, "shipment lookup for order %s", orderID)
+
+	// The order is not a shipment: both shipment routes answer 404 and leave it running.
+	for _, route := range []string{"/shipment", "/cancel-shipment"} {
+		status, _ := getChildFlowsRoute(t, route, orderID)
+		require.Equal(t, http.StatusNotFound, status, route)
+	}
+	requireWorkflowPatternRunning(t, orderID)
+
+	status, body := getChildFlowsRoute(t, "/cancel-shipment", shipmentNumber)
+	require.Equal(t, http.StatusOK, status, string(body))
+	waitForShipmentStatus(t, shipmentNumber, dex.FlowCanceled)
+}
+
+func getChildFlowsRoute(t *testing.T, route string, shipmentNumber string) (int, []byte) {
+	t.Helper()
+	response, err := http.Get(examplesAPIURL + "/patterns/child-flows-business-identity" + route + "?" +
+		url.Values{"shipmentNumber": {shipmentNumber}}.Encode())
+	require.NoError(t, err)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	return response.StatusCode, body
 }
 
 func TestFlowSmokeCatalogSize(t *testing.T) {
