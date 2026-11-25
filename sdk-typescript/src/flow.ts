@@ -431,14 +431,15 @@ function doRegisterFlow(
   const declaresLockRequirement = [...persistence.values()].some(
     (definition) => lockRequirementOf(definition) !== undefined,
   );
-  // Read once, so validation and lock enforcement see the same options.
+  // A declaring Flow reads Step options once, so validation and lock enforcement see the same options.
+  // Other Flows keep the separate reads for state-load and target validation.
   const stepOptions = new Map<RegisteredStep, StepOptions | undefined>();
   const stepLocks = new Map<string, RegisteredStepLocks>();
   const stepLockKeys = new Map<string, RegisteredStepLockKeys>();
   for (const registeredStep of steps) {
     const options = registeredStep.step.getStepOptions?.();
-    stepOptions.set(registeredStep, options);
     if (declaresLockRequirement) {
+      stepOptions.set(registeredStep, options);
       const locks = {
         waitFor: copiedLocks(options?.waitForLockAttributes),
         execute: copiedLocks(options?.executeLockAttributes),
@@ -462,13 +463,14 @@ function doRegisterFlow(
       throw new FlowDefinitionError(`Flow ${name} has duplicate RPC ${registeredRPC.name}`);
     }
     rpcNames.add(registeredRPC.name);
-    if (
-      registeredRPC.options.lockAttributes?.some((lock) => !attributes.has(lock.attribute)) === true
-    ) {
+    // A declaring Flow validates the copy it sends and checks; other Flows validate the live list.
+    const locks = declaresLockRequirement
+      ? copiedLocks(registeredRPC.options.lockAttributes)
+      : registeredRPC.options.lockAttributes;
+    if (locks?.some((lock) => !attributes.has(lock.attribute)) === true) {
       throw new FlowDefinitionError(`Flow ${name} RPC ${registeredRPC.name} locks an unregistered attribute`);
     }
     if (declaresLockRequirement) {
-      const locks = copiedLocks(registeredRPC.options.lockAttributes);
       rpcLocks.set(registeredRPC.name, locks);
       rpcLockKeys.set(registeredRPC.name, registeredLockKeys(locks));
     }
@@ -508,7 +510,7 @@ function doRegisterFlow(
     validateStepTargets(
       registeredFlow,
       registeredStep,
-      stepOptions.get(registeredStep),
+      declaresLockRequirement ? stepOptions.get(registeredStep) : registeredStep.step.getStepOptions?.(),
       new Set(),
     );
   }
@@ -560,7 +562,8 @@ function copiedLocks(locks: readonly AttributeLock[] | undefined): readonly Attr
     return locks;
   }
   return Object.freeze(locks.map((lock: AttributeLock) => {
-    if (typeof lock !== "object" || lock === null) {
+    // A callable object can implement AttributeLock structurally, so copy it too.
+    if ((typeof lock !== "object" && typeof lock !== "function") || lock === null) {
       return lock;
     }
     // Read each field once, so accessor locks and the Attribute definition's identity both survive.

@@ -43,6 +43,7 @@ import {
   declareRPCMethod,
   gracefulComplete,
   goTo,
+  goToMany,
   int64Codec,
   joinRoundCodec,
   jsonCodec,
@@ -67,6 +68,7 @@ import {
   type RPCInvokeOptions,
   type Step,
   type StepDecision,
+  type StepMovement,
   type StepOptions,
   type PullWorkerOptions,
   type WorkerOptions,
@@ -97,7 +99,7 @@ import {
   type ValueHydrator,
 } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
-import { registeredFlowByName } from "../src/flow.js";
+import { registeredFlowByName, registeredRPCLockAttributes } from "../src/flow.js";
 import { InvocationContext } from "../src/invocation-context.js";
 
 interface OrderInput {
@@ -316,11 +318,147 @@ test("registry reads Step options once, after the persistence schema", () => {
     getSteps: () => StepList.startStep(step),
     getPersistenceSchema: () => {
       lock = new Attribute("contract-late-lock", booleanCodec);
-      return { attributes: [lock] };
+      // The declaration makes Registry snapshot the locks from its single read.
+      return { attributes: [lock, new Attribute("contract-late-total", int64Codec).writesRequireLock()] };
     },
   };
   new Registry([flow]);
   assert.equal(optionReads, 1);
+});
+
+test("a Flow without a declared lock requirement keeps two registration reads", async () => {
+  const total = new Attribute("contract-reads-total", int64Codec);
+  let optionReads = 0;
+  const target = new (class ThirdReadLockStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "ThirdReadLockStep";
+    }
+    public getStepOptions(): StepOptions {
+      optionReads += 1;
+      return optionReads >= 3 ? { executeLockAttributes: [total.lock()] } : {};
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  const sendMovement = await movementStepOptions("ContractReadsFlow", [total], target);
+  assert.equal(optionReads, 2, "state-load and target validation each read the options");
+  assert.deepEqual((await sendMovement())?.executeLockAttributeKeys, ["contract-reads-total"]);
+});
+
+test("a Flow without a declared lock requirement reads locks after the other option fields", async () => {
+  const total = new Attribute("contract-order-total", int64Codec);
+  let timeoutRead = false;
+  class OrderedOptions implements StepOptions {
+    public get executeMethodTimeoutMs(): number {
+      timeoutRead = true;
+      return 13_000;
+    }
+    public get executeLockAttributes(): readonly AttributeLock[] {
+      return timeoutRead ? [total.lock()] : [];
+    }
+  }
+  const target = new (class OrderedStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "OrderedStep";
+    }
+    public getStepOptions(): StepOptions {
+      timeoutRead = false;
+      return new OrderedOptions();
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  const sendMovement = await movementStepOptions("ContractOrderFlow", [total], target);
+  const options = await sendMovement();
+  assert.equal(options?.executeTimeoutSeconds, 13);
+  assert.deepEqual(options?.executeLockAttributeKeys, ["contract-order-total"]);
+});
+
+test("a callable lock sends the key the Worker checks", async () => {
+  const total = new Attribute("contract-callable-total", int64Codec).writesRequireLock();
+  const other = new Attribute("contract-callable-other", int64Codec);
+  let attributeReads = 0;
+  const callableLock = Object.defineProperty(() => undefined, "attribute", {
+    get: () => {
+      attributeReads += 1;
+      return attributeReads === 1 ? total : other;
+    },
+  }) as unknown as AttributeLock;
+  const target = new (class CallableLockStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "CallableLockStep";
+    }
+    public getStepOptions(): StepOptions {
+      return { executeLockAttributes: [callableLock] };
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  const sendMovement = await movementStepOptions("ContractCallableFlow", [total, other], target);
+  assert.deepEqual((await sendMovement())?.executeLockAttributeKeys, ["contract-callable-total"]);
+});
+
+test("an explicit movement reads its options once", async () => {
+  const total = new Attribute("contract-explicit-total", int64Codec);
+  const target = new (class ExplicitTargetStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string {
+      return "ExplicitTargetStep";
+    }
+    public execute(): StepDecision {
+      return gracefulComplete();
+    }
+  })();
+  let optionReads = 0;
+  const movement = {
+    step: target,
+    input: undefined,
+    get options(): StepOptions {
+      optionReads += 1;
+      return { executeLockAttributes: [total.lock()] };
+    },
+  } as StepMovement<void>;
+  const sendMovement = await movementStepOptions("ContractExplicitFlow", [total], target, () => goToMany(movement));
+  assert.deepEqual((await sendMovement())?.executeLockAttributeKeys, ["contract-explicit-total"]);
+  assert.equal(optionReads, 1);
+});
+
+test("a declaring Flow validates, sends, and checks the same RPC lock copy", () => {
+  const total = new Attribute("contract-rpc-total", int64Codec).writesRequireLock();
+  const unregistered = new Attribute("contract-rpc-unregistered", int64Codec);
+  let attributeReads = 0;
+  const shiftingLock = {
+    get attribute(): Attribute<unknown> {
+      attributeReads += 1;
+      return (attributeReads === 1 ? total : unregistered) as Attribute<unknown>;
+    },
+  } as AttributeLock;
+  class RPCLockFlow implements Flow<void> {
+    public getFlowType(): string {
+      return "ContractRPCLockFlow";
+    }
+    public getSteps() {
+      return StepList.empty();
+    }
+    public getPersistenceSchema() {
+      return { attributes: [total] };
+    }
+    @rpc({ lockAttributes: [shiftingLock] })
+    public setTotal(context: Context): void {
+      total.set(context, 1n);
+    }
+  }
+  const registered = registeredFlowByName(new Registry([new RPCLockFlow()]), "ContractRPCLockFlow");
+  const rpcDeclaration = registered.rpcs[0];
+  assert.ok(rpcDeclaration !== undefined);
+  assert.equal(registeredRPCLockAttributes(registered, rpcDeclaration)?.[0]?.attribute, total);
+  assert.deepEqual([...(registered.rpcLockKeys.get("setTotal") ?? [])], ["contract-rpc-total"]);
 });
 
 /** Builds a Flow whose start Step moves to `target`, and returns the options the Worker sends for it. */
@@ -328,6 +466,7 @@ async function movementStepOptions(
   flowType: string,
   attributes: readonly (Attribute<unknown> | AttributeMap<unknown>)[],
   target: Step<void>,
+  decide: () => StepDecision = () => goTo(target, undefined),
 ) {
   class MoveStep implements Step<void> {
     public readonly inputCodec = voidCodec;
@@ -335,7 +474,7 @@ async function movementStepOptions(
       return "MoveStep";
     }
     public execute(): StepDecision {
-      return goTo(target, undefined);
+      return decide();
     }
   }
   const flow: Flow<void> = {

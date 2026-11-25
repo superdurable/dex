@@ -910,15 +910,26 @@ function mapMovement(flow: RegisteredFlow, movement: StepMovement<any>): ProtoSt
   return ProtoStepMovement.create({
     stepType: target.name,
     stepInput: encodeValue(codecOrJson(target.step.inputCodec), movement.input),
-    stepOptions: movement.options === undefined
-      ? mapStepOptions(
-          flow,
-          target.step.getStepOptions?.(),
-          target.step.waitFor === undefined,
-          registeredStepLockSnapshot(flow, target),
-        )
-      : mapStepOptions(flow, movement.options, target.step.waitFor === undefined),
+    stepOptions: mapDefaultableStepOptions(flow, movement.options, target),
   });
+}
+
+/**
+ * Maps explicit options, or the target's default options when `explicit` is nullish.
+ * Only default options use the target's registered lock snapshot; `explicit` is read once.
+ */
+function mapDefaultableStepOptions(
+  flow: RegisteredFlow,
+  explicit: StepOptions | undefined,
+  target: RegisteredStep,
+): ProtoStepOptions {
+  const usesDefault = explicit === undefined || explicit === null;
+  return mapStepOptions(
+    flow,
+    explicit ?? target.step.getStepOptions?.(),
+    target.step.waitFor === undefined,
+    usesDefault ? registeredStepLockSnapshot(flow, target) : undefined,
+  );
 }
 
 /**
@@ -937,11 +948,10 @@ function mapStepOptions(
     : registeredStepTarget(flow, failureTarget);
   const explicitFailureOptions = options?.executeFailure?.options;
   const failureOptions = explicitFailureOptions ?? failureDefinition?.step.getStepOptions?.();
-  const failureLockSnapshot = explicitFailureOptions === undefined && failureDefinition !== undefined
-    ? registeredStepLockSnapshot(flow, failureDefinition)
-    : undefined;
-  const waitForLocks = lockSnapshot === undefined ? options?.waitForLockAttributes : lockSnapshot.waitFor;
-  const executeLocks = lockSnapshot === undefined ? options?.executeLockAttributes : lockSnapshot.execute;
+  const failureLockSnapshot =
+    (explicitFailureOptions === undefined || explicitFailureOptions === null) && failureDefinition !== undefined
+      ? registeredStepLockSnapshot(flow, failureDefinition)
+      : undefined;
   const waitForLoads = mapHandlerStateLoads(flow, {
     attributeMaps: options?.waitForLoadAttributeMaps,
     attributeMapInstances: options?.waitForLoadAttributeMapInstances,
@@ -995,12 +1005,15 @@ function mapStepOptions(
         : options?.executeDurability === "async"
           ? 2
           : 0,
-    waitForLockAttributeKeys: (waitForLocks ?? []).map((lock) =>
+    // Locks are read here, in their original order relative to the other fields.
+    waitForLockAttributeKeys: ((lockSnapshot === undefined ? options?.waitForLockAttributes : lockSnapshot.waitFor)
+      ?? []).map((lock) =>
       lock.instance === undefined
         ? lock.attribute.name
         : physicalName(lock.attribute.name, lock.instance),
     ),
-    executeLockAttributeKeys: (executeLocks ?? []).map((lock) =>
+    executeLockAttributeKeys: ((lockSnapshot === undefined ? options?.executeLockAttributes : lockSnapshot.execute)
+      ?? []).map((lock) =>
       lock.instance === undefined
         ? lock.attribute.name
         : physicalName(lock.attribute.name, lock.instance),
@@ -1242,14 +1255,7 @@ function mapFlowTimeoutHandlerOptions(
     failureProceedStepType: failureDefinition?.name ?? "",
     failureProceedStepOptions: failureDefinition === undefined
       ? undefined
-      : options.failure?.options === undefined
-        ? mapStepOptions(
-            flow,
-            failureDefinition.step.getStepOptions?.(),
-            failureDefinition.step.waitFor === undefined,
-            registeredStepLockSnapshot(flow, failureDefinition),
-          )
-        : mapStepOptions(flow, options.failure.options, failureDefinition.step.waitFor === undefined),
+      : mapDefaultableStepOptions(flow, options.failure?.options, failureDefinition),
     durabilityOverride: mapDurability(options.durability),
     lockAttributeKeys: mapAttributeLocks(flow, options.lockAttributes ?? [], "timeout handler"),
     loadAttributeMapInstances: loads.attributeMaps,
