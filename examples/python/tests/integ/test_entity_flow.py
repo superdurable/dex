@@ -30,6 +30,8 @@ from dex import (
 )
 
 from dex_examples.app import ExampleApp
+from dex_examples.patterns.entity_flow.account_archive import FakeAccountArchive
+from tests.integ.conftest import wait_until
 from dex_examples.patterns.entity_flow.customer_account_flow import (
     ContactDetails,
     CreditAdjustment,
@@ -96,8 +98,10 @@ async def test_customer_account_entity_flow_lifecycle(
         flow_id,
         CreditAdjustment(-5 * CONCURRENT_DEPOSITS),
     )
-    app.account_archive.make_unavailable(flow_id)
+    archive = app.account_archive
+    archive.make_unavailable(flow_id)
     await client.invoke_rpc(flow.retire_account, flow_id)
+    await _wait_for_archive_attempts(archive, flow_id, 1)
     assert (await client.describe_flow(flow_id)).status == FlowStatus.RUNNING
     with pytest.raises(WorkerInvocationError, match="account is retired"):
         await client.invoke_rpc(
@@ -110,12 +114,17 @@ async def test_customer_account_entity_flow_lifecycle(
             ContactDetails("Ada Byron", "ada@byron.example"),
         )
     await client.invoke_rpc(flow.retire_account, flow_id)
+    await _wait_for_archive_attempts(archive, flow_id, 2)
     assert (await client.describe_flow(flow_id)).status == FlowStatus.RUNNING
 
-    app.account_archive.make_available(flow_id)
+    archive.lose_next_response(flow_id)
+    archive.make_available(flow_id)
     result = await client.wait_for_flow(flow_id, CLOSE_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED
-    assert app.account_archive.archive_count(flow_id) == 1
+    attempts = archive.attempt_step_execution_ids(flow_id)
+    assert len(attempts) >= 4
+    assert len(set(attempts)) == 1
+    assert archive.archive_record_count(flow_id) == 1
     closed = await client.get_attributes(
         flow_id, flow.display_name, flow.credit_balance, flow.retired
     )
@@ -125,6 +134,15 @@ async def test_customer_account_entity_flow_lifecycle(
 
     with pytest.raises(FlowAlreadyStartedError):
         await client.start_flow(flow, flow_id, None, options)
+
+
+async def _wait_for_archive_attempts(
+    archive: FakeAccountArchive, flow_id: str, count: int
+) -> None:
+    async def has_attempts() -> bool:
+        return len(archive.attempt_step_execution_ids(flow_id)) >= count
+
+    await wait_until(f"{count} archive attempts", has_attempts, CLOSE_TIMEOUT)
 
 
 async def _deposit_with_retry(

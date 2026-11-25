@@ -72,7 +72,7 @@ class CloseAccountStep(Step[None]):
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        self.archive.archive_account(context.flow_id)
+        self.archive.archive_account(context.flow_id, context.step_execution_id)
         return graceful_complete()
 
 
