@@ -63,3 +63,5 @@ generate_flow_definition examples/python/dex_examples/patterns/polling/polling_f
 generate_flow_definition examples/python/dex_examples/patterns/deferred-choice/offer_response_flow.py design-patterns/deferred-choice
 generate_flow_definition examples/python/dex_examples/patterns/critical-section/contract_edit_flow.py design-patterns/critical-section
 generate_flow_definition examples/python/dex_examples/patterns/cancel-case/loan_application_flow.py design-patterns/cancel-case
+generate_flow_definition examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py design-patterns/child-flows-business-identity-order
+generate_flow_definition examples/python/dex_examples/patterns/child-flows-business-identity/shipment_flow.py design-patterns/child-flows-business-identity-shipment
