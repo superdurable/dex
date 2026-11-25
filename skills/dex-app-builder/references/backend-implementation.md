@@ -8,8 +8,9 @@ hold the Primitive rules, design patterns, error handling, testing, and
 Worker lifecycle. Do not restate them in the application.
 
 The product constraints take precedence over the general SDK rules: external effects
-only in `Execute`, no provider or Dex mutation in `WaitFor` (read-only,
-time-bounded provider calls are allowed there), and strict FDG 2.0
+only in `Execute`, no provider or Dex mutation in `WaitFor` except Step
+execution local values (read-only, time-bounded provider calls are allowed
+there), and strict FDG 2.0
 rendering with the directives the Flow visualization reference lists for the
 language.
 

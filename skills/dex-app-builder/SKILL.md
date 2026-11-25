@@ -109,7 +109,8 @@ than them. They take precedence.
   operation, callback, or poll. Each call between Flows adds to both
   histories and costs an engine operation, even a read.
 - **No mutation in WaitFor.** `WaitFor` mutates no provider and writes no Dex
-  state except a Step execution local value that records a read error. It may
+  state except Step execution local values, which record a read error or pass
+  a read value to `Execute`. It may
   make read-only, idempotent, time-bounded provider calls. Connector write
   operations run in `Execute`. Each provider effect in `Execute` has an
   idempotency identity, a bounded timeout, and recovery.
