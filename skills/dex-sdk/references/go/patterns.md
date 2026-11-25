@@ -195,8 +195,6 @@ var (
 	Replies     = dex.DefineChannel[string]("replies")
 	Resolutions = dex.DefineChannel[string]("resolutions")
 	Transcript  = dex.DefineAttribute[[]string]("transcript")
-	// CloseLock is never written. SendReply and the closing Steps lock it.
-	CloseLock = dex.DefineAttribute[bool]("close-lock")
 )
 
 const inactivityWindow = 24 * time.Hour
@@ -215,16 +213,14 @@ func (*ConversationFlow) GetSteps() []dex.StepDef {
 
 func (*ConversationFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{Transcript, CloseLock},
+		Attributes: []dex.AttributeDef{Transcript},
 		Channels:   []dex.ChannelDef{Replies, Resolutions},
 	}
 }
 
 func (flow *ConversationFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.SendReply, &dex.RPCOptions{
-			LockAttributes: []dex.AttributeLock{dex.LockAttribute(CloseLock)},
-		}),
+		dex.DefineRPC(flow.SendReply, nil),
 		dex.DefineRPC(flow.ResolveConversation, nil),
 	}
 }
@@ -302,10 +298,6 @@ type resolveConversation struct {
 	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (resolveConversation) GetStepOptions() *dex.StepOptions {
-	return closeLockOptions()
-}
-
 func (resolveConversation) Execute(_ dex.Context, reason string) (*dex.StepDecision, error) {
 	return dex.ForceCompleteIfChannelsEmpty(
 		"resolved: "+reason,
@@ -318,20 +310,11 @@ type closeInactiveConversation struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (closeInactiveConversation) GetStepOptions() *dex.StepOptions {
-	return closeLockOptions()
-}
-
-// closeLockOptions holds CloseLock so no reply commits between the empty check and the close.
-func closeLockOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(CloseLock)}}
-}
-
 func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	// A reply accepted at the deadline reopens the conversation.
+	// A reply or resolution accepted at the deadline reopens the wait.
 	return dex.ForceCompleteIfChannelsEmpty(
 		"inactive",
-		[]dex.ChannelDef{Replies},
+		[]dex.ChannelDef{Replies, Resolutions},
 		dex.MovementOf(awaitInbound{}, ""),
 	), nil
 }
@@ -343,11 +326,10 @@ func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDe
 - `Replies.AtLeast(1)` takes every queued reply in one execution.
 - Both closing Steps use `dex.ForceCompleteIfChannelsEmpty` on `Replies`, so
   a reply accepted after the resolution is still recorded. The fallback
-  returns to `awaitInbound` with the pending resolution; the inactivity
-  fallback reopens the wait.
-- `SendReply` and the closing Steps share `CloseLock`, so a reply commits
-  before the empty check or is rejected after the close. Callers retry a
-  `*dex.RPCLockConflictError`.
+  returns to `awaitInbound` with the pending resolution. The inactivity close
+  also checks `Resolutions` and reopens the wait.
+- Keep `SendReply` free of locks. A caller that must not lose a reply confirms
+  it from `Transcript`; see [the rules](../core/patterns.md#inbound-event-loop).
 - Start the Flow with `""` as its input: no pending resolution.
 
 ## Durable Timer

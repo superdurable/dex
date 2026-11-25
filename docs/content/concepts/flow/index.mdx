@@ -216,9 +216,15 @@ The parent receives each child's result durably:
 
 - The child commits its outcome to an Attribute in one Step. A next Step
   reports to the parent through an RPC that publishes to a Channel. The
-  report carries a stable request ID, and the parent records each child once,
-  keyed by its Flow ID. Or a polling Step of the parent waits for the child's
+  report Step must not run before the outcome commits, so both Steps keep
+  the default SYNC durability; see
+  [Durability](/reference/python/step-options#durability). The report carries
+  a stable request ID. Or a polling Step of the parent waits for the child's
   terminal state.
+- The parent keeps one record per child, keyed by its Flow ID, with the
+  outcome and the terminal status as separate fields. A report or a read
+  fills in what is missing, and a repeat changes nothing. Give each business
+  attempt its own child Flow ID.
 - When several entry points can start the same child, they derive the same
   Flow ID and request ID from the same request. Otherwise the start reports
   that the Flow already started: read that run and track it only when its
@@ -226,8 +232,8 @@ The parent receives each child's result durably:
 - Each child has its own Flow timeout. A closing parent never stops its
   children.
 - A client stop starts no new code in the child, so no report or cleanup
-  path runs. Code already running can finish its current call, so an
-  earlier report can still arrive. The parent reconciles from the child's
+  path runs. A handler that ignores the cancellation signal can keep
+  running and make more calls, so a report can still arrive. The parent reconciles from the child's
   stored state: after a stop it records the terminal status and the stored
   outcome. A refused stop, or a timer for unreported children, leads to a
   read. A closed child is recorded. A running child stays unknown and is

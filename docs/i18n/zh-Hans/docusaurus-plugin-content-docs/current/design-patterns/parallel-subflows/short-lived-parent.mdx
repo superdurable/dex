@@ -562,20 +562,19 @@ impl Step for ShortLiveHandleSubFlow {
 
 ## 空批次和提前到达的请求 {#early-requests}
 
-示例的接收逻辑很简单：Flow 一启动，它的 RPC 就能发布请求，而且只检查排队数量。父 Flow 如果必须限制队列，并且不接受处理不了的请求，就加一个接收 lock：
+示例做了简化：Flow 一启动，它的 RPC 就能发布请求，而且即使批次为空也启动 worker。父 Flow 如果要处理空批次，就加一个接收开关：
 
-- RPC、第一个 Step，以及两个修改子 Flow 计数的 Step 声明同一个 `admission` lock。调用方遇到 lock 冲突时重试。
-- 只有第一个 Step 把启动批次排进队列后，接收才开放。在那之前的 RPC 被拒绝。于是空的启动批次可以直接完成，因为不可能有请求在等待。
-- 启动批次和 RPC 请求加起来保持在上限以内。在启动 Flow 的地方用上限检查启动批次。
-- 一个请求要么在最后一个 worker 的空检查之前提交，由 worker 领取；要么在关闭之后到达，被 Dex 拒绝。
-- Channel 大小只计算排队中的请求。如果容量还包括运行中的子 Flow，把活跃数量也加进检查。
+- 只有第一个 Step 把启动批次排进队列后，接收才开放。RPC 读取这个开关，在那之前拒绝请求。于是空的启动批次可以直接完成，因为不可能有请求在等待。
+- 修改子 Flow 计数的 Step 锁住开关所在的 Attribute。RPC 不加 lock。
+- 缓冲上限是近似的。并发的 RPC 可能读到同一个大小，而且 Channel 大小只计算排队中的请求，不包括已经领取的工作。在启动 Flow 的地方用上限检查启动批次。
+- 关闭等待期间提交的请求不会被处理；见[入站事件循环](/design-patterns/inbound-event-loop)。不能丢请求的调用方，从子 Flow 的结果确认请求。
 
 ```pseudocode
 AdmitBatch.execute(requests)                     // locks admission
     if requests is empty: gracefulComplete()     // the intake never opened
     publish each to Requests; admission = { open: true, activeChildren: 0 }
     goToMany(HandleRequest x N)
-rpc sendRequest(request)                         // locks admission
+rpc sendRequest(request)                         // reads admission; takes no lock
     if not admission.open or Requests.size >= buffer limit: return false
     Requests.publish(request); return true
 ```

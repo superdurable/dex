@@ -90,7 +90,7 @@ StartChildJob.execute(job)                    // Client injected through the Flo
     goTo(AwaitChildJob, job)
 AwaitChildJob.waitFor(job) -> AnyOf(ChildReports[job.number].ForOne(), Timer(reconcile interval))
 AwaitChildJob.execute(job)
-    if a report was consumed: record it under job.number unless already recorded; continue
+    if a report was consumed: record its outcome under job.number; a repeat changes nothing; continue
     else: reconcile(job.number)               // see the rules below
           known: record it; continue
           unknown: goTo(AwaitChildJob, job)   // read again at the next interval
@@ -99,16 +99,18 @@ rpc recordChildOutcome(childFlowId, outcome) -> ChildReports[childFlowId].publis
 ChildJobFlow:
     RecordChildOutcome.execute -> write the outcome Attribute; goTo(ReportChildOutcome)
     ReportChildOutcome.execute -> call the parent's recordChildOutcome RPC,
-                                  Request ID = the child Flow ID; a closed parent ends the attempts
+                                  Request ID = "report:" + child Flow ID; a closed parent ends the attempts
                                   gracefulComplete()
 ```
 
 - Start the child with a stable Flow ID and Request ID, so a retried Execute repeats the same start.
 - When several entry points can start the same child, they all derive the same Flow ID and Request ID from the same complete request. Otherwise catch the typed already-started error, read the existing run, and track it only after its business identity matches. A deliberate new attempt gets a new Flow ID or an explicit reuse policy.
 - Receive the result durably. The child reports through a parent RPC that publishes to a Channel, or a [Polling](patterns.md#polling) Step waits for the child's terminal state through the Client. Never keep the result only in Worker memory.
-- The child commits its outcome Attribute in one Step and reports in the next, so a report always has a committed outcome behind it. The report carries a stable Request ID, and the parent records each child at most once, keyed by its Flow ID, so a repeated report is harmless.
+- The report Step must not run before the outcome Step commits. Under ASYNC durability the next Step can start before that commit is stored, so keep the Execute of these two Steps SYNC, the default, even when the Flow defaults to ASYNC; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability).
+- The report carries a stable Request ID derived from the child Flow ID and its purpose, such as `report:<child Flow ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
+- Give each business attempt its own child Flow ID. DescribeFlow and the Client Attribute read see only the current or latest run, so a reused Flow ID mixes up attempts.
 - Give every child its own Flow timeout. A closing parent never stops its children.
-- StopFlow (cancel, fail, or terminate) starts no new application code in the child: no later decision, failure route, or cleanup runs. Code already running can finish its current call, so a report sent just before the stop can still arrive. The parent reconciles instead of waiting for a report:
+- StopFlow (cancel, fail, or terminate) starts no new application code in the child: no later decision, failure route, or cleanup runs. A handler already running gets a cancellation signal; if it ignores the signal, it can keep running and make more external calls, and Dex discards its uncommitted result. So a report sent around the stop can still arrive. The parent reconciles instead of waiting for a report:
   - After a successful stop, it reads the child's terminal status and its outcome Attribute, and records both.
   - When StopFlow returns not found, not active, or closing, or when the reconcile Timer fires, it reads the child with DescribeFlow and a Client Attribute read. A closed child records its terminal status, plus its outcome when one was committed. A running or closing child is still unknown: read it again later. A child that is not found has no record; the business policy decides, for example "unavailable".
   - Any other error, such as a permission or transport error, proves nothing. Return it so the Step retries.

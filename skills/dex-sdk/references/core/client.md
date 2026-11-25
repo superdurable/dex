@@ -116,7 +116,7 @@ Every result or status a user must see has a durable read path: a result Attribu
 ## Lifecycle APIs
 
 - StopFlow cancel closes the run as canceled. Fail closes it as failed with a reason. Terminate closes it as terminated. Each records a different terminal status. None proves provider cleanup or projection completion.
-- Cancel, fail, and terminate close the run when the stop commits. They start no new application code: no later Step decision, failure route, or cleanup runs, so the stopped Flow runs no report or cleanup path of its own. Running Steps get a cancellation signal, but code already running can finish its current call, including a call to another Flow. Whoever waits for the stopped Flow reconciles from its terminal state and accepts an earlier report idempotently.
+- Cancel, fail, and terminate close the run when the stop commits. They start no new application code: no later Step decision, failure route, or cleanup runs, so the stopped Flow runs no report or cleanup path of its own. Running Steps get a cancellation signal. A handler that ignores it can keep running and make more external calls, including calls to another Flow; Dex discards its uncommitted result. Whoever waits for the stopped Flow reconciles from its terminal state and accepts an earlier report idempotently.
 - A later write to a closed run is rejected. Write what the Flow needs before you stop it.
 - DescribeFlow on a missing ID, or an ID that is not a Flow, returns Flow not found.
 - SearchFlows excludes internal Flow runs. A generic-slot query must constrain FlowType. Keep the query unchanged across pages.

@@ -190,15 +190,17 @@ HandleChild.waitFor(request) -> Until(SubFlow(ChildFlow, request))
 HandleChild.execute -> admission.activeChildren -= 1 (lock admission)
     if activeChildren == 0: forceCompleteIfChannelsEmpty([Requests], else goTo(HandleRequest))
     else: goTo(HandleRequest)
-rpc sendRequest(request)                         // locks admission
+rpc sendRequest(request)                         // reads admission; takes no lock
     if not admission.open or Requests.size >= buffer limit: return false
     Requests.publish(request); return true
 ```
 
 - Use the atomic complete-if-Channels-empty decision. Never check the Channel size in application code before completing.
-- The RPC and every Step that changes the counter declare the same `admission` lock. A request then commits before the completing Step's check, so a worker takes it, or after the close, which Dex rejects. Callers retry a lock conflict.
-- The intake opens only when the first Step has queued the start batch. An RPC before that is rejected, so an empty start batch can complete at once, and the queue never holds the start batch plus RPC requests beyond the limit. Check the start batch against the limit at the start boundary.
-- The Channel size counts only queued requests. When the capacity also covers running children, add the active count to the check.
+- The Steps that change the counter declare the same `admission` lock. Keep the RPC free of locks; it only reads the gate.
+- The intake opens only when the first Step has queued the start batch. An RPC before that is rejected, so an empty start batch can complete at once. Check the start batch against the limit at the start boundary.
+- The buffer limit is approximate: concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken.
+- A request that commits while the close waits is not handled, as in the [Inbound event loop](#inbound-event-loop). A caller that must not lose a request confirms it from the child's result.
+- The runnable example is simplified: it has no intake gate and starts the workers even for an empty batch.
 
 ### Long-lived parent
 
@@ -222,10 +224,10 @@ CloseIntake.execute -> gracefulComplete()
 ```
 
 - The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter.
-- Each worker owns the request it consumed. Under the `intakeClosed` lock it either starts the child or, after the close, records the request as returned through an idempotent path, such as a reply to its submitter. A queued request is never silently dropped or handed back twice.
+- Each worker owns the request it consumed. Under the `intakeClosed` lock it either commits the move to start the child, which then starts and finishes even after the close, or, after the close, records the request as returned through an idempotent path, such as a reply to its submitter. A queued request is never silently dropped or handed back twice.
 - After the close, Channel Conditions still win over the graceful completion Condition, so workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion Condition and end with DeadEnd. Running children finish first, and the Flow completes when the last branch ends.
 - An admission RPC that sees the intake closed rejects the request, so the caller can resubmit to a new parent run.
-- The graceful completion Condition needs SDK and Server support; see [Graceful completion requests](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). Without it, the close Step publishes one message per worker to a Wake Channel, and each worker waits `AnyOf(Requests.ForOne(), Wake.ForOne())` and ends when it takes a Wake message.
+- The graceful completion Condition needs SDK and Server support; see the [Server reference](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition) and the language's Waits reference, such as [Go](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). Without it, the close Step publishes one message per worker to a Wake Channel, and each worker waits `AnyOf(Requests.ForOne(), Wake.ForOne())` and ends when it takes a Wake message.
 
 ### Wait for half
 
@@ -236,9 +238,12 @@ StartChildren.execute -> goToMany(WaitForQuorum(total), RunChild x N)
 RunChild.waitFor(request) -> AnyOf(SubFlow(ChildFlow, request), AllDone.ForOne())
 RunChild.execute -> if child finished: ChildCompleted.publish(); gracefulComplete()
                     else: stop own child by its SubFlow ID
-                          if the stop says not found, not active, or closing:
-                              read the child's state through the Client
-                              closed: record its status and result; running or closing: retry
+                          stopped: record "stopped"
+                          not found, not active, or closing: read the child through the Client
+                              closed: record its status and result
+                              running or closing: return an error so the Step retries
+                              missing: record "unavailable" (business policy)
+                          other errors: return them so the Step retries
                           gracefulComplete()
 WaitForQuorum.waitFor(total) -> Until(ChildCompleted.ForN((total + 1) / 2))
 WaitForQuorum.execute -> publish one AllDone message per unfinished child; gracefulComplete()
@@ -246,7 +251,7 @@ WaitForQuorum.execute -> publish one AllDone message per unfinished child; grace
 
 - The parent does not complete at the threshold. Every unfinished child Step stops its own child, then completes.
 - Define what happens to children outside the quorum.
-- A child can finish at the same moment its stop message arrives. A Channel Condition wins over a SubFlow Condition when both are ready, so the Step may stop a child that already ended. A refused stop does not prove an ending by itself: read the child's state. Record a closed child's status and result, so the report counts every child that finished; a child still running or closing is read again; return any other error so the Step retries.
+- A child can finish at the same moment its stop message arrives. A Channel Condition wins over a SubFlow Condition when both are ready, so the Step may stop a child that already ended. A refused stop does not prove an ending by itself: read the child's state, as in the skeleton, so the report counts every child that finished. The runnable examples are simplified: they return every StopFlow error.
 - With [top-level child Flows](flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
 
 ### Partitioning
@@ -314,7 +319,7 @@ RecordJobWaitFailure.execute(context)
 - A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, is a watchdog: a waiting Step that races its Timer. The watchdog and the Step that records the result declare the same Attribute lock. When the Timer fires, the watchdog reads the status under that lock and declares the work overdue only while it is still unfinished.
 - The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. The total duration bounds the time. Never use a large attempt count as a time bound.
 - Use the language's plain sleep. Do not add cancellation-select machinery around it: the call has its own timeout, and after a canceled attempt the next call fails fast.
-- Every wait limit comes from the Step options, and Dex enforces each one. The Step code never computes a deadline, and neither the checkpoint nor the input carries one.
+- The wait limits come from the Step options, and Dex enforces each one: the method timeout ends an attempt, and the total duration decides whether another attempt starts, so the whole wait can run past it by up to one method timeout. The Step code never computes a deadline, and neither the checkpoint nor the input carries one. A hard business deadline uses the watchdog below.
 - The checkpoint is only resume state, such as the last reported status.
 - A business condition that is not a fixed duration, such as a lease the Flow does not own expiring, is still checked inside the loop.
 - Write Stream frames only on status changes. Consumers recover from Attributes or a read-only RPC.
@@ -383,7 +388,7 @@ Keep the deadline in the Flow where the activity happens. A separate Flow that n
 Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the inactivity tracker. The closest runnable example is the Go folder `inactiveness-tracker-timer`.
 
 ```text
-rpc sendReply(text)       -> validate text; if invalid: return a rejection     // locks closeLock
+rpc sendReply(text)       -> validate text; if invalid: return a rejection
                              Replies.publish(text); return accepted
 rpc resolve(reason)       -> if reason is empty: return a rejection
                              Resolutions.publish(reason)
@@ -399,21 +404,21 @@ AwaitInbound.execute(pendingResolution)
     if pendingResolution:  goTo(Resolve, pendingResolution)
     goTo(AwaitInbound, none)   // a new execution of the same Step: a fresh Timer
 
-Resolve.execute(reason)                                  // locks closeLock
+Resolve.execute(reason)
     forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
-CloseInactive.execute                                    // locks closeLock
-    forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, none))   // a late reply reopens
+CloseInactive.execute      // a late reply or resolution reopens the wait
+    forceCompleteIfChannelsEmpty([Replies, Resolutions], else goTo(AwaitInbound, none))
 ```
 
-- The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks. Its only lock is the close lock, which the waiting Step never takes.
+- The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
 - The waiting Step is the only writer of the transcript. It appends every message it consumed, then loops back to itself. The new execution registers a new wait, so the inactivity Timer restarts after each message.
 - Declare the reply Channel before the resolution Channel in AnyOf. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore always recorded first. If the order must differ, drain the pending replies before you resolve.
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
-- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). The RPC accepted each reply, so a reply that arrives after the resolution but before the Flow closes is still recorded. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity fallback reopens the wait instead. Keep the waiting Step the only consumer of the reply Channel.
-- The reply RPC and both closing Steps declare one shared Attribute lock, such as a declared `closeLock` Attribute that nothing writes. A reply then commits either before the empty check, so the fallback records it, or after the close, which Dex rejects. Without the lock, a reply can be accepted after the empty check while the close is still pending, and nothing consumes it. Callers retry a lock conflict.
+- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). The RPC accepted each reply, so a reply that arrives after the resolution but before the Flow closes is still recorded. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
 - The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
+- The empty check and the close commit together, so a reply that commits later is rejected. One exception: a close that waits, for Attribute Store sync or for a transactional or locking RPC accepted before it, still lets RPCs that are neither transactional nor locking commit, and nothing consumes their messages. Keep the publishing RPCs free of locks, which would make them transactional. A caller that must not lose a reply confirms it from the Flow's recorded state, such as the transcript, not from the RPC reply. See [Requests during Flow close](https://docs.superdurable.io/reference/server/runtime-client#requests-during-flow-close).
 
 Why not write the transcript from the RPC: the waiting Step must then lock the transcript, and the RPC must lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC does, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
 

@@ -27,7 +27,8 @@ overrides.
 instead terminate it, or fail it with a reason. Each of these closes the run
 when the stop commits and starts no new application code: no later Step
 decision, failure route, or cleanup runs. Running Steps get a cancellation
-signal, and code already running can finish its current call. A Flow that
+signal. A handler that ignores it can keep running and make more external
+calls, and Dex discards its uncommitted result. A Flow that
 waits for the stopped one reads its terminal state instead of waiting for a
 report.
 

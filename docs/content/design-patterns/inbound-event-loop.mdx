@@ -9,7 +9,7 @@ Use this pattern when a Flow takes inbound messages until a resolution arrives o
 ## Shape
 
 ```pseudocode
-rpc sendReply(text)   -> validate text; if invalid: return a rejection     // locks closeLock
+rpc sendReply(text)   -> validate text; if invalid: return a rejection
                          Replies.publish(text); return accepted
 rpc resolve(reason)   -> if reason is empty: return a rejection
                          Resolutions.publish(reason)
@@ -25,10 +25,10 @@ AwaitInbound.execute(pendingResolution)
     if pendingResolution: goTo(Resolve, pendingResolution)
     goTo(AwaitInbound, none)    // a new execution of the same Step starts a fresh Timer
 
-Resolve.execute(reason)                                  // locks closeLock
+Resolve.execute(reason)
     forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
-CloseInactive.execute                                    // locks closeLock
-    forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, none))   // a late reply reopens
+CloseInactive.execute      // a late reply or resolution reopens the wait
+    forceCompleteIfChannelsEmpty([Replies, Resolutions], else goTo(AwaitInbound, none))
 ```
 
 ## Rules
@@ -48,11 +48,11 @@ If the RPC appended to the transcript, the waiting Step would have to lock the t
 
 ## Replies after the resolution
 
-Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). The RPC accepted each reply, so a reply that arrives after the resolution but before the Flow closes is still recorded. If the reply Channel is not empty, Dex follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. The inactivity fallback reopens the wait instead. Keep the waiting Step the only consumer of the reply Channel.
-
-The reply RPC and both closing Steps declare one shared Attribute lock, such as a `closeLock` Attribute that nothing writes. A reply then commits either before the empty check, so the fallback records it, or after the close, which Dex rejects. Without the lock, a reply can be accepted after the empty check while the close is still pending, and nothing consumes it. Callers retry a lock conflict. The waiting Step never takes this lock.
+Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). The RPC accepted each reply, so a reply that arrives after the resolution but before the Flow closes is still recorded. If the reply Channel is not empty, Dex follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
 
 The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
+
+The empty check and the close commit together, so a reply that commits later is rejected. One exception: a close that waits, for Attribute Store sync or for a transactional or locking RPC accepted before it, still lets RPCs that are neither transactional nor locking commit, and nothing consumes their messages. Keep the publishing RPCs free of locks, which would make them transactional. A caller that must not lose a reply confirms it from the Flow's recorded state, such as the transcript, not from the RPC reply. See [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
 
 ## Examples
 

@@ -18,7 +18,7 @@ application types.
 | Cron | Timer raced with trigger and skip Channels | `patterns/cron/cron-schedule-flow.ts` |
 | Reminder | Timer raced with an opt-out Channel | `patterns/reminders/reminder-flow.ts` |
 | Inactivity tracker | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step, and share one close lock with the reply RPC; see [the rules](../core/patterns.md#inbound-event-loop) | closest: the inactivity tracker |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer.byDuration(...))`, appends to the transcript, and loops back; the closing Steps return `forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step; see [the rules](../core/patterns.md#inbound-event-loop) | closest: the inactivity tracker |
 | Execute failure recovery | `executeFailure: ExecuteFailure.proceedTo(Compensate)` | `patterns/recovery/failure-recovery-flow.ts` |
 | WaitFor failure recovery | `waitForFailure: "proceed"`, then `context.waitForMethodFailed()` in `execute` | `primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts` |
 | Manual recovery | failed Step proceeds to a Step waiting on operator Channels fed by verb-named RPCs | `patterns/intervention/manual-recovery-flow.ts` |

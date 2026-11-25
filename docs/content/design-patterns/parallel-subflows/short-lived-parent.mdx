@@ -561,20 +561,19 @@ impl Step for ShortLiveHandleSubFlow {
 
 ## Empty batches and early requests {#early-requests}
 
-The example keeps admission simple: its RPC can publish as soon as the Flow starts, and it checks only the queued count. A parent that must bound its queue and never accept a request it cannot handle adds an admission lock:
+The example is simplified: its RPC can publish as soon as the Flow starts, and it starts the workers even for an empty batch. A parent that must handle an empty batch adds an intake gate:
 
-- The RPC, the first Step, and both Steps that change the child count declare the same `admission` lock. Callers retry a lock conflict.
-- The intake opens only when the first Step has queued the start batch. An RPC before that is rejected. An empty start batch then completes at once, because no request can be waiting.
-- The start batch and the RPC requests together stay within the limit. Check the start batch against the limit where the Flow is started.
-- A request commits either before the last worker's empty check, so a worker takes it, or after the close, which Dex rejects.
-- The Channel size counts only queued requests. When the capacity also covers running children, add the active count to the check.
+- The intake opens only when the first Step has queued the start batch. The RPC reads the gate and rejects a request before that. An empty start batch then completes at once, because no request can be waiting.
+- The Steps that change the child count lock the gate's Attribute. Keep the RPC free of locks.
+- The buffer limit is approximate. Concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken. Check the start batch against the limit where the Flow is started.
+- A request that commits while the close waits is not handled; see [Inbound Event Loop](/design-patterns/inbound-event-loop). A caller that must not lose a request confirms it from the child's result.
 
 ```pseudocode
 AdmitBatch.execute(requests)                     // locks admission
     if requests is empty: gracefulComplete()     // the intake never opened
     publish each to Requests; admission = { open: true, activeChildren: 0 }
     goToMany(HandleRequest x N)
-rpc sendRequest(request)                         // locks admission
+rpc sendRequest(request)                         // reads admission; takes no lock
     if not admission.open or Requests.size >= buffer limit: return false
     Requests.publish(request); return true
 ```

@@ -10,7 +10,7 @@ sidebar_label: 入站事件循环
 ## 结构
 
 ```pseudocode
-rpc sendReply(text)   -> validate text; if invalid: return a rejection     // locks closeLock
+rpc sendReply(text)   -> validate text; if invalid: return a rejection
                          Replies.publish(text); return accepted
 rpc resolve(reason)   -> if reason is empty: return a rejection
                          Resolutions.publish(reason)
@@ -26,10 +26,10 @@ AwaitInbound.execute(pendingResolution)
     if pendingResolution: goTo(Resolve, pendingResolution)
     goTo(AwaitInbound, none)    // a new execution of the same Step starts a fresh Timer
 
-Resolve.execute(reason)                                  // locks closeLock
+Resolve.execute(reason)
     forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, reason))
-CloseInactive.execute                                    // locks closeLock
-    forceCompleteIfChannelsEmpty([Replies], else goTo(AwaitInbound, none))   // a late reply reopens
+CloseInactive.execute      // a late reply or resolution reopens the wait
+    forceCompleteIfChannelsEmpty([Replies, Resolutions], else goTo(AwaitInbound, none))
 ```
 
 ## 规则
@@ -49,11 +49,11 @@ CloseInactive.execute                                    // locks closeLock
 
 ## 结论之后到达的回复
 
-每个结束 Step 都在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow。RPC 已经接受了每条回复，所以在结论之后、Flow 关闭之前收到的回复也会被记录。做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。如果回复 Channel 不为空，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。不活跃关闭的 fallback 则重新开始等待。回复 Channel 只能由等待中的 Step 消费。
-
-回复 RPC 和两个结束 Step 声明同一个 Attribute lock，比如一个没人写入的 `closeLock` Attribute。这样一条回复要么在空检查之前提交，由 fallback 记录；要么在关闭之后到达，被 Dex 拒绝。没有这个 lock，回复可能在空检查之后、关闭仍在进行时被接受，之后没有 Step 消费它。调用方遇到 lock 冲突时重试。等待中的 Step 从不持有这个 lock。
+每个结束 Step 都在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow。RPC 已经接受了每条回复，所以在结论之后、Flow 关闭之前收到的回复也会被记录。做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。如果回复 Channel 不为空，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。不活跃关闭还检查结论 Channel，因为 Timer 和结论同时就绪时 Timer 胜出；它的 fallback 重新开始等待。回复 Channel 只能由等待中的 Step 消费。
 
 结论 RPC 拒绝空的原因，因为空的待定结论表示"没有结论"。
+
+空检查和关闭在同一次提交里完成，所以之后才提交的回复会被拒绝。例外是要等待的关闭：关闭要等 Attribute Store 同步，或等它之前已接受的 transactional 或 locking RPC 时，既不是 transactional 也不是 locking 的 RPC 仍然可以提交，而它们发布的消息没有 Step 消费。发布消息的 RPC 不要加 lock，加了 lock 就成了 transactional RPC。不能丢回复的调用方，要从 Flow 记录的状态（比如 transcript）确认回复，而不是看 RPC 的返回。见 [Flow 关闭期间的请求](/reference/server/runtime-client#requests-during-flow-close)（英文）。
 
 ## 示例
 

@@ -2,14 +2,14 @@
 bump: patch
 ---
 - **dex-sdk** and **dex-app-builder** model a child job with its own business identity as a top-level child Flow: a Step starts it with a stable Flow ID and Request ID, and the parent receives its result durably. A routing row points to it.
-- A top-level child commits its outcome in one Step and reports in the next with a stable Request ID; the parent records each child once, keyed by its Flow ID.
+- A top-level child commits its outcome in one SYNC Step and reports in the next with a stable Request ID; the parent keeps one record per child, with the outcome and terminal status as separate fields.
 - StopFlow starts no new application code, so a stopped child runs no report or cleanup path. The parent reconciles from the child's stored state, treats an unclear state as unknown, and records children that finish after a quorum.
-- A Step whose provider call can stay silent for minutes sets its heartbeat timeout and an explicit retry total duration, sized either as the business limit or as an estimate for several near-full attempts. Each language's StepOptions section names the options.
+- A Step whose provider call can stay silent for minutes sets its heartbeat timeout and an explicit retry total duration. The total duration is the window in which retries may start, so a hard business deadline uses a durable Timer. Each language's StepOptions section names the options.
 - **Graceful timeout**: active Steps keep running while the timeout handler runs; when it commits ForceComplete or ForceFail, Dex starts closing the Flow, possibly after the deadline.
 - **Cancel with child Flows** and Channel guidance: once the decision is final, do not drain the cancel Channel, so a late cancel cannot override it.
-- **Inbound event loop** skeletons close with ForceCompleteIfChannelsEmpty on the reply Channel under a close lock shared with the reply RPC, and reject an empty resolution reason.
+- **Inbound event loop** skeletons close with ForceCompleteIfChannelsEmpty on the reply Channel, also check resolutions on an inactivity close, and reject an empty resolution reason. A message that commits while a close waits is not handled.
 - **Long-lived parent** closes its intake: each worker returns the request it took once the intake is closed, and idle workers end through the graceful completion Condition or a wake message.
-- **Short-lived parent** opens its intake only after the start batch is queued, under one admission lock, so an empty batch completes at once and the queue stays within its limit.
+- **Short-lived parent** opens its intake only after the start batch is queued, so an empty batch completes at once; its buffer limit is approximate.
 - **Polling** adds a deadline watchdog that shares the lock with the Step that records the result and checks the status before it declares the work overdue. Polling guidance no longer restates default values.
 - Fixed kinds of work use distinct domain-named Step types, never one Step type with a kind field. Skeletons use domain Step names, and the Go, Java, and Rust checklists require them.
 - Every result or status a user must see has a durable read path: a result Attribute or the Flow's completion output.

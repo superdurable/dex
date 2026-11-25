@@ -16,7 +16,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | Cron | `Wait.any_of(Timer.by_duration(...), trigger.for_one(), skip.for_one())` | [cron](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/cron/cron_schedule_flow.py) |
 | Reminder | `Wait.any_of(Timer.by_duration(...), opt_out.for_one())` | [reminder](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/reminders/reminder_flow.py) |
 | Inactivity timer | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
-| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies` under a close lock shared with the reply RPC; see below | closest: the inactivity example |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; closing Steps drain `replies`; see below | closest: the inactivity example |
 | Execute failure recovery | `StepOptions(...).on_execute_failure_proceed_to(Compensate)` | [recovery](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py) |
 | WaitFor failure recovery | `StepOptions(wait_for_failure=WaitForFailurePolicy.PROCEED)`, then `context.wait_for_method_failed()` | [wait failure](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py) |
 | Manual recovery | failure route to a Step waiting on operator Channels; verb-named `@rpc` methods publish | [intervention](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py) |
@@ -134,7 +134,7 @@ from datetime import timedelta
 
 from dex import (
     Attribute, Channel, Context, Flow, PersistenceSchema, RPCResult, Step,
-    StepDecision, StepList, StepMovement, StepOptions, Timer, Wait,
+    StepDecision, StepList, StepMovement, Timer, Wait,
     force_complete_if_channels_empty, go_to, rpc,
 )
 
@@ -143,16 +143,9 @@ INACTIVITY_WINDOW = timedelta(hours=24)
 REPLIES = Channel("replies", str)
 RESOLUTIONS = Channel("resolutions", str)
 TRANSCRIPT = Attribute("transcript", list[str])
-# Never written. send_reply and the closing Steps lock it.
-CLOSE_LOCK = Attribute("close-lock", bool)
-# Holds CLOSE_LOCK so no reply commits between the empty check and the close.
-CLOSE_LOCK_OPTIONS = StepOptions(execute_lock_attributes=(CLOSE_LOCK.lock(),))
 
 
 class ResolveConversation(Step[str]):
-    def get_step_options(self) -> StepOptions:
-        return CLOSE_LOCK_OPTIONS
-
     def execute(self, context: Context, input: str) -> StepDecision:
         return force_complete_if_channels_empty(
             f"resolved: {input}", StepMovement.of(AwaitInbound, input), REPLIES
@@ -160,13 +153,10 @@ class ResolveConversation(Step[str]):
 
 
 class CloseInactiveConversation(Step[None]):
-    def get_step_options(self) -> StepOptions:
-        return CLOSE_LOCK_OPTIONS
-
     def execute(self, context: Context, input: None) -> StepDecision:
-        # A reply accepted at the deadline reopens the conversation.
+        # A reply or resolution accepted at the deadline reopens the wait.
         return force_complete_if_channels_empty(
-            "inactive", StepMovement.of(AwaitInbound, ""), REPLIES
+            "inactive", StepMovement.of(AwaitInbound, ""), REPLIES, RESOLUTIONS
         )
 
 
@@ -210,9 +200,9 @@ class ConversationFlow(Flow[str]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(TRANSCRIPT, CLOSE_LOCK, REPLIES, RESOLUTIONS)
+        return PersistenceSchema.of(TRANSCRIPT, REPLIES, RESOLUTIONS)
 
-    @rpc(lock_attributes=(CLOSE_LOCK.lock(),))
+    @rpc
     def send_reply(self, context: Context, text: str) -> RPCResult[bool]:
         if not text.strip():
             return RPCResult(False)
@@ -234,11 +224,10 @@ class ConversationFlow(Flow[str]):
 - `REPLIES.at_least(1)` takes every queued reply in one execution.
 - Both closing Steps use `force_complete_if_channels_empty` on `REPLIES`, so a
   reply accepted after the resolution is still recorded. The fallback returns
-  to `AwaitInbound` with the pending resolution; the inactivity fallback
-  reopens the wait. Start the Flow with `""`.
-- `send_reply` and the closing Steps share `CLOSE_LOCK`, so a reply commits
-  before the empty check or is rejected after the close. Callers retry an
-  `RpcLockConflictError`.
+  to `AwaitInbound` with the pending resolution. The inactivity close also
+  checks `RESOLUTIONS` and reopens the wait. Start the Flow with `""`.
+- Keep `send_reply` free of locks. A caller that must not lose a reply
+  confirms it from `TRANSCRIPT`; see [the rules](../core/patterns.md#inbound-event-loop).
 
 ## Python notes for the other patterns
 
