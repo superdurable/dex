@@ -51,7 +51,8 @@ pub struct OrchestrationFlow {
 
 impl OrchestrationFlow {
     fn swap(&self, context: &mut Context, replacement: String) -> HandlerResult<RpcResult<String>> {
-        let previous = DATA.get(context)?.unwrap_or_default();
+        // CallAPI1 would overwrite a value written before it stores data.
+        let previous = DATA.get_required(context)?;
         DATA.set(context, replacement)?;
         Ok(RpcResult::new(previous))
     }

@@ -60,14 +60,15 @@ func (controller *controller) swapData(request *gin.Context) {
 		return
 	}
 	var output string
-	err := controller.client.InvokeRPC(
+	err := httputil.InvokeRPCRetryingLockConflict(
 		request.Request.Context(),
+		controller.client,
 		flowID,
 		controller.flow.Swap,
 		request.Query("data"),
 		&output,
 	)
-	httputil.Respond(request, output, err)
+	httputil.RespondRPC(request, output, err)
 }
 
 func (controller *controller) signal(request *gin.Context) {

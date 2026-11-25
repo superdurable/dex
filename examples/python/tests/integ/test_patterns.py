@@ -299,19 +299,37 @@ async def test_long_lived_parallel_subflows_stop(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     flow_id = new_flow_id("parallel-subflows-long-lived")
+    barrier = _InitExecutionBarrier(app.long_live_subflows.init.execute)
+    monkeypatch.setattr(app.long_live_subflows.init, "execute", barrier.execute)
     await client.start_flow(
         app.long_live_subflows,
         flow_id,
         ParentInput(["one", "two"], 2),
         start_options(),
     )
-
-    # Stop may arrive before Init runs; Init does not reset Stopped.
-    await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
+    try:
+        # Stop commits while Init runs; Init must not reset Stopped afterwards.
+        await asyncio.wait_for(barrier.started.wait(), WAIT_TIMEOUT.total_seconds())
+        await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
+    finally:
+        barrier.release.set()
     result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED
+
+
+class _InitExecutionBarrier:
+    def __init__(self, execute: Callable[[Context, ParentInput], StepDecision]) -> None:
+        self.original_execute = execute
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def execute(self, context: Context, input: ParentInput) -> StepDecision:
+        self.started.set()
+        await asyncio.wait_for(self.release.wait(), WAIT_TIMEOUT.total_seconds())
+        return self.original_execute(context, input)
 
 
 async def test_short_lived_parallel_subflows(

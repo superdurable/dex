@@ -25,7 +25,8 @@ use crate::products::microservices::flow::{
     OrchestrationFlow, SIGNAL_ORCHESTRATION_READY, SWAP_ORCHESTRATION_DATA,
 };
 use crate::server::helpers::{
-    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
+    SharedClient, StartResponse, invoke_retrying_lock_conflict, map_rpc_error, map_sdk_error,
+    new_flow_id, ok_json, ok_text, run_blocking,
 };
 
 #[derive(Deserialize)]
@@ -77,9 +78,13 @@ async fn swap(
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let data = query.data;
-    match run_blocking(move || client.invoke_rpc(&flow_id, SWAP_ORCHESTRATION_DATA, data)) {
+    match run_blocking(move || {
+        invoke_retrying_lock_conflict(|| {
+            client.invoke_rpc(&flow_id, SWAP_ORCHESTRATION_DATA, data.clone())
+        })
+    }) {
         Ok(previous) => ok_text(previous),
-        Err(error) => map_sdk_error(error).into_response(),
+        Err(error) => map_rpc_error(error).into_response(),
     }
 }
 

@@ -269,8 +269,6 @@ export class WaitForHalfParentFlow implements Flow<readonly string[]> {
 class LongLiveInit implements Step<ParentInput> {
   public readonly inputCodec = parentInputCodec;
 
-  public constructor(private readonly flow: AdvancedLongLiveParentFlow) {}
-
   public getStepType(): string {
     return "Init";
   }
@@ -329,7 +327,7 @@ class LongLiveHandleSubFlow implements Step<string> {
 
 export class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
   public readonly stopped = new Attribute("Stopped", booleanCodec);
-  private readonly init = new LongLiveInit(this);
+  private readonly init = new LongLiveInit();
   private readonly handleRequest = new LongLiveHandleRequest();
   private readonly handleSubFlow: LongLiveHandleSubFlow;
 

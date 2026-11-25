@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Callable
 
 import pytest
@@ -22,9 +23,15 @@ from dex_examples.config import start_options
 from dex_examples.patterns.resource_control.controller_flow import SPOT_INSTANCE_IDS
 from dex_examples.patterns.resource_control.request import Request
 from dex_examples.primitives.channel.channel_flow import QueuedMessageReference
+from dex_examples.shared.lock_conflict_retry import invoke_rpc_retrying_lock_conflict
 from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT, wait_until
 
-from dex import AsyncClient, ChannelMessageNotFoundError
+from dex import (
+    AsyncClient,
+    ChannelMessageNotFoundError,
+    FlowNotActiveOrNotFoundError,
+    FlowNotFoundError,
+)
 from dex_agents import AgentEventType, AgentSessionClient
 
 pytestmark = pytest.mark.integ
@@ -163,6 +170,55 @@ async def test_resourcecontrol_enqueue(
         controller_running,
         LONG_WAIT_TIMEOUT,
     )
+
+
+async def test_resourcecontrol_shutdown_stops_admission_and_drains_accepted_requests(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    controller_id = new_flow_id(SPOT_INSTANCE_IDS[0])
+    await client.start_flow(
+        app.controller,
+        controller_id,
+        Request(new_flow_id("bootstrap"), "boot"),
+        start_options(),
+    )
+    accepted = Request(new_flow_id("req"), "payload")
+    assert await invoke_rpc_retrying_lock_conflict(
+        lambda: client.invoke_rpc(app.controller.enqueue, controller_id, accepted)
+    )
+
+    async def shut_down() -> bool:
+        try:
+            return await invoke_rpc_retrying_lock_conflict(
+                lambda: client.invoke_rpc(app.controller.shutdown, controller_id)
+            )
+        except FlowNotActiveOrNotFoundError:
+            # The first shutdown may already have drained and completed the controller.
+            return False
+
+    shutdowns = await asyncio.gather(shut_down(), shut_down())
+    assert sorted(shutdowns) == [False, True]
+    late = Request(new_flow_id("late"), "payload")
+    try:
+        late_accepted = await invoke_rpc_retrying_lock_conflict(
+            lambda: client.invoke_rpc(app.controller.enqueue, controller_id, late)
+        )
+    except FlowNotActiveOrNotFoundError:
+        # The drained controller may already have completed.
+        late_accepted = False
+    assert not late_accepted
+
+    # The request accepted before shutdown still starts its ProcessingFlow.
+    async def accepted_request_started() -> bool:
+        try:
+            await client.describe_flow(f"processing-{accepted.id}")
+        except FlowNotFoundError:
+            return False
+        return True
+
+    await wait_until("accepted request started", accepted_request_started, LONG_WAIT_TIMEOUT)
 
 
 async def test_ai_agent_conversation_and_durable_wait(

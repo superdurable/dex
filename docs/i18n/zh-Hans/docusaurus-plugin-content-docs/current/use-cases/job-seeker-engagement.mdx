@@ -51,7 +51,7 @@ import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagemen
 - **由一个分支完成 Flow**：`ProcessTimeout` 以 **done** 或 **timeout** 完成 Flow。其他分支各自结束，或进入 dead end。
 - [**临界区**](/design-patterns/parallel/critical-section)：**Accept**、**Decline** 和 `RecordReminderOptOut` Step 注册同一个 `EngagementStatus` 锁。它们都会读取状态和备注再写回，这个锁让一次更新不会覆盖另一次更新。
 
-提醒分支和截止时间分支使用不同的 Channel，因此退订提醒不会接受、拒绝或结束这个机会。状态、备注和时间戳保存在 Attribute 中，所以每个分支和 RPC 读到的都是同一份值。**Reminder** 发送邮件时不持有这个锁。求职者退订后，它跳转到 `RecordReminderOptOut`，由这个 Step 在锁内追加备注。
+提醒分支和截止时间分支使用不同的 Channel，因此退订提醒不会接受、拒绝或结束这个机会。状态、备注和时间戳保存在 Attribute 中，所以每个分支和 RPC 读到的都是同一份值。**Reminder** 发送邮件时不持有这个锁。求职者退订后，它跳转到 `RecordReminderOptOut`，由这个 Step 在锁内追加备注。这个锁和 `RecordReminderOptOut` 适用于 Go、Python、Java 和 TypeScript 示例。Rust 示例不需要共享锁：它的 RPC 只发布决定，由之后的一个 Step 写入状态。
 
 给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
 
@@ -190,10 +190,10 @@ func NewEngagementFlow(applicationService service.MyService) *EngagementFlow {
 func (flow *EngagementFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{}),
-		dex.DefineStep(processTimeoutStep{service: flow.service}),
+		dex.DefineStep(processTimeout{service: flow.service}),
 		dex.DefineStep(reminderStep{service: flow.service}),
 		dex.DefineStep(recordReminderOptOut{}),
-		dex.DefineStep(notifyExternalSystemStep{service: flow.service}),
+		dex.DefineStep(notifyExternalSystem{service: flow.service}),
 	}
 }
 
@@ -212,7 +212,7 @@ func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
 ```
 
 ```go
-func (processTimeoutStep) WaitFor(
+func (processTimeout) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {

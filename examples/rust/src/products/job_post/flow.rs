@@ -75,6 +75,12 @@ impl JobPostingFlow {
         context: &mut Context,
         replacement: JobPost,
     ) -> HandlerResult<RpcResult<i32>> {
+        if POST.get_required(context)?.deleted {
+            return Err(HandlerError::new(
+                "JobPostDeleted",
+                "the job post is deleted and cannot be updated",
+            ));
+        }
         let version = UPDATE_VERSION.get_required(context)? + 1;
         POST.set(context, replacement.clone())?;
         TITLE.set(context, replacement.title.clone())?;
@@ -125,7 +131,10 @@ impl Flow for JobPostingFlow {
                 UPDATE_JOB_POST.lock(UPDATE_POSTING_LOCK.lock()),
                 Self::update_job_post,
             )
-            .procedure(DELETE_JOB_POST, Self::delete_job_post)
+            .procedure(
+                DELETE_JOB_POST.lock(UPDATE_POSTING_LOCK.lock()),
+                Self::delete_job_post,
+            )
     }
 }
 

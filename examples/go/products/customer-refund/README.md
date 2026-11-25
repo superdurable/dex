@@ -41,7 +41,9 @@ them:
 `ApproveRefund` takes no input. The other three bind the hidden
 `gate-request-key` snapshot supplied by Dex Web, and every one re-checks the
 current status before publishing, so a tab left open across a decision is turned
-away rather than answering a question that has moved on.
+away rather than answering a question that has moved on. `ConfirmCustomerMessage`
+and `EditCustomerMessage` also set the status to `sending-customer-message` in
+the same commit, so the confirmed text cannot change before it is sent.
 
 Each Action condition is declared in its Go `RPCOptions.Action`. When a
 successful Worker invocation writes an Action condition source, the Worker

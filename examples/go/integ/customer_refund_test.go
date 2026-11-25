@@ -231,6 +231,11 @@ func confirmAgenticMessage(t *testing.T, ctx context.Context, flowID string, ans
 		ctx, flowID, registry.AgenticRefund.ConfirmCustomerMessage,
 		agentic.ConfirmCustomerMessageInput{GateRequestKey: gateRequestKey}, nil,
 	))
+	// Confirming closes the gate, so the confirmed text can no longer be rewritten.
+	require.Error(t, integClient.InvokeRPC(
+		ctx, flowID, registry.AgenticRefund.EditCustomerMessage,
+		agentic.EditCustomerMessageInput{GateRequestKey: gateRequestKey, Message: "rewritten"}, nil,
+	))
 }
 
 func waitForAgenticGate(t *testing.T, ctx context.Context, flowID string) string {

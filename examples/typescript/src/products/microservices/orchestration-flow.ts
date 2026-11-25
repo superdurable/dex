@@ -77,6 +77,10 @@ export class OrchestrationFlow implements Flow<string> {
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [data.lock()] })
   public swap(context: Context, newData: string): RPCResult<string> {
     const oldData = this.data.get(context);
+    // CallAPI1 would overwrite a value written before it stores data.
+    if (oldData === undefined) {
+      throw new Error("data is not ready yet");
+    }
     this.data.set(context, newData);
     return { output: oldData };
   }

@@ -62,6 +62,10 @@ public class OrchestrationFlow implements Flow<String> {
     @RPC(lockAttributes = {"data"})
     public RPCResult<String> swap(final Context context, final String newData) {
         final String oldData = data.get(context);
+        // CallAPI1 would overwrite a value written before it stores data.
+        if (oldData == null) {
+            throw new IllegalStateException("data is not ready yet");
+        }
         data.set(context, newData);
         return RPCResult.of(oldData);
     }

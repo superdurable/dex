@@ -22,6 +22,7 @@ from dex import AttributeMatch, WaitForAttributeOptions
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.shared.lock_conflict_retry import invoke_rpc_retrying_lock_conflict
 from dex_examples.shared.query import (
     accepted,
     new_flow_id,
@@ -71,19 +72,19 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.get("/decline")
     async def decline() -> Response:
-        status = await app_state.client.invoke_rpc(
-            app_state.engagement.decline,
-            required_query("workflowId"),
-            optional_query("notes", ""),
+        flow_id = required_query("workflowId")
+        notes = optional_query("notes", "")
+        status = await invoke_rpc_retrying_lock_conflict(
+            lambda: app_state.client.invoke_rpc(app_state.engagement.decline, flow_id, notes)
         )
         return jsonify(status.value)
 
     @blueprint.get("/accept")
     async def accept() -> Response:
-        status = await app_state.client.invoke_rpc(
-            app_state.engagement.accept,
-            required_query("workflowId"),
-            optional_query("notes", ""),
+        flow_id = required_query("workflowId")
+        notes = optional_query("notes", "")
+        status = await invoke_rpc_retrying_lock_conflict(
+            lambda: app_state.client.invoke_rpc(app_state.engagement.accept, flow_id, notes)
         )
         return jsonify(status.value)
 
