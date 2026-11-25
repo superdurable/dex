@@ -192,17 +192,19 @@ pub(super) fn attempt_end(outcome: DispatchOutcome, deadline: &MethodDeadline) -
             frame,
             app_worker_id,
         } => {
-            let worker_error = match frame.output {
+            let mut worker_error = match frame.output {
                 Some(poll_worker_task_frame::Output::WorkerError(error)) => error,
                 _ => WorkerErrorResponse {
                     detail: "Worker returned an error frame without an error".to_owned(),
                     ..WorkerErrorResponse::default()
                 },
             };
+            // The command carries the decision once; the persisted Worker error keeps its old bytes.
+            let is_non_retryable = std::mem::take(&mut worker_error.non_retryable);
             AttemptEnd::Failure(AttemptFailure {
                 kind: StepAttemptFailureKind::WorkerError,
                 server_detail: String::new(),
-                is_non_retryable: worker_error.non_retryable,
+                is_non_retryable,
                 worker_error: Some(worker_error),
                 served_by_app_worker_id: app_worker_id,
                 omitted_value_slots: None,

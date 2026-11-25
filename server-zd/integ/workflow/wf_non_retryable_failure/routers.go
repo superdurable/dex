@@ -103,14 +103,17 @@ func (h *handler) recordInvocation(key string) {
 	h.invokeHistory.Store(key, int64(1))
 }
 
+// workerFailure also asks for an hourly retry-after, which a non-retryable failure must override.
 func workerFailure(isNonRetryable bool) error {
-	workerStatus, err := status.New(codes.Unknown, errorDetail).WithDetails(
-		&dexpb.WorkerErrorResponse{
-			Detail:       errorDetail,
-			ErrorType:    errorType,
-			NonRetryable: isNonRetryable,
-		},
-	)
+	workerError := &dexpb.WorkerErrorResponse{
+		Detail:       errorDetail,
+		ErrorType:    errorType,
+		NonRetryable: isNonRetryable,
+	}
+	if isNonRetryable {
+		workerError.RetryAfterSeconds = 3600
+	}
+	workerStatus, err := status.New(codes.Unknown, errorDetail).WithDetails(workerError)
 	if err != nil {
 		panic(err)
 	}

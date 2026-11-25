@@ -157,10 +157,10 @@ for this case, and for the cases where an attempt returns to pending without
 consuming a retry. Make external side effects idempotent, for example by using
 the Flow ID and Step execution ID as an idempotency key.
 
-A Worker can report a WaitFor or Execute failure as non-retryable. Its
-**WorkerErrorResponse** sets **non_retryable**. The attempt then skips its
+A Worker can report a `WaitFor` or `Execute` failure as non-retryable. Its
+`WorkerErrorResponse` sets `non_retryable`. The attempt then skips its
 remaining retries, and the Step's failure policy runs at once. That flag takes
-precedence over **retry_after_seconds**. RPC handlers have no retries, so it
+precedence over `retry_after_seconds`. RPC handlers have no retries, so it
 changes nothing there. Since 0.1.38. An older server ignores the flag and
 retries the attempt under its retry policy.
 
