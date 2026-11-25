@@ -131,15 +131,17 @@ Example: [examples/rust/src/primitives/custom_retry/flow.rs](https://github.com/
 
 ## Non-retryable failures {#non-retryable}
 
-Return **HandlerError::non_retryable** from **wait_for** or **execute** when a
+Return `HandlerError::non_retryable` from `wait_for` or `execute` when a
 later attempt cannot succeed, such as rejected input or a request that a
 provider reports as permanent. Dex skips the remaining attempts of the retry
 policy. The failure policy then runs at once: the default fails the Flow,
-**wait_for** can run **execute**, and **execute** can go to a recovery Step.
+`wait_for` can run `execute`, and `execute` can go to a recovery Step.
 
-- **into_non_retryable** marks any **HandlerError**, such as one built with
-  **from_error**, and keeps its type and message. The recovery Step's
-  **recovery_error** shows them.
+- `into_non_retryable` marks any `HandlerError`, such as one built with
+  `from_error`, and keeps its type and message. The recovery Step's
+  `recovery_error` shows them.
+- `from_error` keeps the flag when its error is a non-retryable
+  `HandlerError` or has one in its `source()` chain.
 - A non-retryable failure ignores a retry-after request.
 - An RPC handler never retries, so a non-retryable failure changes nothing
   there.
@@ -147,7 +149,7 @@ policy. The failure policy then runs at once: the default fails the Flow,
   real business intervals.
 
 Since 1.45.9. It needs server-zd 0.1.38 or later. An older server ignores it
-and retries under the retry policy. See **HandlerError** in the
+and retries under the retry policy. See `HandlerError` in the
 [API reference](./index.mdx#api-reference) for an example.
 
 ## Failure and redelivery {#failure-and-redelivery}

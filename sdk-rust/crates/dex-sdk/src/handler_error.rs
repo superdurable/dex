@@ -104,6 +104,10 @@ impl HandlerError {
     /// [`Self::new`] does. Prefer this when mapping database, HTTP, or other
     /// library failures into a Dex handler failure.
     ///
+    /// Changed in 1.45.9: the result is non-retryable when `error` is a non-retryable
+    /// `HandlerError` or has one in its [`Error::source`] chain. The type name and
+    /// message still come from `error` itself.
+    ///
     /// # Examples
     ///
     /// ```
@@ -131,7 +135,7 @@ impl HandlerError {
             message: error.to_string(),
             error_type: std::any::type_name::<E>().to_string(),
             retry_after_seconds: None,
-            is_non_retryable: false,
+            is_non_retryable: has_non_retryable_source(&error),
             stack: Backtrace::force_capture(),
         }
     }
@@ -276,11 +280,92 @@ impl Display for HandlerError {
     }
 }
 
-impl Error for HandlerError {}
+impl Error for HandlerError {
+    /// Returns a fixed non-retryable marker for a non-retryable failure, so that
+    /// [`HandlerError::from_error`] keeps the flag through wrapping errors; otherwise `None`.
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        if self.is_non_retryable {
+            Some(&NON_RETRYABLE_MARKER)
+        } else {
+            None
+        }
+    }
+}
+
+/// The source of a non-retryable [`HandlerError`].
+#[derive(Debug)]
+struct NonRetryableMarker;
+
+static NON_RETRYABLE_MARKER: NonRetryableMarker = NonRetryableMarker;
+
+impl Display for NonRetryableMarker {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Dex non-retryable failure")
+    }
+}
+
+impl Error for NonRetryableMarker {}
+
+/// Bounds the source walk; a hand-written `source` can form a cycle.
+const MAX_SOURCE_DEPTH: usize = 64;
+
+/// Returns whether `error` is a non-retryable [`HandlerError`] or has one in its source chain.
+fn has_non_retryable_source(error: &dyn Error) -> bool {
+    let mut source = error.source();
+    for _ in 0..MAX_SOURCE_DEPTH {
+        let Some(current) = source else {
+            return false;
+        };
+        if current.is::<NonRetryableMarker>()
+            || current
+                .downcast_ref::<HandlerError>()
+                .is_some_and(HandlerError::is_non_retryable)
+        {
+            return true;
+        }
+        source = current.source();
+    }
+    false
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct ChargeError(HandlerError);
+
+    impl Display for ChargeError {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("charge failed")
+        }
+    }
+
+    impl Error for ChargeError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn from_error_inherits_non_retryable_from_the_error_and_its_sources() {
+        let marked = HandlerError::non_retryable("CardRejected", "rejected");
+        assert!(HandlerError::from_error(marked).is_non_retryable());
+
+        let wrapped = ChargeError(HandlerError::non_retryable("CardRejected", "rejected"));
+        let error = HandlerError::from_error(wrapped);
+        assert!(error.is_non_retryable());
+        assert_eq!("charge failed", error.to_string());
+        assert!(error.error_type().ends_with("ChargeError"));
+
+        let retryable = ChargeError(HandlerError::new("Transient", "try again"));
+        assert!(!HandlerError::from_error(retryable).is_non_retryable());
+        assert!(
+            HandlerError::new("Transient", "try again")
+                .source()
+                .is_none()
+        );
+    }
 
     #[derive(Debug)]
     struct SampleDbError;
