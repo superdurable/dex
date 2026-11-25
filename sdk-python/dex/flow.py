@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Generator as GeneratorABC
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from inspect import (
     isasyncgenfunction,
@@ -384,7 +384,9 @@ class _RegisteredFlow:
     rpcs: MappingProxyType[str, _RegisteredRPC]
     persistence: MappingProxyType[str, _PersistenceDefinition]
     actions: tuple[_RegisteredAction, ...] = ()
-    step_lock_keys: MappingProxyType[str, _StepLockKeys] = MappingProxyType({})
+    step_lock_keys: MappingProxyType[str, _StepLockKeys] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     def action_permission_mappings_for_writes(
         self, writes: Sequence[pb.AttributeWrite]

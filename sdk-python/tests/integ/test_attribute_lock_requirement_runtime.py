@@ -276,7 +276,13 @@ class PyLockReqRpcFlow(Flow[None]):
 
     @rpc
     def publish_reply_unlocked(self, context: Context, reply: str) -> None:
+        # The rejected publish must also discard this undeclared write.
+        FREE.set(context, 1)
         REPLIES.publish(context, reply)
+
+    @rpc
+    def count_replies(self, context: Context) -> RPCResult[int]:
+        return RPCResult(REPLIES.size(context))
 
     @rpc(lock_attributes=(COORDINATION.lock(),))
     def publish_reply_locked(self, context: Context, reply: str) -> None:
@@ -658,6 +664,10 @@ def _assert_missing_lock(
 def test_declared_lock_requirements_on_rpcs() -> None:
     with _harness(is_async=False) as (client, task_queue):
         flow_id = _start_rpc_flow(client, task_queue, RPC_FLOW)
+        client.invoke_rpc(RPC_FLOW.publish_reply_locked, flow_id, "hi")
+        assert (
+            client.invoke_rpc(RPC_FLOW.count_replies, flow_id) == 1
+        ), "the locked publish commits"
         with pytest.raises(WorkerInvocationError) as raised:
             client.invoke_rpc(RPC_FLOW.publish_reply_unlocked, flow_id, "hi")
         _assert_missing_lock(
@@ -665,8 +675,12 @@ def test_declared_lock_requirements_on_rpcs() -> None:
             "RPC 'publish_reply_unlocked' published to Channel 'py-lock-req-replies' "
             "without the required lock of Attribute 'py-lock-req-coordination'",
         )
-
-        client.invoke_rpc(RPC_FLOW.publish_reply_locked, flow_id, "hi")
+        assert (
+            client.invoke_rpc(RPC_FLOW.count_replies, flow_id) == 1
+        ), "the rejected publish is discarded"
+        assert not _is_set(
+            client, flow_id, FREE
+        ), "the other buffered write is discarded"
 
         flow_id = _start_rpc_flow(client, task_queue, RPC_FLOW)
         with pytest.raises(WorkerInvocationError) as raised:
