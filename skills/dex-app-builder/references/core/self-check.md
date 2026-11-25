@@ -76,7 +76,7 @@ Boundary:
 Wiring and tests:
 
 - [ ] Worker and Client share one registry and payload configuration; the Worker waits for registration and stops gracefully.
-- [ ] With payload encryption, every Worker and Client has the same codec and keys; every Attribute the server compares (match waits, Action conditions, indexes) is plaintext and holds no sensitive value; no sensitive data is in a Flow ID, type, or name. See [data-handling.md](data-handling.md#sensitive-data-and-payload-encryption).
+- [ ] With payload encryption, every Worker and Client has the same codec, keys, and plaintext declarations; every Attribute the server compares (match waits, Action conditions, indexes) is plaintext and holds no sensitive value; no sensitive data is in a Flow ID, type, or name. See [data-handling.md](data-handling.md#sensitive-data-and-payload-encryption).
 - [ ] Build or type-check passes.
 - [ ] `dexcli visualize` ran on every Flow source file, in every language, and every error diagnostic is fixed.
 - [ ] Tests keep the real business durations and skip Timers through the Client.

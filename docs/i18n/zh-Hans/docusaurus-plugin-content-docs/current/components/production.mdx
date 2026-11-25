@@ -83,19 +83,19 @@ auth:
 TLS 和载荷加密（payload encryption）保护的东西不同。
 
 - **TLS** 保护你的进程和 server 之间网络上传输的值。server 收到后解密，然后以明文存储和读取它们。
-- **载荷加密**在你的 Worker 和 Client 里先加密值，再发送出去。符合加密条件的值在 Flow 历史、对象存储、blob store 和 Attribute Store 表里都是密文。有些值仍是明文，见下面的列表。server 从不持有 key，key 由你保管。
+- **载荷加密**在你的 Worker 和 Client 里先加密值，再发送出去。配置了 codec 时，SDK 在写入时加密符合条件的应用载荷，例如 Step、Channel、Stream 和 RPC 的值。Dex Server 和它的存储收到的这些值是密文，并且从不持有 key。它们在 Flow 历史、对象存储、blob store 和 Attribute Store 表里都是密文。有些值仍是明文，见下面的列表。开启 codec 之前存储的值也仍是明文。key 由你保管。
 
 如果 server、它的存储或它的运维人员不能看到你的数据，在生产环境同时使用两者。载荷加密不能代替 TLS。名称、ID 和 Flow 的结构仍然随每个请求传输。
 
 即使开启载荷加密，有些数据仍然是明文，因为 server 需要用到它们：
 
-- 名称和 ID，例如 Flow 类型、Step 类型、RPC 名称、Flow ID、Attribute key 和 Channel 名称。不要把敏感数据放进去。
+- 名称和 ID。例如 Flow 类型、Step 类型、RPC 名称、Flow ID、Attribute key、AttributeMap 的 key 和 instance、索引 key、Channel 和 Stream 名称、Stream source、request ID、task queue，以及每个加密值的 key ID。不要把敏感数据放进去。
 - 建了索引或声明为 plaintext 的 Attribute，这样搜索、Attribute 匹配等待和 Action 条件才能继续工作。
 - 配置、Step 和 Flow 的状态、时间以及错误类型。
 
-server 会自己比较某些 Attribute 的值。Attribute 匹配等待、Action 条件和索引都需要明文值。给这样的 Attribute 建索引，或者把它声明为 plaintext。配置了 codec 时，如果 Attribute 匹配等待或 Action 条件用到的 Attribute 会被加密，SDK 会拒绝它，而且在任何请求到达 server 之前就拒绝。敏感的值放在其他 Attribute 里，这些 Attribute 仍然加密。
+如果 Dex 要比较或索引某个 Attribute 的值，或者要把它投影到需要解码后值的 Attribute Store 列，就让这个 Attribute 保持明文。Attribute 匹配等待、Action 条件和搜索都会比较值。建了索引的写入自动是明文，其他这类 Attribute 要声明为 plaintext。配置了 codec 时，如果 Attribute 匹配等待用到的 Attribute 会被加密，Client 会拒绝这次等待，而且在发出等待请求之前就拒绝。Action 条件用到的 Attribute 一律声明为 plaintext。敏感的值放在其他 Attribute 里，这些 Attribute 仍然加密。加密的 Attribute 仍然可以同步到二进制的 Attribute Store 列，见 [Values that stay plaintext](/reference/server/payload-encryption#plaintext-values)（英文）。
 
-同一个应用的每个 Worker 和 Client 都需要同一个 codec 和同一套 key，并注册相同的 plaintext 声明。Dex Web 通过你运行的 codec server 显示加密值。dexcli 可以直接使用 key 文件，也可以使用 codec server。[Payload encryption reference](/reference/server/payload-encryption)（英文）列出 server 能看到的全部内容、每个 SDK 的配置方法、上线和 key 轮换的步骤，以及各项限制。
+同一个应用的每个 Worker 和 Client 都使用支持载荷加密的 SDK，都需要同一个 codec 和同一套 key，并注册相同的 plaintext 声明。先让每个读取方都能解密，再让任何写入方开始写密文。不能解密 Step 值的 Worker 会让那次 attempt 失败。Dex Web 通过你运行的 codec server 显示加密值。dexcli 可以直接使用 key 文件，也可以使用 codec server。[Payload encryption reference](/reference/server/payload-encryption)（英文）列出 server 能看到的全部内容、每个 SDK 的配置方法、上线和 key 轮换的步骤，以及各项限制。
 
 ## 下一步 {#next}
 

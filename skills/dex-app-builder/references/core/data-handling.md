@@ -56,18 +56,19 @@ Return an explicit result object when "completed with null" must differ from "co
 
 ## Sensitive data and payload encryption
 
-Payload encryption encrypts values in your Workers and Clients, with your codec and keys, before they reach Dex Server. The server and its storage hold only ciphertext and never hold a key.
+Payload encryption encrypts values in your Workers and Clients, with your codec and keys, before they reach Dex Server. Dex Server and its storage receive eligible values as ciphertext and never hold the keys.
 
 Rules:
 
 - Enable payload encryption when the application handles data that Dex Server, its storage, or its operators must not read. Keep TLS on as well; it protects the network, not the stored values.
-- Give every Worker and Client of the application the same codec, the same keys, and the same Attribute definitions, including plaintext declarations. Every one of them must use an SDK that supports payload encryption. A Worker without the codec cannot read encrypted values and fails the Step attempt.
-- With the default options, the SDK encrypts Step inputs and outputs, Channel and Stream messages, RPC inputs and outputs, error text, and every Attribute value except indexed and plaintext Attributes.
-- Names and IDs are never encrypted: Flow IDs, Flow types, Step types, RPC names, Attribute and AttributeMap keys and instances, Channel and Stream names, and Channel message IDs. Never put sensitive data, such as email addresses or ID numbers, into them. Derive Flow IDs from opaque business identifiers.
-- Dex Server compares some Attribute values itself: Attribute-match waits, Action conditions, indexes and search, and typed Attribute Store columns. Those Attributes stay plaintext. An indexed Attribute is always written in clear; declare every other compared Attribute plaintext. Keep sensitive values out of them and store those values in separate, encrypted Attributes.
-- With a codec, the SDK rejects an Attribute-match wait or an Action condition on an Attribute it would encrypt. It rejects it before any request reaches the server. Declare such Attributes plaintext when you define them.
+- Give every Worker and Client of the application the same codec, the same keys, and the same Attribute definitions, including plaintext declarations. Every one of them must use an SDK that supports payload encryption.
+- Make every reader able to decrypt before any writer starts writing ciphertext. A Worker that cannot decrypt a Step value fails that attempt. Rotate keys in the same order: every reader gets the new key before any writer uses it.
+- With a codec, the SDK encrypts eligible application payloads when it writes them, such as Step, Channel, Stream, and RPC values. Indexed and explicitly plaintext Attributes stay plaintext. Values stored before the codec was enabled stay plaintext.
+- Names and IDs are never encrypted. Examples: Flow IDs, Flow types, Step types, RPC names, Attribute keys, AttributeMap keys and instances, index keys, Channel and Stream names, Channel message IDs, Stream sources, request IDs, task queues, and the key ID. Never put sensitive data, such as email addresses or ID numbers, into them. Derive Flow IDs from opaque business identifiers.
+- Keep Attributes plaintext when Dex must compare or index their values, or project them into Attribute Store columns that require the decoded value. Attribute-match waits, Action conditions, and search compare values. Indexed writes are plaintext automatically; declare every other such Attribute plaintext. Keep sensitive values out of them and store those values in separate, encrypted Attributes.
+- With a codec, the Client rejects an Attribute-match wait on an Attribute it would encrypt, before it sends the wait request. Always declare the Attributes that Action conditions use plaintext; an SDK may detect an encrypted one only after the Flow has started.
 
-The [Payload encryption reference](https://docs.superdurable.io/reference/server/payload-encryption) has the setup for each SDK, the options, the key file, the envelope limits, rollout and key rotation, and the full list of what stays plaintext.
+The [Payload encryption reference](https://docs.superdurable.io/reference/server/payload-encryption) has the setup for each SDK, the options, the key file, the envelope limits, rollout and key rotation, binary Attribute Store columns for encrypted Attributes, when each SDK checks Action conditions, and the full list of what is encrypted and what stays plaintext.
 
 ## Sticky routing and cache locality
 
