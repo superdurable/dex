@@ -162,6 +162,7 @@ async fn submit_time_travel(
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 flow_id: flow_id.to_owned(),
                 reset_type: FlowResetType::Beginning as i32,

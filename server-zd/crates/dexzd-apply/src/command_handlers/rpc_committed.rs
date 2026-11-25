@@ -75,8 +75,9 @@ pub(crate) fn apply_rpc_committed(
     let Some(response) = command.response.as_ref() else {
         return Ok(reject_invalid("RPC response is missing"));
     };
-    // No Step could consume the message; a rebuild repeats what older servers recorded.
-    if !response.publish_to_channel.is_empty()
+    // No Step could consume the message. Older logs and rebuilds repeat what was recorded.
+    if command.should_reject_publication_during_pending_close
+        && !response.publish_to_channel.is_empty()
         && is_terminal_cleanup_in_progress(&cursor)
         && !scope.is_history_rebuild()
     {

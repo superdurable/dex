@@ -121,8 +121,11 @@ impl Harness {
         let Some(Command::TimeTravel(time_travel)) = &travel.command else {
             panic!("not a TimeTravel");
         };
-        let body =
-            computed.time_travel_command(staging_id, time_travel.should_restore_running_as_pending);
+        let body = computed.time_travel_command(
+            staging_id,
+            time_travel.should_restore_running_as_pending,
+            time_travel.should_reject_publication_during_pending_close,
+        );
         self.apply_time_travel_at(body, computed.run_attempt())
     }
 

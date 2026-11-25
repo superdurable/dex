@@ -215,6 +215,7 @@ impl Harness {
             app_worker_id: "worker-rpc".to_owned(),
             request_fingerprint: fingerprint.to_vec(),
             is_transactional,
+            should_reject_publication_during_pending_close: true,
             ..RpcCommittedCommand::default()
         }));
         self.apply(command)

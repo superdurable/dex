@@ -987,6 +987,7 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
                 target_run_attempt: 0,
                 target_run_seq: 0,
                 should_restore_running_as_pending: false,
+                should_reject_publication_during_pending_close: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::Beginning as i32,
                     ..ResetFlowRequest::default()
@@ -1107,6 +1108,7 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
                 target_run_attempt: 0,
                 target_run_seq: 0,
                 should_restore_running_as_pending: false,
+                should_reject_publication_during_pending_close: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::HistoryEventTime as i32,
                     history_event_time: (i128::from(target_time) * 1000).to_string(),
@@ -2665,6 +2667,7 @@ fn a_graceful_completion_after_a_restored_child_result_waits_for_remarked_attrib
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,
@@ -2803,6 +2806,7 @@ impl Harness {
                 target_run_attempt: 0,
                 target_run_seq: 0,
                 should_restore_running_as_pending: false,
+                should_reject_publication_during_pending_close: false,
                 request: Some(ResetFlowRequest {
                     flow_id: "parent".to_owned(),
                     reset_type: FlowResetType::HistoryEventTime as i32,
@@ -2883,6 +2887,7 @@ impl Harness {
                     target_run_attempt: 0,
                     target_run_seq: 0,
                     should_restore_running_as_pending: false,
+                    should_reject_publication_during_pending_close: false,
                     request: Some(ResetFlowRequest {
                         flow_id: CHILD_ID.to_owned(),
                         reset_type: FlowResetType::HistoryEventTime as i32,
@@ -3036,6 +3041,7 @@ fn time_travel_replays_a_stale_child_report_that_an_older_binary_recorded() {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,
@@ -3112,6 +3118,7 @@ fn resetting_a_child_to_its_closed_point_reports_the_new_attempt_once() {
                 target_run_attempt: 0,
                 target_run_seq: 0,
                 should_restore_running_as_pending: false,
+                should_reject_publication_during_pending_close: false,
                 request: Some(ResetFlowRequest {
                     flow_id: CHILD_ID.to_owned(),
                     reset_type: reset_type as i32,
@@ -3234,6 +3241,7 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,
@@ -3313,6 +3321,7 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
                 reset_type: FlowResetType::HistoryEventTime as i32,

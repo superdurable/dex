@@ -368,6 +368,7 @@ impl FlowCoordinatorRegistry {
                 request_fingerprint: Vec::new(),
                 pull_routing: result.pull_routing,
                 is_transactional,
+                should_reject_publication_during_pending_close: true,
             }),
         );
         if is_transactional {

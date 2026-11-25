@@ -1388,6 +1388,7 @@ impl Workload<'_> {
                     }),
                     app_worker_id: WORKER_ID.to_owned(),
                     is_transactional: true,
+                    should_reject_publication_during_pending_close: true,
                     ..RpcCommittedCommand::default()
                 }),
             )
@@ -2136,9 +2137,11 @@ impl Workload<'_> {
         self.commit_expecting_attempt(
             run,
             computed.run_attempt(),
-            Command::TimeTravel(
-                computed.time_travel_command(&staging_id, should_restore_running_as_pending),
-            ),
+            Command::TimeTravel(computed.time_travel_command(
+                &staging_id,
+                should_restore_running_as_pending,
+                true,
+            )),
         )
         .await
     }

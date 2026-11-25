@@ -249,6 +249,7 @@ impl Harness {
             target_run_attempt: 0,
             target_run_seq: 0,
             should_restore_running_as_pending: false,
+            should_reject_publication_during_pending_close: false,
             request: Some(ResetFlowRequest {
                 flow_id: self.flow_id.clone(),
                 reset_type: FlowResetType::HistoryEventTime as i32,

@@ -1842,6 +1842,7 @@ fn reapplied_external_input_keeps_history_metadata_and_window_counts() {
         target_run_attempt: 0,
         target_run_seq: 0,
         should_restore_running_as_pending: false,
+        should_reject_publication_during_pending_close: false,
         request: Some(ResetFlowRequest {
             flow_id: "order-1".to_owned(),
             reset_type: FlowResetType::Beginning as i32,
