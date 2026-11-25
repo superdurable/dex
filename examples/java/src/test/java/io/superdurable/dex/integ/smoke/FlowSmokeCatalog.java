@@ -17,6 +17,7 @@
 package io.superdurable.dex.integ.smoke;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.FlowStatus;
 
 import java.net.http.HttpResponse;
@@ -77,6 +78,7 @@ final class FlowSmokeCatalog {
                                 "workflowId", environment.newFlowId("pattern-fail-fast"),
                                 "amountCents", "12000",
                                 "bankAccount", "12345678")),
+                deferredChoice(),
                 FlowSmokeEntry.get(
                         "patterns/control-long-running-work",
                         "/patterns/control-long-running-work/start",
@@ -259,6 +261,45 @@ final class FlowSmokeCatalog {
                 "patterns/parallel-subflows/" + kind,
                 "/patterns/parallel-subflows/start/" + kind,
                 Map.of("workflowId", environment.newFlowId("parallel-subflows-" + kind)));
+    }
+
+    // Starts an offer, accepts it over HTTP, and waits for the fulfillment.
+    private static FlowSmokeEntry deferredChoice() {
+        return FlowSmokeEntry.custom(
+                "patterns/deferred-choice",
+                FlowSmokeFlags.none(),
+                env -> {
+                    final String flowId = env.newFlowId("deferred-choice");
+                    final FlowSmokeTriggerResult result = env.triggerHttp(
+                            "GET",
+                            "/patterns/deferred-choice/start",
+                            Map.of("workflowId", flowId, "offerId", "offer-smoke"),
+                            null);
+                    verifyDeferredChoiceAcceptance(env, flowId);
+                    return result;
+                });
+    }
+
+    private static void verifyDeferredChoiceAcceptance(
+            final FlowSmokeEnvironment environment, final String flowId) throws Exception {
+        final HttpResponse<String> response = environment.get(
+                "/patterns/deferred-choice/accept",
+                Map.of("workflowId", flowId, "note", "looks good"));
+        if (response.statusCode() != 200 || !"offer response recorded".equals(response.body())) {
+            throw new AssertionError("accept returned " + response.statusCode() + ": "
+                    + response.body());
+        }
+        final FlowResult result =
+                environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
+        final List<String> fulfillments = result.getCompletions().stream()
+                .filter(completion -> completion.getStepType().equals("FulfillOffer"))
+                .map(completion -> completion.getOutput(String.class))
+                .toList();
+        if (result.getStatus() != FlowStatus.COMPLETED
+                || !List.of("fulfilled offer-smoke").equals(fulfillments)) {
+            throw new AssertionError("offer " + flowId + " is " + result.getStatus()
+                    + " with fulfillments " + fulfillments);
+        }
     }
 
     // Starts an order, then finds its day-long shipment by shipment number.
