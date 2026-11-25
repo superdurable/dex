@@ -552,8 +552,7 @@ func parallelSubFlowsSmokeEntry(kind string) flowSmokeEntry {
 
 func verifyWaitForHalfParentCompletes(t *testing.T, flowID string) {
 	t.Helper()
-	result, err := integClient.WaitForFlow(integrationContext(t), flowID, dex.WaitForFlowOptions{})
-	require.NoError(t, err)
+	result := waitForFlow(t, flowID)
 	require.Equal(t, dex.FlowCompleted, result.Status)
 }
 
