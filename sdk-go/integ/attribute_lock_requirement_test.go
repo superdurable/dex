@@ -1116,6 +1116,69 @@ func TestAttributeLockRequirementUnboundedFailureRoute(t *testing.T) {
 	require.ErrorContains(t, err, `failure routes nest deeper than 32 Steps at step "lockSnapSelfRouteStep"`)
 }
 
+// lockSnapChainStep routes an Execute failure to the next Step of an acyclic chain.
+type lockSnapChainStep struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+	index  int
+	routes int
+}
+
+func (step lockSnapChainStep) GetStepType() string {
+	return fmt.Sprintf("lockSnapChainStep%d", step.index)
+}
+
+func (step lockSnapChainStep) GetStepOptions() *dex.StepOptions {
+	if step.index == step.routes {
+		return nil
+	}
+	next := lockSnapChainStep{index: step.index + 1, routes: step.routes}
+	return &dex.StepOptions{ExecuteFailure: dex.ProceedToOnExecuteFailure[dex.None](next, nil)}
+}
+
+func (lockSnapChainStep) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("done"), nil
+}
+
+// lockSnapChainFlow starts a chain of routes failure routes in a Flow that declares a lock requirement.
+type lockSnapChainFlow struct {
+	dex.FlowDefaults
+	flowType string
+	routes   int
+}
+
+func (flow lockSnapChainFlow) GetFlowType() string {
+	return flow.flowType
+}
+
+func (flow lockSnapChainFlow) GetSteps() []dex.StepDef {
+	steps := []dex.StepDef{dex.DefineStartStep(lockSnapChainStep{routes: flow.routes})}
+	for index := 1; index <= flow.routes; index++ {
+		steps = append(steps, dex.DefineStep(lockSnapChainStep{index: index, routes: flow.routes}))
+	}
+	return steps
+}
+
+func (lockSnapChainFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return lockReqSchema()
+}
+
+// TestAttributeLockRequirementFailureRouteDepthBoundary accepts 32 nested failure routes and rejects 33.
+func TestAttributeLockRequirementFailureRouteDepthBoundary(t *testing.T) {
+	_, err := dex.NewRegistry([]dex.Flow{lockSnapChainFlow{flowType: "lockSnapChain33Flow", routes: 33}})
+	require.ErrorContains(t, err, `failure routes nest deeper than 32 Steps at step "lockSnapChainStep33"`)
+
+	// The Server must also decode the 32 nested options that the Flow start sends.
+	flow := lockSnapChainFlow{flowType: "lockSnapChain32Flow", routes: 32}
+	harness := startLockHarness(t, func(t *testing.T) *dex.Registry {
+		t.Helper()
+		registry, err := dex.NewRegistry([]dex.Flow{flow})
+		require.NoError(t, err)
+		return registry
+	})
+	result := harness.waitForFlow(t, harness.startFlow(t, flow, nil))
+	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+}
+
 // lockSnapStepFlow registers one start Step under a schema with or without lock requirements.
 type lockSnapStepFlow struct {
 	dex.FlowDefaults

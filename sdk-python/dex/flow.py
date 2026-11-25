@@ -846,10 +846,10 @@ class Registry:
                 f"{location} locks AttributeMap {attribute.name!r} without an instance"
             )
         try:
-            require_map_instance(lock.instance)
+            # UnicodeEncodeError, for an instance that is not valid UTF-8, is a ValueError.
+            return Registry.physical_name(attribute.name, lock.instance)
         except ValueError as error:
             raise FlowDefinitionError(f"{location}: {error}") from error
-        return Registry.physical_name(attribute.name, lock.instance)
 
     @staticmethod
     def _validate_step_targets(

@@ -1179,6 +1179,11 @@ class _InvalidLockEntryFlow(Flow[None]):
             r"execute_lock_attributes\[1\] locks AttributeMap 'py-lock-req-items' "
             r"without an instance",
         ),
+        (
+            # A lone surrogate cannot be encoded as UTF-8.
+            AttributeLock(ITEMS, "\ud800"),
+            r"execute_lock_attributes\[1\]: 'utf-8' codec can't encode",
+        ),
     ],
     ids=[
         "none",
@@ -1186,6 +1191,7 @@ class _InvalidLockEntryFlow(Flow[None]):
         "unregistered",
         "singleton-instance",
         "map-no-instance",
+        "map-instance-not-utf8",
     ],
 )
 def test_registration_rejects_an_invalid_step_lock_only_with_declarations(
