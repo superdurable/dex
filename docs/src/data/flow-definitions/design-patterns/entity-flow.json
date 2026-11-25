@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-25T05:56:14Z",
+  "generatedAt": "2026-11-25T06:23:36Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -11,21 +11,21 @@
     "span": {
       "startLine": 62,
       "startColumn": 1,
-      "endLine": 95,
+      "endLine": 101,
       "endColumn": 86
     }
   },
   "nodes": [
     {
-      "id": "decision:rpc:adjust_credit_balance:89:16",
+      "id": "decision:rpc:adjust_credit_balance:94:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:adjust_credit_balance",
       "phase": "rpc",
       "span": {
-        "startLine": 89,
+        "startLine": 94,
         "startColumn": 16,
-        "endLine": 89,
+        "endLine": 94,
         "endColumn": 34
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:rpc:retire_account:95:16",
+      "id": "decision:rpc:retire_account:101:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:retire_account",
       "phase": "rpc",
       "span": {
-        "startLine": 95,
+        "startLine": 101,
         "startColumn": 16,
-        "endLine": 95,
+        "endLine": 101,
         "endColumn": 86
       },
       "decision": {
@@ -107,13 +107,27 @@
       }
     },
     {
+      "id": "resource:attribute:CustomerAccountFlow.retired",
+      "kind": "attribute",
+      "name": "retired",
+      "span": {
+        "startLine": 66,
+        "startColumn": 5,
+        "endLine": 66,
+        "endColumn": 41
+      },
+      "resource": {
+        "valueType": "bool"
+      }
+    },
+    {
       "id": "rpc:adjust_credit_balance",
       "kind": "rpc",
       "name": "adjust_credit_balance",
       "span": {
-        "startLine": 80,
+        "startLine": 83,
         "startColumn": 5,
-        "endLine": 89,
+        "endLine": 94,
         "endColumn": 34
       }
     },
@@ -122,9 +136,9 @@
       "kind": "rpc",
       "name": "retire_account",
       "span": {
-        "startLine": 92,
+        "startLine": 97,
         "startColumn": 5,
-        "endLine": 95,
+        "endLine": 101,
         "endColumn": 86
       }
     },
@@ -133,9 +147,9 @@
       "kind": "rpc",
       "name": "update_contact_details",
       "span": {
-        "startLine": 74,
+        "startLine": 77,
         "startColumn": 5,
-        "endLine": 77,
+        "endLine": 80,
         "endColumn": 45
       }
     },
@@ -145,9 +159,9 @@
       "name": "CloseAccountStep",
       "phase": "execute",
       "span": {
-        "startLine": 68,
+        "startLine": 69,
         "startColumn": 45,
-        "endLine": 68,
+        "endLine": 69,
         "endColumn": 63
       },
       "metadata": {
@@ -159,13 +173,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:rpc:retire_account:95:16",
+      "from": "decision:rpc:retire_account:101:16",
       "to": "step:CloseAccountStep",
       "label": "fan-out",
       "span": {
-        "startLine": 95,
+        "startLine": 101,
         "startColumn": 44,
-        "endLine": 95,
+        "endLine": 101,
         "endColumn": 83
       }
     },
@@ -176,9 +190,9 @@
       "to": "rpc:adjust_credit_balance",
       "label": "get",
       "span": {
-        "startLine": 85,
+        "startLine": 90,
         "startColumn": 19,
-        "endLine": 85,
+        "endLine": 90,
         "endColumn": 51
       },
       "metadata": {
@@ -192,9 +206,9 @@
       "to": "rpc:retire_account",
       "label": "get",
       "span": {
-        "startLine": 93,
+        "startLine": 98,
         "startColumn": 12,
-        "endLine": 93,
+        "endLine": 98,
         "endColumn": 44
       },
       "metadata": {
@@ -203,14 +217,30 @@
     },
     {
       "id": "edge:0004",
+      "kind": "resource_read",
+      "from": "resource:attribute:CustomerAccountFlow.retired",
+      "to": "rpc:adjust_credit_balance",
+      "label": "get",
+      "span": {
+        "startLine": 86,
+        "startColumn": 12,
+        "endLine": 86,
+        "endColumn": 37
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0005",
       "kind": "resource_lock",
       "from": "rpc:adjust_credit_balance",
       "to": "resource:attribute:CustomerAccountFlow.credit_balance",
       "label": "lock",
       "span": {
-        "startLine": 79,
+        "startLine": 82,
         "startColumn": 55,
-        "endLine": 79,
+        "endLine": 82,
         "endColumn": 76
       },
       "metadata": {
@@ -219,15 +249,15 @@
       }
     },
     {
-      "id": "edge:0005",
+      "id": "edge:0006",
       "kind": "resource_write",
       "from": "rpc:adjust_credit_balance",
       "to": "resource:attribute:CustomerAccountFlow.credit_balance",
       "label": "set",
       "span": {
-        "startLine": 88,
+        "startLine": 93,
         "startColumn": 9,
-        "endLine": 88,
+        "endLine": 93,
         "endColumn": 50
       },
       "metadata": {
@@ -235,15 +265,15 @@
       }
     },
     {
-      "id": "edge:0006",
+      "id": "edge:0007",
       "kind": "resource_lock",
       "from": "rpc:retire_account",
       "to": "resource:attribute:CustomerAccountFlow.credit_balance",
       "label": "lock",
       "span": {
-        "startLine": 91,
+        "startLine": 96,
         "startColumn": 49,
-        "endLine": 91,
+        "endLine": 96,
         "endColumn": 70
       },
       "metadata": {
@@ -252,15 +282,31 @@
       }
     },
     {
-      "id": "edge:0007",
+      "id": "edge:0008",
+      "kind": "resource_write",
+      "from": "rpc:retire_account",
+      "to": "resource:attribute:CustomerAccountFlow.retired",
+      "label": "set",
+      "span": {
+        "startLine": 100,
+        "startColumn": 9,
+        "endLine": 100,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0009",
       "kind": "resource_write",
       "from": "rpc:update_contact_details",
       "to": "resource:attribute:CustomerAccountFlow.display_name",
       "label": "set",
       "span": {
-        "startLine": 76,
+        "startLine": 79,
         "startColumn": 9,
-        "endLine": 76,
+        "endLine": 79,
         "endColumn": 59
       },
       "metadata": {
@@ -268,15 +314,15 @@
       }
     },
     {
-      "id": "edge:0008",
+      "id": "edge:0010",
       "kind": "resource_write",
       "from": "rpc:update_contact_details",
       "to": "resource:attribute:CustomerAccountFlow.email",
       "label": "set",
       "span": {
-        "startLine": 77,
+        "startLine": 80,
         "startColumn": 9,
-        "endLine": 77,
+        "endLine": 80,
         "endColumn": 45
       },
       "metadata": {
