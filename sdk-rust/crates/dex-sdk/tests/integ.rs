@@ -21,6 +21,10 @@ mod adaptive_slot_workflow;
 mod any_command_combination_test;
 #[path = "integ/any_command_combination_workflow.rs"]
 mod any_command_combination_workflow;
+#[path = "integ/attribute_lock_requirement_test.rs"]
+mod attribute_lock_requirement_test;
+#[path = "integ/attribute_lock_requirement_workflow.rs"]
+mod attribute_lock_requirement_workflow;
 #[path = "integ/basic_abnormal_exit_workflow.rs"]
 mod basic_abnormal_exit_workflow;
 #[path = "integ/basic_empty_input_workflow.rs"]

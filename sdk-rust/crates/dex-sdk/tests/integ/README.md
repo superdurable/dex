@@ -9,6 +9,7 @@ Step streaming, heartbeat recovery, and cancellation scenarios.
 | --- | --- |
 | Go adaptive pull slot streams | `adaptive_slot_streams_test.rs` |
 | `AnyCommandCombinationTest` | `any_command_combination_test.rs` |
+| Go and Python declared lock requirements | `attribute_lock_requirement_test.rs` |
 | `BasicTest` | `basic_test.rs` |
 | Rust clone fork and event-ID time travel | `clone_fork_flow_test.rs` |
 | `ConditionalCompleteTest` | `conditional_complete_test.rs` |
