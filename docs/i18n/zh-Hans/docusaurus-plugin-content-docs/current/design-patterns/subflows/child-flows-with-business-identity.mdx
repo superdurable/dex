@@ -1,6 +1,7 @@
 ---
 title: 有业务标识的子 Flow
 sidebar_label: 有业务标识的子 Flow
+displayed_sidebar: docs
 ---
 
 import orderFlowDefinition from '@site/src/data/flow-definitions/design-patterns/child-flows-business-identity-order.json';
@@ -921,11 +922,11 @@ impl Step for ReportShipmentOutcome {
 
 订单在 `shipmentRecords` AttributeMap 里为每个发货单保存一条记录，以发货单号为键。记录把结果和终止状态分成两个字段。报告填入结果。对账读取填入状态，发货单存过结果时也填入结果。
 
-对于没有报告的发货单，订单按这个顺序对账：
+发货单一直没有报告时，订单按这个顺序对账：
 
 1. 描述发货单。仍在运行的发货单在下一个间隔再读。
 2. 已关闭的发货单：先记录状态，再读它的结果 Attribute。Attribute 未设置表示发货单结束时没有结果。
-3. 不存在的发货单记录为 `unavailable`。这是业务策略。
+3. 找不到的发货单按业务策略记录为 `unavailable`。
 4. 其他错误让 Step 失败，Dex 会重试它。
 
 被客服团队取消的发货单不会报告。订单仍会在下一次对账读取时记录它：状态为 `canceled`，没有结果。
