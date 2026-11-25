@@ -13,7 +13,7 @@ import {translate} from '@docusaurus/Translate';
 import {Cloud, Copy, Database, History, Play, Search, Server} from 'lucide-react';
 
 import {ConceptDiagramFrame} from '../conceptDiagram/ConceptDiagram';
-import {TemporalLane, TemporalLaneArrow, TemporalLaneBox, TemporalLaneLayout, TemporalLaneRow} from './TemporalLanes';
+import {TemporalLane, TemporalLaneArrow, TemporalLaneBox, TemporalLaneLayout} from './TemporalLanes';
 
 /** What an operator deploys and keeps running for each server. */
 export default function TemporalDeploymentDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
@@ -21,41 +21,34 @@ export default function TemporalDeploymentDiagram({markdownDescription}: {markdo
     <ConceptDiagramFrame label={markdownDescription}>
       <TemporalLaneLayout>
         <TemporalLane name={translate({id: 'docs.temporal.ops.deploy.temporal', message: 'Temporal Service'})} icon={History} tone="external">
-          <TemporalLaneRow>
-            <TemporalLaneBox icon={Server} title="Frontend" />
-            <TemporalLaneBox icon={Server} title="History" />
-          </TemporalLaneRow>
-          <TemporalLaneRow>
-            <TemporalLaneBox icon={Server} title="Matching" />
-            <TemporalLaneBox icon={Server} title="Worker" />
-          </TemporalLaneRow>
+          <TemporalLaneBox
+            icon={Server}
+            title={translate({id: 'docs.temporal.ops.deploy.temporalServices', message: 'Four services'})}
+            detail="Frontend · History · Matching · Worker"
+          />
           <TemporalLaneArrow tone="external" />
-          <TemporalLaneRow>
-            <TemporalLaneBox
-              icon={Database}
-              title={translate({id: 'docs.temporal.ops.deploy.temporalDatabase', message: 'Database'})}
-              detail={translate({id: 'docs.temporal.ops.deploy.temporalDatabaseDetail', message: 'Cassandra, MySQL, or PostgreSQL'})}
-            />
-            <TemporalLaneBox
-              icon={Search}
-              title={translate({id: 'docs.temporal.ops.deploy.temporalVisibility', message: 'Visibility store'})}
-              detail={translate({id: 'docs.temporal.ops.deploy.temporalVisibilityDetail', message: 'SQL or Elasticsearch'})}
-            />
-          </TemporalLaneRow>
+          <TemporalLaneBox
+            icon={Database}
+            title={translate({id: 'docs.temporal.ops.deploy.temporalDatabase', message: 'Database'})}
+            detail={translate({id: 'docs.temporal.ops.deploy.temporalDatabaseDetail', message: 'Cassandra, MySQL, or PostgreSQL'})}
+          />
+          <TemporalLaneBox
+            icon={Search}
+            title={translate({id: 'docs.temporal.ops.deploy.temporalVisibility', message: 'Visibility store'})}
+            detail={translate({id: 'docs.temporal.ops.deploy.temporalVisibilityDetail', message: 'SQL or Elasticsearch'})}
+          />
         </TemporalLane>
         <TemporalLane name={translate({id: 'docs.temporal.ops.deploy.dex', message: 'Dex Server'})} icon={Play} tone="accent">
-          <TemporalLaneRow>
-            <TemporalLaneBox
-              icon={Server}
-              title={translate({id: 'docs.temporal.ops.deploy.dexActive', message: 'Active node'})}
-              detail={translate({id: 'docs.temporal.ops.deploy.dexActiveDetail', message: 'one binary, holds the lease'})}
-            />
-            <TemporalLaneBox
-              icon={Copy}
-              title={translate({id: 'docs.temporal.ops.deploy.dexStandby', message: 'Standby node'})}
-              detail={translate({id: 'docs.temporal.ops.deploy.dexStandbyDetail', message: 'optional, takes over'})}
-            />
-          </TemporalLaneRow>
+          <TemporalLaneBox
+            icon={Server}
+            title={translate({id: 'docs.temporal.ops.deploy.dexActive', message: 'Active node'})}
+            detail={translate({id: 'docs.temporal.ops.deploy.dexActiveDetail', message: 'one binary, holds the lease'})}
+          />
+          <TemporalLaneBox
+            icon={Copy}
+            title={translate({id: 'docs.temporal.ops.deploy.dexStandby', message: 'Standby node'})}
+            detail={translate({id: 'docs.temporal.ops.deploy.dexStandbyDetail', message: 'optional, takes over'})}
+          />
           <TemporalLaneArrow tone="accent" />
           <TemporalLaneBox
             icon={Cloud}

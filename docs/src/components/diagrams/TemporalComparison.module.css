@@ -39,13 +39,6 @@
   background: var(--cd-accent-tint);
 }
 
-.row {
-  display: grid;
-  grid-auto-columns: minmax(0, 1fr);
-  grid-auto-flow: column;
-  gap: 0.45rem;
-}
-
 .box {
   display: flex;
   min-width: 0;
@@ -116,12 +109,12 @@
 
 .tick {
   fill: var(--cd-subtle);
-  font-size: 11px;
+  font-size: 12.5px;
 }
 
 .axisTitle {
   fill: var(--cd-subtle);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -133,7 +126,7 @@
 
 .limitLabel {
   fill: var(--cd-wait);
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 650;
 }
 
@@ -155,7 +148,7 @@
 
 .labelTemporal,
 .labelDex {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 650;
 }
 

@@ -48,10 +48,6 @@ export function TemporalLaneBox({icon, title, detail}: {icon: LucideIcon; title:
   );
 }
 
-export function TemporalLaneRow({children}: {children: ReactNode}): ReactNode {
-  return <div className={styles.row}>{children}</div>;
-}
-
 export function TemporalLaneArrow({tone, label}: {tone: LaneTone; label?: string}): ReactNode {
   return <Arrow direction="down" tone={tone} isFlowing label={label} />;
 }

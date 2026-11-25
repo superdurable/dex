@@ -13,7 +13,7 @@ import {translate} from '@docusaurus/Translate';
 import {Cloud, Copy, Database, HardDrive, History, Play, Server, Users} from 'lucide-react';
 
 import {ConceptDiagramFrame} from '../conceptDiagram/ConceptDiagram';
-import {TemporalLane, TemporalLaneArrow, TemporalLaneBox, TemporalLaneLayout, TemporalLaneNote, TemporalLaneRow} from './TemporalLanes';
+import {TemporalLane, TemporalLaneArrow, TemporalLaneBox, TemporalLaneLayout, TemporalLaneNote} from './TemporalLanes';
 
 /** The write and read path of each server: services on a database, or a log in object storage and a local store. */
 export default function TemporalServerPathDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
@@ -45,18 +45,17 @@ export default function TemporalServerPathDiagram({markdownDescription}: {markdo
             detail={translate({id: 'docs.temporal.perf.path.dexNodeDetail', message: 'batches the writes of many Flows'})}
           />
           <TemporalLaneArrow tone="accent" label={translate({id: 'docs.temporal.perf.path.dexWrite', message: 'write first, then acknowledge'})} />
-          <TemporalLaneRow>
-            <TemporalLaneBox
-              icon={Cloud}
-              title={translate({id: 'docs.temporal.perf.path.dexLog', message: 'Log in object storage'})}
-              detail={translate({id: 'docs.temporal.perf.path.dexLogDetail', message: 'the record'})}
-            />
-            <TemporalLaneBox
-              icon={HardDrive}
-              title={translate({id: 'docs.temporal.perf.path.dexLocal', message: 'Local store'})}
-              detail={translate({id: 'docs.temporal.perf.path.dexLocalDetail', message: 'serves reads from local disk'})}
-            />
-          </TemporalLaneRow>
+          <TemporalLaneBox
+            icon={Cloud}
+            title={translate({id: 'docs.temporal.perf.path.dexLog', message: 'Log in object storage'})}
+            detail={translate({id: 'docs.temporal.perf.path.dexLogDetail', message: 'the record'})}
+          />
+          <TemporalLaneArrow tone="accent" label={translate({id: 'docs.temporal.perf.path.dexApply', message: 'then apply'})} />
+          <TemporalLaneBox
+            icon={HardDrive}
+            title={translate({id: 'docs.temporal.perf.path.dexLocal', message: 'Local store'})}
+            detail={translate({id: 'docs.temporal.perf.path.dexLocalDetail', message: 'serves reads from local disk'})}
+          />
           <TemporalLaneNote icon={Copy}>
             {translate({id: 'docs.temporal.perf.path.dexStandby', message: 'A hot standby follows the log'})}
           </TemporalLaneNote>

@@ -49,9 +49,9 @@ const benchmark: {limitMiB: number; oomSeconds: number; temporal: Point[]; dex: 
   ],
 };
 
-const width = 720;
-const height = 330;
-const margin = {top: 22, right: 18, bottom: 46, left: 52};
+const width = 540;
+const height = 320;
+const margin = {top: 24, right: 10, bottom: 48, left: 40};
 const xDomain: [number, number] = [-15, 670];
 const yMaxMiB = 600;
 const xTicks = [0, 100, 200, 300, 400, 500, 600];
@@ -88,7 +88,7 @@ export default function TemporalWorkerMemoryChart({markdownDescription}: {markdo
           </text>
         ))}
         <line className={styles.axis} x1={margin.left} x2={width - margin.right} y1={y(0)} y2={y(0)} />
-        <text className={styles.axisTitle} x={margin.left - 44} y={margin.top - 8}>
+        <text className={styles.axisTitle} x={0} y={margin.top - 10}>
           {translate({id: 'docs.temporal.perf.chart.yAxis', message: 'Working set (MiB)'})}
         </text>
         <text className={styles.axisTitle} x={(margin.left + width - margin.right) / 2} y={height - 6} textAnchor="middle">
@@ -102,18 +102,18 @@ export default function TemporalWorkerMemoryChart({markdownDescription}: {markdo
 
         <line className={styles.oomLine} x1={x(benchmark.oomSeconds)} x2={x(benchmark.oomSeconds)} y1={y(benchmark.limitMiB)} y2={y(0)} />
         <circle className={styles.oomDot} cx={x(benchmark.oomSeconds)} cy={y(benchmark.limitMiB)} r={4.5} />
-        <text className={styles.limitLabel} x={x(benchmark.oomSeconds) + 8} y={y(300)}>
+        <text className={styles.limitLabel} x={x(benchmark.oomSeconds) + 8} y={y(320)}>
           {translate({id: 'docs.temporal.perf.chart.oom', message: 'OOM kill at 330 s'})}
         </text>
 
         <path className={styles.seriesTemporal} d={linePath(benchmark.temporal)} />
         <path className={styles.seriesDex} d={linePath(benchmark.dex)} />
 
-        <text className={styles.labelTemporal} x={x(130)} y={y(445)}>
+        <text className={styles.labelTemporal} x={x(345)} y={y(450)}>
           {translate({id: 'docs.temporal.perf.chart.temporal', message: 'Temporal, default cache'})}
         </text>
-        <text className={styles.labelDex} x={x(130)} y={y(125)}>
-          {translate({id: 'docs.temporal.perf.chart.dex', message: 'Dex: peak 85.5 MiB, all 3,000 replies'})}
+        <text className={styles.labelDex} x={x(345)} y={y(140)}>
+          {translate({id: 'docs.temporal.perf.chart.dex', message: 'Dex, peak 85.5 MiB'})}
         </text>
       </svg>
     </ConceptDiagramFrame>
