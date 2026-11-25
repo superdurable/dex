@@ -88,6 +88,7 @@ mappings:
     docs:
       - docs/content/design-patterns/data-storage.mdx
       - docs/content/design-patterns/data-storage/entity-flow-attribute-sync.mdx
+      - docs/content/design-patterns/data-storage/entity-flow.mdx
       - docs/content/design-patterns/data-storage/hash-partitioned-attribute-map.mdx
       - docs/content/design-patterns/data-storage/sequentially-chunked-attribute-map.mdx
       - docs/content/design-patterns/drain-channels.mdx
