@@ -1760,8 +1760,7 @@ func unwrapCallFun(expression ast.Expr) ast.Expr {
 func (analyzer *goAnalyzer) resourceDetails(call *ast.CallExpr) ResourceDetails {
 	details := ResourceDetails{ValueType: "unknown"}
 	name := analyzer.callName(call)
-	details.Map = name == "DefineAttributeMap" || name == "DefineChannelMap" ||
-		name == "DefineChannelMapWithOptions" || name == "DefineJoin"
+	details.Map = goResourceConstructors[name].isMap
 	switch function := call.Fun.(type) {
 	case *ast.IndexExpr:
 		details.ValueType = analyzer.expressionString(function.Index)
@@ -1851,17 +1850,26 @@ func appendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
+type goResourceConstructor struct {
+	kind               string
+	isMap              bool
+	acceptsLockOptions bool
+}
+
+// goResourceConstructors lists every SDK function that defines a resource.
+var goResourceConstructors = map[string]goResourceConstructor{
+	"DefineAttribute":             {kind: "attribute", acceptsLockOptions: true},
+	"DefineAttributeMap":          {kind: "attribute", isMap: true, acceptsLockOptions: true},
+	"DefineChannel":               {kind: "channel"},
+	"DefineChannelWithOptions":    {kind: "channel", acceptsLockOptions: true},
+	"DefineChannelMap":            {kind: "channel", isMap: true},
+	"DefineChannelMapWithOptions": {kind: "channel", isMap: true, acceptsLockOptions: true},
+	"DefineJoin":                  {kind: "channel", isMap: true},
+	"DefineStream":                {kind: "stream"},
+}
+
 func goResourceKind(name string) string {
-	switch name {
-	case "DefineAttribute", "DefineAttributeMap":
-		return "attribute"
-	case "DefineChannel", "DefineChannelMap", "DefineChannelWithOptions", "DefineChannelMapWithOptions", "DefineJoin":
-		return "channel"
-	case "DefineStream":
-		return "stream"
-	default:
-		return ""
-	}
+	return goResourceConstructors[name].kind
 }
 
 func goResourceEdgeKind(method string, phase string) string {

@@ -24,8 +24,15 @@ const pythonDeclaredLocksSource = `from dex import Attribute, AttributeMap, Chan
 LOCK_TABLE = {"total": (Attribute("unused", int).lock(),)}
 
 
+LOCKS = ()
+
+
 def attribute_options():
     return {}
+
+
+def locked_rpc(function):
+    return function
 
 
 class CartFlow(Flow[str]):
@@ -44,7 +51,7 @@ class CartFlow(Flow[str]):
     def get_persistence_schema(self):
         return PersistenceSchema.of(self.cart_lock, self.total, self.items, self.replies)
 
-    @rpc(name="Reply"RPC_OPTIONS)
+    OUTER_DECORATOR@rpc(name="Reply"RPC_OPTIONS)
     def reply(self, context: Context, input: str) -> RPCResult[str]:
         RPC_BODY
         return RPCResult(input)
@@ -76,6 +83,7 @@ STEP_OPTIONS
 `
 
 type pythonDeclaredLocksCase struct {
+	outerDecorator string
 	totalOptions   string
 	itemsOptions   string
 	repliesOptions string
@@ -99,6 +107,8 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		diagnostics []string
 		// messageFragment, when set, appears in the first listed diagnostic.
 		messageFragment string
+		// hasOtherError marks a source that another analyzer rule already makes invalid.
+		hasOtherError bool
 	}{
 		"execute holds own lock": {
 			source: pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"), executeBody: "CartFlow.total.set(context, 1)"},
@@ -178,7 +188,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		"read then write without declaration": {
 			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is read and then written without its lock by RPC Reply",
+			messageFragment: "is both read and written without its lock by RPC Reply",
 		},
 		"read then write under own lock without declaration": {
 			source: pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
@@ -196,9 +206,50 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"dynamic locks count as held for the nudge": {
 			source: pythonDeclaredLocksCase{
+				rpcLocks:    "total.lock()",
 				stepOptions: "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=LOCK_TABLE[\"total\"])\n",
-				executeBody: "CartFlow.total.set(context, CartFlow.total.get(context) + 1)",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "CartFlow.total.set(context, 2)",
 			},
+		},
+		"local lock list shadows the module list": {
+			source: pythonDeclaredLocksCase{
+				totalOptions: "writes_require_lock=True",
+				stepOptions:  "    def get_step_options(self):\n        LOCKS = (CartFlow.total.lock(),)\n        return StepOptions(execute_lock_attributes=LOCKS)\n",
+				executeBody:  "CartFlow.total.set(context, 1)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"receiver attribute of another object": {
+			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", rpcBody: "other = object()\n        other.total.set(context, 1)"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"write in a nested function": {
+			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", executeBody: "def inner():\n            CartFlow.total.set(context, 1)\n        inner"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"write in a constant-false branch": {
+			source:      pythonDeclaredLocksCase{totalOptions: "writes_require_lock=True", executeBody: "if False:\n            CartFlow.total.set(context, 1)"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"outer rpc decorator replaces the inner registration": {
+			source:      pythonDeclaredLocksCase{outerDecorator: "@rpc(name=\"Reply\")\n    ", totalOptions: "writes_require_lock=True", rpcLocks: "total.lock()", rpcBody: "self.total.set(context, 1)"},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"unknown outer decorator": {
+			source:        pythonDeclaredLocksCase{outerDecorator: "@locked_rpc\n    ", totalOptions: "writes_require_lock=True", rpcBody: "self.total.set(context, 1)"},
+			diagnostics:   []string{"warning declared_lock_unresolved"},
+			hasOtherError: true,
+		},
+		"positional publish lock": {
+			source:      pythonDeclaredLocksCase{repliesOptions: "cart_lock", rpcBody: `self.replies.publish(context, "hi")`},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"explicit None publish lock": {
+			source: pythonDeclaredLocksCase{repliesOptions: "publishes_require_lock=None", rpcBody: `self.replies.publish(context, "hi")`},
+		},
+		"map lock with instance keyword": {
+			source: pythonDeclaredLocksCase{itemsOptions: "writes_require_lock=True", rpcLocks: `items.lock(instance="apple")`, rpcBody: `self.items.delete(context, "apple")`},
 		},
 		"unreadable attribute options are neither checked nor nudged": {
 			source: pythonDeclaredLocksCase{totalOptions: "**attribute_options()", rpcBody: "self.total.set(context, self.total.get(context) + 1)", executeBody: "CartFlow.total.set(context, 2)"},
@@ -234,7 +285,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 				require.Contains(t, messages[0], testCase.messageFragment)
 			}
 			hasError := slices.ContainsFunc(testCase.diagnostics, func(diagnostic string) bool { return strings.HasPrefix(diagnostic, "error ") })
-			require.Equal(t, !hasError, graph.Valid, "%+v", graph.Diagnostics)
+			require.Equal(t, !hasError && !testCase.hasOtherError, graph.Valid, "%+v", graph.Diagnostics)
 		})
 	}
 }
@@ -265,6 +316,7 @@ func analyzePythonDeclaredLocksSource(t *testing.T, source pythonDeclaredLocksCa
 		", TOTAL_OPTIONS", resourceOptions(source.totalOptions),
 		", ITEMS_OPTIONS", resourceOptions(source.itemsOptions),
 		", REPLIES_OPTIONS", resourceOptions(source.repliesOptions),
+		"OUTER_DECORATOR", source.outerDecorator,
 		"RPC_OPTIONS", rpcOptions,
 		" MOVE_OPTIONS", source.moveOptions,
 		"STEP_OPTIONS\n", stepOptions,

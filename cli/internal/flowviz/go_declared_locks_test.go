@@ -27,10 +27,23 @@ var (
 	total    = dex.DefineAttribute[int]("total", TOTAL_OPTIONS)
 	items    = dex.DefineAttributeMap[int]("items", ITEMS_OPTIONS)
 	cartLock = dex.DefineAttribute[bool]("cart-lock")
-	replies  = dex.DefineChannel[string]("replies", REPLIES_OPTIONS)
+	spare    = dex.DefineAttribute[int]("spare")
+	replies  = dex.DefineChannelWithOptions[string]("replies", REPLIES_OPTIONS)
+	rooms    = dex.DefineChannelMapWithOptions[string]("rooms", dex.PublishesRequireAttributeLock(cartLock))
 )
 
 func attributeOptions() []dex.AttributeOption { return nil }
+
+func sharedOption() dex.AttributeOption { return dex.WritesRequireLock() }
+
+func unguarded() dex.Attribute[int] { return spare }
+
+var defaultLocks = []dex.AttributeLock{dex.LockAttribute(cartLock)}
+
+func init() {
+	alias := defaultLocks
+	alias[0] = dex.LockAttribute(total)
+}
 
 var lockTable =map[string][]dex.AttributeLock{"total": {dex.LockAttribute(total)}}
 
@@ -42,8 +55,8 @@ func (*CartFlow) GetSteps() []dex.StepDef {
 
 func (*CartFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{total, items, cartLock},
-		Channels:   []dex.ChannelDef{replies},
+		Attributes: []dex.AttributeDef{total, items, cartLock, spare},
+		Channels:   []dex.ChannelDef{replies, rooms},
 	}
 }
 
@@ -209,7 +222,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"read then write without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is read and then written without its lock by RPC Reply",
+			messageFragment: "is both read and written without its lock by RPC Reply",
 		},
 		"read then write under own lock without declaration": {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -227,9 +240,50 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		},
 		"dynamic locks count as held for the nudge": {
 			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(total)"),
 				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{ExecuteLockAttributes: lockTable[\"total\"]}\n}",
-				executeBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "_ = total.Set(ctx, 2)",
 			},
+		},
+		"last lock option wins": {
+			source: goDeclaredLocksCase{
+				totalOptions: "dex.WritesRequireLock(), dex.WritesRequireAttributeLock(cartLock)",
+				stepOptions:  goExecuteLocks("dex.LockAttribute(cartLock)"),
+				executeBody:  "_ = total.Set(ctx, 1)",
+			},
+		},
+		"unreadable option after a lock option": {
+			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireAttributeLock(cartLock), sharedOption()", executeBody: "_ = total.Set(ctx, 1)"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"unrelated option after a lock option": {
+			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock(), dex.Plaintext()", executeBody: "_ = total.Set(ctx, 1)"},
+			diagnostics: []string{"error declared_lock_missing"},
+		},
+		"local receiver that shadows the resource": {
+			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", executeBody: "total := unguarded()\n\t_ = total.Set(ctx, 1)"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"aliased lock list changed elsewhere": {
+			source: goDeclaredLocksCase{
+				totalOptions: "dex.WritesRequireLock()",
+				stepOptions:  "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{ExecuteLockAttributes: defaultLocks}\n}",
+				executeBody:  "_ = total.Set(ctx, 1)",
+			},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"write in a function literal": {
+			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", executeBody: "write := func() { _ = total.Set(ctx, 1) }\n\t_ = write"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"write in a constant-false branch": {
+			source:      goDeclaredLocksCase{totalOptions: "dex.WritesRequireLock()", executeBody: "if false {\n\t\t_ = total.Set(ctx, 1)\n\t}"},
+			diagnostics: []string{"warning declared_lock_unresolved"},
+		},
+		"channel map publish without lock": {
+			source:      goDeclaredLocksCase{rpcBody: `_ = rooms.Publish(ctx, "lobby", "hi")`},
+			diagnostics: []string{"error declared_lock_missing"},
 		},
 		"unreadable attribute options are neither checked nor nudged": {
 			source: goDeclaredLocksCase{totalOptions: "attributeOptions()...", rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)", executeBody: "_ = total.Set(ctx, 2)"},

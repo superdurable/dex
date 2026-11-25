@@ -58,6 +58,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         self.actions = []
         self.rpc_lock_errors = []
         self.lock_handlers = []
+        self.declared_lock_missing_severity = "error"
         self.view_rpcs = []
         self.start_input = None
         self.initialize_connectors()
@@ -921,31 +922,40 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                     self.merge_lock_list(locks[field], keywords[field], owner_id)
         return locks
 
+    # The outermost @rpc registers the method; an unknown decorator outside it may replace the registration.
     def registration_rpc_locks(self, method):
         locks = {"locks": [], "unresolved": None}
         for decorator in method.decorator_list:
-            if not isinstance(decorator, ast.Call) or not self.is_dex_reference(decorator.func, "rpc"):
+            function = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if not self.is_dex_reference(function, "rpc"):
+                locks["unresolved"] = locks["unresolved"] or self.unparse(decorator)
                 continue
+            if not isinstance(decorator, ast.Call):
+                return locks
             for keyword in decorator.keywords:
                 if keyword.arg is None:
                     locks["unresolved"] = locks["unresolved"] or "**options"
                 elif keyword.arg == "lock_attributes":
                     self.merge_lock_list(locks, keyword.value, f"rpc:{method.name}")
+            return locks
         return locks
 
     def merge_lock_list(self, locks, expression, owner_id):
         if isinstance(expression, ast.Name):
+            # A named list may be rebound or changed elsewhere; its locks count as held but cannot prove one missing.
+            locks["notLiteral"] = locks.get("notLiteral") or f"the lock list {expression.id} is a variable"
             expression = self.module_assignment(expression.id) or expression
         if not isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
             locks["unresolved"] = locks["unresolved"] or self.unparse(expression)
             return
         for lock in expression.elts:
-            is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock" and not lock.keywords
+            is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
             resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
-            if not resource_id or len(lock.args) > 1:
+            keywords = {keyword.arg: keyword.value for keyword in lock.keywords} if is_lock_call else {}
+            if not resource_id or len(lock.args) + len(keywords) > 1 or (keywords and "instance" not in keywords):
                 locks["unresolved"] = locks["unresolved"] or self.unparse(lock)
                 continue
-            instance = lock.args[0] if lock.args else None
+            instance = lock.args[0] if lock.args else keywords.get("instance")
             locks["locks"].append((resource_id, self.constant_instance(instance), instance is not None))
 
     def constant_instance(self, expression):
@@ -957,6 +967,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
     def record_lock_handler(self, owner_id, method, phase, label, locks):
         accesses = []
         local_resources = self.local_resource_aliases(owner_id, method)
+        executed = self.surely_reached_nodes(method)
+        local_names = self.locally_bound_names(method)
         for call in ast.walk(method):
             if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                 continue
@@ -967,35 +979,108 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             instance = None
             if resource_id in self.resource_declarations and self.resource_details(self.resource_declarations[resource_id][0])["map"]:
                 instance = call.args[1] if len(call.args) > 1 else next((keyword.value for keyword in call.keywords if keyword.arg == "instance"), None)
+            unproven = None
+            if call not in executed:
+                unproven = "the write is in a nested function or a branch that may not run"
+            elif self.proven_resource_reference(call.func.value, owner_id, local_names) != resource_id:
+                unproven = "the receiver is not a module or Flow class resource"
             accesses.append({
                 "resourceId": resource_id,
                 "method": call.func.attr,
                 "instance": self.constant_instance(instance),
                 "span": self.span(call),
+                "unproven": unproven,
             })
         self.lock_handlers.append({"ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses})
 
+    # Nodes that run whenever the function body runs past them: no nested scopes and no constant-false branches.
+    def surely_reached_nodes(self, function):
+        reached = set()
+        pending = list(function.body)
+        while pending:
+            node = pending.pop()
+            reached.add(node)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(node, (ast.If, ast.While)) and isinstance(node.test, ast.Constant):
+                pending.append(node.test)
+                pending.extend(node.body if node.test.value else node.orelse)
+                continue
+            pending.extend(ast.iter_child_nodes(node))
+        return reached
+
+    def locally_bound_names(self, function):
+        names = {argument.arg for argument in [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]}
+        for node in ast.walk(function):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                names.add(node.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                names.update((alias.asname or alias.name).split(".", 1)[0] for alias in node.names)
+        return names
+
+    # Resolves a resource reference only through module names, Flow class attributes, and self of a Flow method or wired Step.
+    def proven_resource_reference(self, expression, owner_id, local_names):
+        if isinstance(expression, ast.Name):
+            if expression.id in local_names:
+                return None
+            resource_id = self.resources.get(expression.id)
+            return resource_id if resource_id and resource_id.rsplit(":", 1)[-1] == expression.id else None
+        if not isinstance(expression, ast.Attribute) or not isinstance(expression.value, ast.Name):
+            return None
+        owner = expression.value.id
+        if owner in self.flow_classes and owner not in local_names:
+            return self.resources.get(f"{owner}.{expression.attr}")
+        if owner != "self":
+            return None
+        if owner_id.startswith("step:"):
+            return self.step_resources.get(owner_id.split(":", 1)[1], {}).get(expression.attr)
+        flow_class = self.flow_class
+        if flow_class is None or self.assigns_self_attribute(flow_class, expression.attr):
+            return None
+        return self.resources.get(f"{flow_class.name}.{expression.attr}")
+
+    def assigns_self_attribute(self, class_node, attribute):
+        for node in ast.walk(class_node):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, (ast.AnnAssign, ast.AugAssign)) else []
+            for target in targets:
+                if isinstance(target, ast.Attribute) and target.attr == attribute and isinstance(target.value, ast.Name) and target.value.id == "self":
+                    return True
+        return False
+
+    # Binds a constructor argument by keyword or by its position in the SDK signature.
+    def resource_argument(self, call, keyword_name, position):
+        for keyword in call.keywords:
+            if keyword.arg == keyword_name:
+                return keyword.value
+        return call.args[position] if len(call.args) > position else None
+
     # Reads writes_require_lock and publishes_require_lock; returns (requirement, readable) for one resource.
-    # Unpacked keywords may or may not declare a lock, so the resource is neither checked nor nudged.
+    # Unpacked arguments may or may not declare a lock, so the resource is neither checked nor nudged.
     def declared_lock_requirement(self, resource_id):
         call, _ = self.resource_declarations[resource_id]
         is_map = self.resource_details(call)["map"]
         if any(keyword.arg is None for keyword in call.keywords) or any(isinstance(argument, ast.Starred) for argument in call.args):
             return None, False
-        for keyword in call.keywords:
-            if keyword.arg not in {"writes_require_lock", "publishes_require_lock"}:
-                continue
-            value = keyword.value
-            if keyword.arg == "writes_require_lock" and resource_id.startswith("resource:attribute:") and isinstance(value, ast.Constant) and isinstance(value.value, bool):
-                if not value.value:
-                    return None, True
-                return {"lock": resource_id, "sameInstance": is_map}, True
-            lock_id = self.resource_for(value, "")
-            lock_call = self.resource_declarations.get(lock_id, (None, None))[0] if lock_id else None
-            if not lock_id or not lock_id.startswith("resource:attribute:") or lock_call is None or self.resource_details(lock_call)["map"]:
-                return {"unresolved": self.unparse(value)}, False
-            return {"lock": lock_id, "sameInstance": False}, True
-        return None, True
+        short = self.symbol(call.func).rsplit(".", 1)[-1]
+        if short in {"Attribute", "AttributeMap"}:
+            value = self.resource_argument(call, "writes_require_lock", 6)
+        elif short in {"Channel", "ChannelMap"}:
+            value = self.resource_argument(call, "publishes_require_lock", 2)
+        else:
+            return None, True
+        if value is None or (isinstance(value, ast.Constant) and value.value in (None, False)):
+            return None, True
+        if short.startswith("Attribute") and isinstance(value, ast.Constant) and value.value is True:
+            return {"lock": resource_id, "sameInstance": is_map}, True
+        lock_id = self.proven_resource_reference(value, "", set())
+        owner = resource_id.split(":", 2)[-1].rpartition(".")[0]
+        if isinstance(value, ast.Name) and owner:
+            # In a class body, a bare name refers to an attribute defined earlier in the same class.
+            lock_id = self.resources.get(f"{owner}.{value.id}") or lock_id
+        lock_call = self.resource_declarations.get(lock_id, (None, None))[0] if lock_id else None
+        if not lock_id or not lock_id.startswith("resource:attribute:") or lock_call is None or self.resource_details(lock_call)["map"]:
+            return {"unresolved": self.unparse(value)}, False
+        return {"lock": lock_id, "sameInstance": False}, True
 
     def check_declared_locks(self):
         requirements = {}
@@ -1043,7 +1128,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in unlocked_writers:
                 reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", and " + ", ".join(sorted(unlocked_writers[resource_id])) + " registers no lock of it"
             elif resource_id in unlocked_read_writers:
-                reason = "is read and then written without its lock by " + ", ".join(sorted(unlocked_read_writers[resource_id]))
+                reason = "is both read and written without its lock by " +", ".join(sorted(unlocked_read_writers[resource_id]))
             else:
                 continue
             call, _ = self.resource_declarations[resource_id]
@@ -1071,8 +1156,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         if requirement["sameInstance"]:
             lock_text = f"{lock_name}.lock({access['instance']!r})" if is_write_key_known else f"{lock_name}.lock(<written instance>)"
         locks = handler["locks"]
-        is_uncertain = locks["unresolved"] is not None
-        reason = locks["unresolved"]
+        reason = locks["unresolved"] or locks.get("notLiteral")
+        is_uncertain = reason is not None
         for held_id, held_instance, has_instance in locks["locks"]:
             if held_id != lock_id:
                 continue
@@ -1090,7 +1175,11 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             self.warning("declared_lock_unresolved", f"{subject}, which requires {lock_text}, but dexcli cannot prove that the registration locks include it ({reason})", access["span"])
             return
         field = {"execute": "execute_lock_attributes", "wait_for": "wait_for_lock_attributes"}.get(handler["phase"], "the rpc lock_attributes")
-        self.error("declared_lock_missing", f"{subject} without the lock its declaration requires; add {lock_text} to {field}", access["span"])
+        if access["unproven"]:
+            self.warning("declared_lock_unresolved", f"{subject}, which requires {lock_text}, but dexcli cannot prove the write ({access['unproven']})", access["span"])
+            return
+        report = self.error if self.declared_lock_missing_severity == "error" else self.warning
+        report("declared_lock_missing", f"{subject} without the lock its declaration requires; add {lock_text} to {field}", access["span"])
 
     def analyze_locks(self, owner_id, expressions, phases, extra_metadata=None):
         seen = set()
@@ -2253,6 +2342,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
 def main():
     request = json.load(sys.stdin)
     analyzer = Analyzer(request["path"], request["source"], request.get("flowType", ""))
+    analyzer.declared_lock_missing_severity = request.get("declaredLockMissingSeverity", "error")
     graph = analyzer.analyze()
     result = analyzer.connector_analysis_result(graph)
     result.update(analyzer.metadata_analysis_result())

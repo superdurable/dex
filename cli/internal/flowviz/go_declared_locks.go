@@ -11,10 +11,15 @@ package flowviz
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
+	"go/token"
 	"go/types"
 	"sort"
 	"strings"
 )
+
+// declaredLockMissingSeverity is the severity of declared_lock_missing for every analyzer; owner decision D17 may change it.
+const declaredLockMissingSeverity = "error"
 
 // goLockRequirement is the lock that a resource declaration requires for every write or publish.
 type goLockRequirement struct {
@@ -34,6 +39,8 @@ type goHeldLock struct {
 type goHandlerLocks struct {
 	locks      []goHeldLock
 	unresolved string
+	// notLiteral names options that an alias may change; their locks are known but cannot prove one missing.
+	notLiteral string
 }
 
 // goDeclaredLockChecker reports writes to declared resources without the registration lock they require.
@@ -98,8 +105,14 @@ func (checker *goDeclaredLockChecker) declaredRequirement(resource Node, definit
 	if definition.Ellipsis.IsValid() {
 		return goLockRequirement{}, false, false
 	}
+	if !goResourceConstructors[checker.analyzer.callName(definition)].acceptsLockOptions {
+		return goLockRequirement{}, false, true
+	}
+	// The SDK applies options in order, so the last lock option wins; scan backward.
 	isReadable := true
-	for _, option := range definition.Args[min(1, len(definition.Args)):] {
+	options := definition.Args[min(1, len(definition.Args)):]
+	for index := len(options) - 1; index >= 0; index-- {
+		option := options[index]
 		call, isCall := ast.Unparen(option).(*ast.CallExpr)
 		function := ""
 		if isCall {
@@ -108,6 +121,13 @@ func (checker *goDeclaredLockChecker) declaredRequirement(resource Node, definit
 		switch function {
 		case "":
 			isReadable = false
+		case "WritesRequireLock", "WritesRequireAttributeLock", "PublishesRequireAttributeLock":
+			if !isReadable {
+				// An unreadable later option may override this one.
+				return goLockRequirement{unresolved: checker.analyzer.expressionString(options[len(options)-1])}, true, false
+			}
+		}
+		switch function {
 		case "WritesRequireLock":
 			if resource.Kind != "attribute" {
 				return goLockRequirement{unresolved: checker.analyzer.expressionString(option)}, true, true
@@ -117,7 +137,7 @@ func (checker *goDeclaredLockChecker) declaredRequirement(resource Node, definit
 			if len(call.Args) != 1 {
 				return goLockRequirement{unresolved: checker.analyzer.expressionString(option)}, true, true
 			}
-			lock := checker.analyzer.node(checker.analyzer.resourceForExpression(call.Args[0]))
+			lock := checker.analyzer.node(checker.strictResource(call.Args[0]))
 			if lock.Kind != "attribute" || lock.Resource == nil || lock.Resource.Map {
 				return goLockRequirement{unresolved: checker.analyzer.expressionString(call.Args[0])}, true, true
 			}
@@ -162,12 +182,17 @@ func (checker *goDeclaredLockChecker) handlerLocks(handler goHandlerSummary) (go
 	switch handler.phase {
 	case "execute", "wait_for":
 		stepType := strings.TrimPrefix(handler.ownerID, "step:")
-		registered := checker.evaluator.stepOptionsValue(checker.analyzer.stepValueTypes[stepType], handler.method.Pos())
+		stepValueType := checker.analyzer.stepValueTypes[stepType]
+		registered := checker.evaluator.stepOptionsValue(stepValueType, handler.method.Pos())
 		field := "ExecuteLockAttributes"
 		if handler.phase == "wait_for" {
 			field = "WaitForLockAttributes"
 		}
-		return checker.locksFromStruct(registered, field), true
+		locks := checker.locksFromStruct(registered, field)
+		if !checker.stepOptionsAreLiteral(stepValueType) {
+			locks.notLiteral = "GetStepOptions does not return only literal options with literal lock lists"
+		}
+		return locks, true
 	case "rpc":
 		registrations, isRegistered := checker.sources.rpcOptions[strings.TrimPrefix(handler.ownerID, "rpc:")]
 		if !isRegistered {
@@ -180,10 +205,182 @@ func (checker *goDeclaredLockChecker) handlerLocks(handler goHandlerSummary) (go
 			if locks.unresolved == "" {
 				locks.unresolved = registered.unresolved
 			}
+			if locks.notLiteral == "" && !goOptionsAreLiteral(registration.expression) {
+				locks.notLiteral = "the RPCOptions are not a literal with a literal lock list (" + checker.analyzer.expressionString(registration.expression) + ")"
+			}
 		}
 		return locks, true
 	}
 	return goHandlerLocks{}, false
+}
+
+// goOptionsAreLiteral reports whether options are nil or a literal whose lock lists are literals.
+// Only such a value cannot be changed through an alias, so only it can prove that a lock is missing.
+func goOptionsAreLiteral(expression ast.Expr) bool {
+	switch current := ast.Unparen(expression).(type) {
+	case *ast.Ident:
+		return current.Name == "nil"
+	case *ast.UnaryExpr:
+		return current.Op == token.AND && goOptionsAreLiteral(current.X)
+	case *ast.CompositeLit:
+		for _, element := range current.Elts {
+			field, isKeyed := element.(*ast.KeyValueExpr)
+			if !isKeyed {
+				return false
+			}
+			key, isIdentifier := field.Key.(*ast.Ident)
+			if !isIdentifier || !strings.HasSuffix(key.Name, "LockAttributes") {
+				continue
+			}
+			switch value := ast.Unparen(field.Value).(type) {
+			case *ast.CompositeLit:
+			case *ast.Ident:
+				if value.Name != "nil" {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// stepOptionsAreLiteral reports whether the Step's GetStepOptions is the SDK default or returns only literal options.
+func (checker *goDeclaredLockChecker) stepOptionsAreLiteral(stepValueType types.Type) bool {
+	if stepValueType == nil {
+		return false
+	}
+	selection := types.NewMethodSet(stepValueType).Lookup(nil, "GetStepOptions")
+	if selection == nil {
+		return false
+	}
+	method, isFunction := selection.Obj().(*types.Func)
+	if !isFunction {
+		return false
+	}
+	method = method.Origin()
+	if method.Pkg() != nil && method.Pkg().Path() == goSDKPackage {
+		return true
+	}
+	declaration := checker.evaluator.functions.declarations[method]
+	if declaration == nil || declaration.Body == nil {
+		return false
+	}
+	isLiteral := true
+	ast.Inspect(declaration.Body, func(node ast.Node) bool {
+		switch current := node.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			if len(current.Results) != 1 || !goOptionsAreLiteral(current.Results[0]) {
+				isLiteral = false
+			}
+		}
+		return isLiteral
+	})
+	return isLiteral
+}
+
+// unprovenWriteReason returns why dexcli cannot prove that the write runs on the declared resource, or "".
+// Graph edges resolve receivers loosely; a blocking diagnostic needs the strict facts below.
+func (checker *goDeclaredLockChecker) unprovenWriteReason(handler goHandlerSummary, access goResourceAccess) string {
+	selector, isSelector := unwrapCallFun(ast.Unparen(access.call.Fun)).(*ast.SelectorExpr)
+	if !isSelector {
+		return "the write is not a method call"
+	}
+	method, isMethod := checker.analyzer.typeInfo.Uses[selector.Sel].(*types.Func)
+	if !isMethod || method.Pkg() == nil || method.Pkg().Path() != goSDKPackage {
+		return "the write method is not resolved to the Dex SDK"
+	}
+	if checker.strictResource(selector.X) != access.resourceID {
+		return "the receiver is not a package variable that defines the resource"
+	}
+	body := handler.method.Body
+	if access.reach.helper != nil {
+		declaration := checker.evaluator.functions.declarations[access.reach.helper]
+		if declaration == nil {
+			return "the helper that writes cannot be read"
+		}
+		if access.reach.entryCall != nil && goMayNotRun(handler.method.Body, access.reach.entryCall, checker.analyzer.typeInfo) {
+			return "the helper call may not run"
+		}
+		body = declaration.Body
+	}
+	if goMayNotRun(body, access.call, checker.analyzer.typeInfo) {
+		return "the write is in a function literal or a branch that may not run"
+	}
+	return ""
+}
+
+// strictResource returns the resource of a package variable reference, or "" for any other expression.
+func (checker *goDeclaredLockChecker) strictResource(expression ast.Expr) string {
+	var identifier *ast.Ident
+	switch current := ast.Unparen(expression).(type) {
+	case *ast.Ident:
+		identifier = current
+	case *ast.SelectorExpr:
+		identifier = current.Sel
+	default:
+		return ""
+	}
+	variable, isVariable := checker.analyzer.typeInfo.Uses[identifier].(*types.Var)
+	if !isVariable || variable.Parent() == nil || variable.Parent() != variable.Pkg().Scope() {
+		return ""
+	}
+	return checker.analyzer.resources[variable]
+}
+
+// goMayNotRun reports whether target sits in a function literal or a constant-false branch inside body.
+func goMayNotRun(body ast.Node, target ast.Node, typeInfo *types.Info) bool {
+	if body == nil {
+		return true
+	}
+	mayNotRun := false
+	var visit func(node ast.Node, isGuarded bool) bool
+	visit = func(node ast.Node, isGuarded bool) bool {
+		if node == nil {
+			return false
+		}
+		if node == target {
+			mayNotRun = isGuarded
+			return true
+		}
+		if node.Pos() > target.Pos() || node.End() < target.End() {
+			return false
+		}
+		switch current := node.(type) {
+		case *ast.FuncLit:
+			return visit(current.Body, true)
+		case *ast.IfStmt:
+			value, isConstant := goConstantBool(current.Cond, typeInfo)
+			return visit(current.Init, isGuarded) || visit(current.Cond, isGuarded) ||
+				visit(current.Body, isGuarded || (isConstant && !value)) ||
+				visit(current.Else, isGuarded || (isConstant && value))
+		}
+		isFound := false
+		ast.Inspect(node, func(child ast.Node) bool {
+			if isFound || child == nil || child == node {
+				return !isFound
+			}
+			isFound = visit(child, isGuarded)
+			return false
+		})
+		return isFound
+	}
+	if !visit(body, false) {
+		return true
+	}
+	return mayNotRun
+}
+
+func goConstantBool(expression ast.Expr, typeInfo *types.Info) (bool, bool) {
+	typeAndValue, isTyped := typeInfo.Types[expression]
+	if !isTyped || typeAndValue.Value == nil || typeAndValue.Value.Kind() != constant.Bool {
+		return false, false
+	}
+	return constant.BoolVal(typeAndValue.Value), true
 }
 
 func (checker *goDeclaredLockChecker) locksFromStruct(value goStructValue, field string) goHandlerLocks {
@@ -261,8 +458,11 @@ func (checker *goDeclaredLockChecker) checkWrite(handler goHandlerSummary, locks
 			lockCall = fmt.Sprintf("dex.LockAttributeMap(%s, %q)", required, access.instanceKey.value)
 		}
 	}
-	isUncertain := locks.unresolved != ""
 	reason := locks.unresolved
+	if reason == "" {
+		reason = locks.notLiteral
+	}
+	isUncertain := reason != ""
 	for _, held := range locks.locks {
 		if held.resourceID != requirement.lockResourceID {
 			continue
@@ -289,7 +489,12 @@ func (checker *goDeclaredLockChecker) checkWrite(handler goHandlerSummary, locks
 			"%s, which requires %s, but dexcli cannot prove that the registration locks include it (%s)", subject, lockCall, reason))
 		return
 	}
-	checker.addDiagnostic(handler, access, "error", "declared_lock_missing", fmt.Sprintf(
+	if reason := checker.unprovenWriteReason(handler, access); reason != "" {
+		checker.addDiagnostic(handler, access, "warning", "declared_lock_unresolved", fmt.Sprintf(
+			"%s, which requires %s, but dexcli cannot prove the write (%s)", subject, lockCall, reason))
+		return
+	}
+	checker.addDiagnostic(handler, access, declaredLockMissingSeverity, "declared_lock_missing", fmt.Sprintf(
 		"%s without the lock its declaration requires; add %s to %s", subject, lockCall, goLockField(handler.phase)))
 }
 
@@ -369,7 +574,7 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") +
 				", and " + strings.Join(sortedLabels(unlockedWriters[resourceID]), ", ") + " registers no lock of it"
 		case len(unlockedRPCReadWriters[resourceID]) > 0:
-			reason = "is read and then written without its lock by " + strings.Join(sortedLabels(unlockedRPCReadWriters[resourceID]), ", ")
+			reason = "is both read and written without its lock by " + strings.Join(sortedLabels(unlockedRPCReadWriters[resourceID]), ", ")
 		default:
 			continue
 		}
