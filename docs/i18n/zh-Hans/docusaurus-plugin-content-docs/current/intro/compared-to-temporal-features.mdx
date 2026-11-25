@@ -2,48 +2,116 @@
 title: Dex 独有的功能
 sidebar_label: Dex 独有的功能
 slug: /intro/compared-to-temporal/features
-description: Placeholder.
+description: 十个 Dex 功能，以及 Temporal 中与每个功能最接近的机制。Dex 从源码画出 Flow design，据此生成 Dex Web 表单，用 Clone fork 分出新的运行，提供 Connector，并由 server 直接回答 Attribute 读取。
 ---
 
 # Dex 独有的功能
 
-## flow-design {#flow-design}
+下面十个功能是 Dex 产品的一部分。表中为每个功能列出 Temporal 里最接近的机制。
 
-Placeholder.
+| 功能 | Dex | Temporal 中最接近的机制 |
+| --- | --- | --- |
+| [Flow design](#flow-design) | `dexcli visualize` 从源码画出 Flow 的 Step 和跳转，Dex Web 显示这张图。 | Web UI 用 Timeline、All、Compact 和 JSON 视图显示每个 Workflow Execution 的 Event History，没有 Workflow Definition 的图（[Web UI](https://docs.temporal.io/web-ui)）。 |
+| [生成的表单](#generated-ui) | Dex Web 根据 Flow 的定义生成启动表单、Actions、Summary 和 Display 字段，以及 Work Queue。 | Web UI 列出并显示 Workflow Execution（[Web UI](https://docs.temporal.io/web-ui)）。 |
+| [Clone fork](#clone-fork) | 把一次运行在某个点的状态复制到一个新的 Flow，源运行继续运行。 | Reset："In all cases the current run will be terminated and a new run started."（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)） |
+| [Connector](#connectors) | 已发布的 Connector 为 Flow 提供调用外部服务商的现成 Step 和 Trigger。 | integrations 页面列出 agent 框架、模型服务商、框架和可观测性工具，没有对接第三方服务的现成 Activity 或 trigger（[Integrations](https://docs.temporal.io/integrations)）。 |
+| [跳过 Timer](#skip-timer) | `SkipTimer` 让运行中 Flow 的一个等待中的 Timer 立刻就绪。 | Timer 在设定的时长过去后结束（[Timers](https://docs.temporal.io/workflow-execution/timers-delays)）。SDK 的测试 server 在测试中跳过时间（[Testing suite](https://docs.temporal.io/develop/python/testing-suite)）。 |
+| [等待 Step](#wait-for-step) | 一个 Client 调用在某个 Step execution 完成时返回，Flow 继续运行。 | 一个 Update，其 handler 等待某个条件："You could write your read operation as an Update"（[Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)）。handler 是 Workflow 代码，在 Worker 上运行。 |
+| [等待 Attribute](#wait-for-attribute) | 一个 Client 调用在 Attribute 的值满足类型化比较时返回。 | 同样是一个 handler 等待条件的 Update（[Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)）。 |
+| [由 server 回答的读取](#read-without-worker) | Dex Server 自己回答 `GetAttributes`，所以没有 Worker 运行时也能读取。 | Query 调用对应的 Query handler，handler 在 Worker 上运行（[Sending messages](https://docs.temporal.io/sending-messages)）。 |
+| [Attribute Store 同步](#attribute-store-sync) | Dex Server 把选定的 Attribute 写入你自己的 PostgreSQL 表。 | Workflow 状态和事件保存在 Temporal Service 的数据库里，Visibility store 提供执行列表（[Persistence](https://docs.temporal.io/temporal-service/persistence)）。 |
+| [Hard-delete Attribute](#hard-delete) | 值只存在对象存储里，删除后永久消失。 | Workflow 状态和事件保存在 Temporal Service 的数据库里（[Persistence](https://docs.temporal.io/temporal-service/persistence)）。 |
 
-## generated-ui {#generated-ui}
+## 从源码得到 Flow design {#flow-design}
 
-Placeholder.
+`dexcli visualize` 读取一个 Flow 源文件，不运行代码就生成它的 Flow Definition Graph。它支持 Go、Python、TypeScript、Java 和 Rust。Dex Web 在 **Designs** 页面和每次运行的 **Design** 视图里画出这张图。每张 Step 卡片显示在这个 Step 上由谁行动，例如一个人、一个 Timer 或 Flow 自己。
 
-## clone-fork {#clone-fork}
+```bash
+dexcli visualize ./order_flow.go
+```
 
-Placeholder.
+<img
+  src="/img/production/dex-web-run-design.png"
+  alt="Dex Web 的 Design 视图：Flow design 图，右侧 Step 面板打开在一个等待人工处理的 Step 上"
+/>
 
-## connectors {#connectors}
+见 [Flow source visualization](/reference/web/flow-visualization)（英文）。
 
-Placeholder.
+## 生成的表单和 Actions {#generated-ui}
 
-## skip-timer {#skip-timer}
+Dex Web 读取同一份 Flow Definition Graph。Dex Web 据此生成 **Start Flow** 表单、每个声明了 Action 的 RPC 的 **Actions** 表单，以及每次运行的 Summary 和 Display 字段。**Work Queue** 用这些字段列出一个 Flow 类型的运行。**Working as** 选择一个权限，列出它可以使用 Actions 的运行。
 
-Placeholder.
+<img
+  src="/img/compared-to-temporal/dex-web-work-queue.png"
+  alt="Dex Web 的 Work Queue：Start Flow 按钮、所选运行的 Display 字段，以及它的 Approve 和 Reject Actions"
+/>
 
-## wait-for-step {#wait-for-step}
+见 [Dex Web](/reference/web/dex-web#start-flow)（英文）。
 
-Placeholder.
+## Clone fork {#clone-fork}
 
-## wait-for-attribute {#wait-for-attribute}
+Clone fork 给新 Flow 一个自己的 Flow ID，以及该点的 Attribute、待处理的 Channel 消息和等待中的 Step。新 Flow 开始自己的历史。常见用法是分出一个 agent session，原来的 session 继续运行。可以在 Dex Web 的事件上点 **Clone fork from here…**，也可以用 Client 的 `CloneForkFlow` 或 `dexcli flow clone-fork`。
 
-Placeholder.
+<img
+  src="/img/compared-to-temporal/dex-web-clone-fork-dialog.png"
+  alt="Dex Web 的 Clone fork 对话框：Event ID 类型的点、自动生成的 New Flow ID 和原因"
+  width="544"
+/>
 
-## read-without-worker {#read-without-worker}
+见[用 Clone Fork 分出新的 Flow](/components/operate-and-debug#clone-fork)。
 
-Placeholder.
+## Connector {#connectors}
 
-## attribute-store-sync {#attribute-store-sync}
+Connector 为 Flow 提供调用外部服务商的 Step，以及把服务商事件转成 Flow 启动或 RPC 调用的 Trigger。你的应用导入 Connector 包，像用自己的 Step 一样用它的 Step。Mutation 每次重试都发送同一个幂等键，并处理结果未知的调用。Dex Web 的 **Connectors** 显示每个连接以及它需要的设置。已发布的 Connector 列在 [Connector 目录](https://connectors.superdurable.io/)里。
 
-Placeholder.
+<img
+  src="/img/compared-to-temporal/dex-web-connectors.png"
+  alt="Dex Web 的 Connectors 页面：一个连接的设置表单、授权指南和连接详情"
+/>
 
-## hard-delete {#hard-delete}
+见 [Connector](/concepts/connector)。
 
-Placeholder.
+## 跳过 Timer {#skip-timer}
 
+`SkipTimer` 用 Flow ID、Step execution，以及 Timer 的 condition ID 或序号选中一个 Timer。等待的 Step 会像 Timer 已经触发一样继续。可以在测试里用它，也可以在生产环境里用它让等待中的 Step 提前运行。Go、Python、Java、TypeScript 和 Rust 的 Client 都有这个调用。下面的命令跳过[快速开始](/quick-start)订单 Flow 中 `Ship` Step 的 **ship-delay** Timer：
+
+```bash
+dexcli flow skip-timer order-1a2b3c4d --step-type Ship --condition-id ship-delay --yes
+```
+
+见[跳过 Timer](/concepts/primitives/timer#跳过-timer)。
+
+## 等待 Step {#wait-for-step}
+
+`WaitForStepCompletion` 在 Flow 的某个 Step execution 完成时返回。调用方拿到结果之后，后面的 Step 继续运行。典型的调用方启动一个 Flow，等待保存记录的那个 Step，然后回复它的 HTTP 请求。Python 和 Rust 里叫 `wait_for_step_completion`，Java 和 TypeScript 里叫 `waitForStepCompletion`。
+
+见[等待 Step 完成](/design-patterns/responsive-update/step-completion)。
+
+## 等待 Attribute 匹配 {#wait-for-attribute}
+
+`WaitForAttributeMatch` 在 Attribute 满足类型化比较时返回，并返回匹配到的值。常见做法是用一个 revision Attribute，每次状态变化都把它加一。调用方等到 revision 大于它上次看到的值，再读取新状态。
+
+见[等待 Attribute 匹配](/design-patterns/responsive-update/attribute-match)。
+
+## 由 server 读取 Attribute {#read-without-worker}
+
+`GetAttributes` 在一次请求里读取任意组合的 Attribute 和 AttributeMap 实例。所有值都来自同一个已提交的状态。这次读取不向 Worker 派发任何任务，也不占用 Worker 的容量。
+
+见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)（英文）。
+
+## Attribute Store 同步 {#attribute-store-sync}
+
+Flow 把一个 Attribute 标记为同步，并在 FlowConfig 里写上一个已配置的 store 名称。Dex Server 随后在后台分批把这个 Attribute 写入该 store 的表。一行保存一个 Flow ID 的最新值。你自己的服务和报表用 SQL 读取这些表。
+
+见 [Attribute Store sync](/reference/server/attribute-store-sync)（英文）。
+
+## Hard-delete Attribute {#hard-delete}
+
+Dex 把 hard-delete Attribute 的每个值只存在对象存储里，Flow 历史只保存一个引用。删除这个 Attribute，或把它设为 null，会永久删除存储的值。之后 Dex API 和 Flow 历史都无法恢复它。API key 这类值适合用它。
+
+见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
+
+## 下一步 {#next}
+
+- [操作和恢复 Flow](/intro/compared-to-temporal/experience)：Time Travel 与 Reset、SubFlow 与 Child Workflow、RPC、Channel 和 Stream。
+- [Dex 与 Temporal 对比](/intro/compared-to-temporal)：总览和术语对照。

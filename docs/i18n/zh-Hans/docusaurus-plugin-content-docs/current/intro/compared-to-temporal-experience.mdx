@@ -2,28 +2,79 @@
 title: 操作和恢复 Flow
 sidebar_label: 操作和恢复 Flow
 slug: /intro/compared-to-temporal/experience
-description: Placeholder.
+description: Dex 和 Temporal 在恢复和消息上的区别。Time Travel 保留 Run ID，Reset 则开始新的运行；Dex 的 RPC、Channel 和 Stream 没有迫使运行换新的单次运行总量上限。
 ---
 
 # 操作和恢复 Flow
 
-## time-travel {#time-travel}
+Dex 的 Time Travel 让同一次运行退回到较早的点，Temporal 的 Reset 则结束当前运行并开始一次新的运行。Dex 的 RPC 和 Channel 消息没有单次运行的总量上限，Stream 消息也不进入运行的历史。
 
-Placeholder.
+| 主题 | Temporal | Dex |
+| --- | --- | --- |
+| [Time Travel 与 Reset](#time-travel) | Reset 终止当前运行，开始一次新的运行（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)）。 | Time Travel 让同一次运行退回，Run ID 不变，开始新的 run attempt。 |
+| [SubFlow 与 Child Workflow](#subflow) | 父 Workflow 使用 Continue-As-New 时，Child Workflow 不会带到新运行（[Child Workflows](https://docs.temporal.io/child-workflows)）。 | 父 Flow 的 SubFlow 等待一直留在同一次运行里。 |
+| [RPC 与 Update](#rpc) | 在 Temporal Cloud 上，每个 Workflow Execution 最多 10 个进行中的 Update，总共 2,000 个（[limits](https://docs.temporal.io/cloud/limits)）。 | 没有每个 Flow 的进行中上限，也没有单次运行的总数上限。 |
+| [Channel 与 Signal](#channel) | 在 Temporal Cloud 上，每个 Workflow Execution 最多接收 10,000 个 Signal（[limits](https://docs.temporal.io/cloud/limits)）。 | 单次运行没有消息总数上限。 |
+| [Stream 与 Workflow Streams](#stream) | Workflow Streams：一个处于 Public Preview 的库，构建在 Signal 和 Update 之上（[blog](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | 五种 SDK 都内置的原语，保存在运行的历史之外。 |
 
-## subflow {#subflow}
+## Time Travel 与 Reset {#time-travel}
 
-Placeholder.
+| Temporal | Dex |
+| --- | --- |
+| "In all cases the current run will be terminated and a new run started." 新运行有新的 Run ID（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)）。 | 同一次运行退回到那个点。Run ID 不变，run attempt 编号加一。 |
+| Reset 的目标点是一个 Workflow Task 事件：completed、timed out、failed 或 started。也可以用 reset 类型选择 FirstWorkflowTask、LastWorkflowTask、LastContinuedAsNew 或 BuildId（[CLI](https://docs.temporal.io/cli/workflow)）。 | 目标点可以是 Step 类型、Step execution、历史事件时间、事件 ID 或开头。在 Dex Web 里，在事件上点 **Time travel from here…** 就能选中它。 |
+| 新运行会重放保留下来的那段历史，所以 Workflow 代码必须和它保持兼容（[CLI](https://docs.temporal.io/cli/workflow)）。 | Attribute、Channel 消息和等待中的 Step 恢复成那个点时的样子。 |
+| Temporal Server 1.27.1（2025-02-26）之前，不支持 reset 到 child 开始和完成之间的点（[v1.27.1](https://github.com/temporalio/temporal/releases/tag/v1.27.1)）。从 1.28.0（2025-06-27）起，仍在运行的 child 会重新连到新运行上。目标点在 child 开始之前时，新运行不引用这个 child（[v1.28.0](https://github.com/temporalio/temporal/releases/tag/v1.28.0)）。 | `sub_flow_reset_policy` 为每个恢复的 SubFlow 等待在六种策略中选择一种。默认策略把等待重新附着到它的子运行上（[SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel)，英文）。 |
 
-## rpc {#rpc}
+<img
+  src="/img/compared-to-temporal/dex-web-time-travel-dialog.png"
+  alt="Dex Web 的 time travel 对话框：Time travel to a new run attempt，选中一个 Step execution 点、WaitFor 方法和原因"
+  width="544"
+/>
 
-Placeholder.
+为失败的 Step 部署修复之后使用 Time Travel。那个点之后的每个 Step 都会重新运行，所以每个外部调用都需要幂等键。见[用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)。
 
-## channel {#channel}
+## SubFlow 与 Child Workflow {#subflow}
 
-Placeholder.
+| Temporal | Dex |
+| --- | --- |
+| "Child Workflows do not carry over when the Parent uses Continue-As-New."（[Child Workflows](https://docs.temporal.io/child-workflows)） | 父 Flow 不需要为了历史大小开始新的运行，所以它的 SubFlow 等待留在同一次运行里。见[历史上限](/intro/compared-to-temporal/operations#history-limit)。 |
+| "A single Parent should not spawn more than 1,000 Child Workflow Executions."（[Child Workflows](https://docs.temporal.io/child-workflows)）自托管的服务默认允许每个 Workflow Execution 有 2,000 个待处理的 Child Workflow（[Defaults](https://docs.temporal.io/self-hosted-guide/defaults)）。 | 长生命周期的父 Flow 保持一组启动 SubFlow 的 Step，同时继续接收新的请求（[高级：长生命周期父 Flow](/design-patterns/subflows/long-lived-parent)）。 |
+| "The Parent can optionally await on the result of the Child Workflow Execution."（[Child Workflows](https://docs.temporal.io/child-workflows)） | Step 在 `WaitFor` 里启动 SubFlow，在 `Execute` 里读取它的结果。 |
 
-## stream {#stream}
+SubFlow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。见 [SubFlow](/concepts/primitives/subflow)。
 
-Placeholder.
+## RPC 与 Update {#rpc}
 
+| Temporal | Dex |
+| --- | --- |
+| "A single Workflow Execution can have a maximum of 10 in-flight Updates and 2000 total Updates in History."（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)） | RPC 没有每个 Flow 的进行中上限，也没有单次运行的总数上限。 |
+| 被接受的 Update 会在 Workflow 的 Event History 里加一条记录（[Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)）。 | RPC 把它写入的 Attribute 和结果一起保存，不会变成迫使运行换新的历史。 |
+| Update 要等运行这个 Workflow 的 Worker 确认请求（[Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)）。 | RPC 和 Step 一样在 Worker 上运行。 |
+
+RPC handler 读写 Attribute、向 Channel 发布消息，并启动新的 Step。见 [RPC](/concepts/primitives/rpc)。
+
+## Channel 与 Signal {#channel}
+
+| Temporal | Dex |
+| --- | --- |
+| "A single Workflow Execution may receive up to 10,000 Signals. After that limit is reached, no more Signals will be processed for that Workflow Execution."（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)） | Channel 在单次运行里没有消息总数上限。 |
+| Client 发送 Signal 时不依赖 Worker 是否可用（[Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)）。 | `PublishToChannel` 在没有 Worker 在线时也会保存消息。 |
+| 每个 Signal 都记录在 Workflow 的持久化历史里（[Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | 持续不断的消息也不需要开始新的运行。见[历史上限](/intro/compared-to-temporal/operations#history-limit)。 |
+
+Channel 是一次 Flow 运行内部的持久化先进先出队列。Step 在 `WaitFor` 里等待 Channel 来消费它的消息。见 [Channel](/concepts/primitives/channel)。
+
+## Stream 与 Workflow Streams {#stream}
+
+| Temporal | Dex |
+| --- | --- |
+| Workflow Streams 于 2026-06-17 发布，目前在 Python 和 TypeScript 上处于 Public Preview（[Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | Stream 是 Go、Python、Java、TypeScript 和 Rust SDK 都内置的原语。 |
+| 它是构建在 Workflow、Signal、Update 和 Query 之上的库。stream 事件的列表保存在 Workflow 里（[Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | Dex Server 把 Stream 消息保存在运行的历史之外，它们也不计入运行的状态。 |
+| 它发送的每个 Signal 都记录在 Workflow 的持久化历史里（[Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | Step 或 Client 写入消息。读取方按顺序读取，并从上次停下的地方继续。投递是尽力而为的。 |
+
+Stream 适合实时进度，例如生成的文本片段。不能丢失的数据用 Channel 或 Attribute。见 [Stream](/concepts/primitives/stream)。
+
+## 下一步 {#next}
+
+- [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)：在两个引擎里编写和修改同一个流程。
+- [运维](/intro/compared-to-temporal/operations)：运行服务器、历史上限和数据大小。

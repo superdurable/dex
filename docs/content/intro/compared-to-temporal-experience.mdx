@@ -2,28 +2,79 @@
 title: Operating and Recovering Flows
 sidebar_label: Operating and Recovering Flows
 slug: /intro/compared-to-temporal/experience
-description: Placeholder.
+description: How recovery and messaging differ between Dex and Temporal. Time Travel keeps the Run ID where Reset starts a new run, and Dex RPCs, Channels, and Streams have no per-run total that forces a new run.
 ---
 
 # Operating and Recovering Flows
 
-## time-travel {#time-travel}
+Dex Time Travel moves the same run back to an earlier point, where Temporal Reset ends the current run and starts a new one. Dex RPCs and Channel messages have no per-run total, and Stream messages stay out of the run's history.
 
-Placeholder.
+| Topic | Temporal | Dex |
+| --- | --- | --- |
+| [Time Travel and Reset](#time-travel) | Reset terminates the current run and starts a new run ([API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)). | Time Travel moves the same run back, with the same Run ID and a new run attempt. |
+| [SubFlow and Child Workflow](#subflow) | Child Workflows do not carry over when the parent uses Continue-As-New ([Child Workflows](https://docs.temporal.io/child-workflows)). | A parent Flow keeps its SubFlow waits in one run. |
+| [RPC and Update](#rpc) | At most 10 in-flight and 2,000 total Updates per Workflow Execution on Temporal Cloud ([limits](https://docs.temporal.io/cloud/limits)). | No per-Flow in-flight limit and no per-run total. |
+| [Channel and Signal](#channel) | Up to 10,000 Signals per Workflow Execution on Temporal Cloud ([limits](https://docs.temporal.io/cloud/limits)). | No total message limit per run. |
+| [Stream and Workflow Streams](#stream) | Workflow Streams: a library in Public Preview, built on Signals and Updates ([blog](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | A built-in primitive in all five SDKs, kept outside the run's history. |
 
-## subflow {#subflow}
+## Time Travel and Reset {#time-travel}
 
-Placeholder.
+| Temporal | Dex |
+| --- | --- |
+| "In all cases the current run will be terminated and a new run started." The new run has a new Run ID ([API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)). | The same run goes back to the point. The Run ID stays, and the run attempt number increases. |
+| The reset point is a Workflow Task event: completed, timed out, failed, or started. A reset type can also pick FirstWorkflowTask, LastWorkflowTask, LastContinuedAsNew, or BuildId ([CLI](https://docs.temporal.io/cli/workflow)). | The point is a Step type, a Step execution, a history event time, an event ID, or the beginning. In Dex Web, **Time travel from here…** on an event selects it. |
+| The new run replays the kept history prefix, so the Workflow code must stay compatible with it ([CLI](https://docs.temporal.io/cli/workflow)). | Attributes, Channel messages, and waiting Steps are restored as they were at the point. |
+| Before Temporal Server 1.27.1 (2025-02-26), a reset to a point between a child's start and completion was not supported ([v1.27.1](https://github.com/temporalio/temporal/releases/tag/v1.27.1)). Since 1.28.0 (2025-06-27), a running child is reconnected to the new run. When the point is before the child started, the new run does not reference the child ([v1.28.0](https://github.com/temporalio/temporal/releases/tag/v1.28.0)). | `sub_flow_reset_policy` chooses among six policies for each restored SubFlow wait. The default attaches the wait to its child run again ([SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel)). |
 
-## rpc {#rpc}
+<img
+  src="/img/compared-to-temporal/dex-web-time-travel-dialog.png"
+  alt="Dex Web time travel dialog: Time travel to a new run attempt, with a Step execution point, the WaitFor method, and a reason"
+  width="544"
+/>
 
-Placeholder.
+Use Time Travel after you deploy a fix for a Step that failed. Every Step after the point runs again, so each external call needs an idempotency key. See [Recover a Flow with Time Travel](/components/operate-and-debug#time-travel).
 
-## channel {#channel}
+## SubFlow and Child Workflow {#subflow}
 
-Placeholder.
+| Temporal | Dex |
+| --- | --- |
+| "Child Workflows do not carry over when the Parent uses Continue-As-New." ([Child Workflows](https://docs.temporal.io/child-workflows)) | A parent Flow needs no new run for history size, so its SubFlow waits stay in one run. See [The history limit](/intro/compared-to-temporal/operations#history-limit). |
+| "A single Parent should not spawn more than 1,000 Child Workflow Executions." ([Child Workflows](https://docs.temporal.io/child-workflows)) A self-hosted service allows 2,000 pending Child Workflows per Workflow Execution by default ([Defaults](https://docs.temporal.io/self-hosted-guide/defaults)). | A long-lived parent keeps a pool of Steps that start SubFlows while it accepts more requests ([Advanced: Long-lived Parent](/design-patterns/subflows/long-lived-parent)). |
+| "The Parent can optionally await on the result of the Child Workflow Execution." ([Child Workflows](https://docs.temporal.io/child-workflows)) | A Step starts the SubFlow in `WaitFor` and reads its result in `Execute`. |
 
-## stream {#stream}
+A SubFlow is a normal Flow with its own Steps, Attributes, and Channels. See [SubFlow](/concepts/primitives/subflow).
 
-Placeholder.
+## RPC and Update {#rpc}
 
+| Temporal | Dex |
+| --- | --- |
+| "A single Workflow Execution can have a maximum of 10 in-flight Updates and 2000 total Updates in History." ([Temporal Cloud limits](https://docs.temporal.io/cloud/limits)) | An RPC has no per-Flow in-flight limit and no per-run total. |
+| An accepted Update adds an entry to the Workflow Event History ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). | An RPC saves its Attribute writes with its result, not as history that forces a new run. |
+| An Update waits for the Worker running the Workflow to acknowledge the request ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). | An RPC runs on a Worker, like a Step. |
+
+An RPC handler reads and writes Attributes, publishes to a Channel, and starts new Steps. See [RPC](/concepts/primitives/rpc).
+
+## Channel and Signal {#channel}
+
+| Temporal | Dex |
+| --- | --- |
+| "A single Workflow Execution may receive up to 10,000 Signals. After that limit is reached, no more Signals will be processed for that Workflow Execution." ([Temporal Cloud limits](https://docs.temporal.io/cloud/limits)) | A Channel has no total message limit per run. |
+| A Client sends a Signal without depending on the Worker being available ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). | `PublishToChannel` stores a message with no Worker online. |
+| Each Signal is recorded in the Workflow's persistent history ([Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | A long run of messages needs no new run. See [The history limit](/intro/compared-to-temporal/operations#history-limit). |
+
+A Channel is a durable first-in, first-out queue inside one Flow run. A Step consumes its messages by waiting on it in `WaitFor`. See [Channel](/concepts/primitives/channel).
+
+## Stream and Workflow Streams {#stream}
+
+| Temporal | Dex |
+| --- | --- |
+| Workflow Streams is in Public Preview for Python and TypeScript, announced 2026-06-17 ([Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | Stream is a built-in primitive in the Go, Python, Java, TypeScript, and Rust SDKs. |
+| It is a library on top of Workflows, Signals, Updates, and Queries. The Workflow keeps the list of stream events ([Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | Dex Server keeps Stream messages outside the run's history, and they do not count against the run's state. |
+| Each Signal it sends is recorded in the Workflow's persistent history ([Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | A Step or a Client writes messages. A reader reads them in order and resumes where it stopped. Delivery is best effort. |
+
+Use a Stream for live progress, such as generated-text chunks. Use a Channel or an Attribute for data that must not be lost. See [Stream](/concepts/primitives/stream).
+
+## Next
+
+- [Dex vs. Temporal in Depth](/intro/compared-to-temporal/programming-model): writing and changing the same process in both engines.
+- [Operations](/intro/compared-to-temporal/operations): running the server, the history limit, and data size.
