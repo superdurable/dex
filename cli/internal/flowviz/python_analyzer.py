@@ -1010,16 +1010,26 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             })
         self.lock_handlers.append({
             "ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses,
-            "mayReadAny": self.context_reaches_other_code(owner_id, method),
+            "mayReadAny": self.context_reaches_other_code(owner_id, method), "method": method,
         })
 
     # Reading an Attribute needs the context. The handler's reads are fully known only when the context appears
     # solely as the first argument of a resource method call or in an attribute lookup such as context.flow_id.
     def context_reaches_other_code(self, owner_id, method):
+        # The context's position follows the method binding: first for a staticmethod, second otherwise.
+        context_index = 1
+        for decorator in method.decorator_list:
+            function = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(decorator, ast.Name) and decorator.id == "staticmethod":
+                context_index = 0
+            elif isinstance(decorator, ast.Name) and decorator.id == "classmethod":
+                context_index = 1
+            elif not self.is_dex_reference(function, "rpc"):
+                return True
         positional = [*method.args.posonlyargs, *method.args.args]
-        if len(positional) < 2 or method.args.vararg is not None or method.args.kwarg is not None:
+        if len(positional) <= context_index or method.args.vararg is not None or method.args.kwarg is not None:
             return True
-        context_name = positional[1].arg
+        context_name = positional[context_index].arg
         allowed = set()
         for node in ast.walk(method):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args and self.resource_for(node.func.value, owner_id):
@@ -1249,7 +1259,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                     rpc_writers.add(resource_id)
                     if reads_here:
                         rpc_read_writers.setdefault(resource_id, set()).add(handler["label"])
-                if reads_in_other_phase:
+                if sibling is not None and resource_id in sibling["reads"]:
                     cross_phase_reads.add(resource_id)
                 if not facts["isFullyAnalyzed"] or reads_in_other_phase or (sibling is not None and not sibling["isFullyAnalyzed"]):
                     blocked_exemptions.add(resource_id)
@@ -1270,9 +1280,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             if resource_id not in blocked_exemptions and common_locks.get(resource_id):
                 continue
             if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and (resource_id in read_writers or resource_id in blocked_exemptions):
-                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + cause(resource_id, ", at least one of them reads it, and no registration lock is held by every writer")
+                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + cause(resource_id, ", at least one of them reads it, and no exact registration lock is held by every writer")
             elif resource_id in rpc_read_writers:
-                reason = "is both read and written by " + ", ".join(sorted(rpc_read_writers[resource_id])) + cause(resource_id, " without a registration lock")
+                reason = "is both read and written by " + ", ".join(sorted(rpc_read_writers[resource_id])) + cause(resource_id, " without an exact registration lock")
             else:
                 continue
             call, _ = self.resource_declarations[resource_id]
@@ -1334,7 +1344,85 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 return True
             if isinstance(node, ast.Attribute) and node.attr in {"on_execute_failure_proceed_to", "on_failure_proceed_to"}:
                 return True
-        return False
+        return not self.movements_are_literal()
+
+    # Fails closed: every movement that reaches a decision, an RPC result, or a Join fork must visibly be the allowed
+    # StepMovement.of(target, input), directly or through a local list built only from such calls. Every handler
+    # return must be a direct SDK call, so a helper cannot hand back a decision built elsewhere.
+    def movements_are_literal(self):
+        def is_allowed_movement(node):
+            return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "of"
+                    and self.is_dex_reference(node.func.value, "StepMovement") and len(node.args) == 2 and not node.keywords)
+
+        def enclosing_function(target):
+            return next((node for node in ast.walk(self.tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and target in set(ast.walk(node))), None)
+
+        def is_literal_list(name, function):
+            if function is None:
+                return False
+            for node in ast.walk(function):
+                if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+                    if not isinstance(node.value, (ast.List, ast.Tuple)) or not all(is_allowed_movement(element) for element in node.value.elts):
+                        return False
+            allowed_uses = set()
+            for node in ast.walk(function):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == name:
+                    if node.func.attr == "append" and len(node.args) == 1 and is_allowed_movement(node.args[0]):
+                        allowed_uses.add(node.func.value)
+                    elif node.func.attr == "extend" and len(node.args) == 1 and isinstance(node.args[0], (ast.List, ast.Tuple)) and all(is_allowed_movement(element) for element in node.args[0].elts):
+                        allowed_uses.add(node.func.value)
+                elif isinstance(node, ast.Starred) and isinstance(node.value, ast.Name) and node.value.id == name:
+                    allowed_uses.add(node.value)
+            for node in ast.walk(function):
+                if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load) and node not in allowed_uses:
+                    return False
+            return True
+
+        def is_allowed_argument(node):
+            if is_allowed_movement(node):
+                return True
+            if isinstance(node, ast.Starred) and isinstance(node.value, ast.Name):
+                return is_literal_list(node.value.id, enclosing_function(node))
+            if isinstance(node, (ast.List, ast.Tuple)):
+                return all(is_allowed_argument(element) for element in node.elts)
+            return False
+
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if self.is_dex_reference(node.func, "go_to_many"):
+                if node.keywords or not all(is_allowed_argument(argument) for argument in node.args):
+                    return False
+            elif self.is_dex_reference(node.func, "go_to"):
+                if node.keywords or len(node.args) != 2:
+                    return False
+            elif self.is_dex_reference(node.func, "RPCResult"):
+                movements = [keyword.value for keyword in node.keywords if keyword.arg == "next_steps"] + node.args[1:]
+                if any(keyword.arg is None for keyword in node.keywords) or not all(is_allowed_argument(movement) for movement in movements):
+                    return False
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "fork":
+                for builder_list in [*node.args[1:], *(keyword.value for keyword in node.keywords)]:
+                    builders = builder_list.elts if isinstance(builder_list, (ast.List, ast.Tuple)) else [builder_list.elt] if isinstance(builder_list, (ast.ListComp, ast.GeneratorExp)) else [builder_list]
+                    if not all(isinstance(builder, ast.Lambda) and is_allowed_movement(builder.body) for builder in builders):
+                        return False
+        for handler in self.lock_handlers:
+            method = handler.get("method")
+            for statement in self.function_returns(method) if method is not None else []:
+                value = statement.value
+                if value is None or isinstance(value, ast.Constant):
+                    continue
+                if not isinstance(value, ast.Call) or not self.is_dex_callee(value.func):
+                    return False
+        return True
+
+    # A callee is a Dex SDK name, such as go_to_many, or an attribute of one, such as Wait.any_of.
+    def is_dex_callee(self, function):
+        root = function
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
+            return False
+        return root.id in self.imports or root.id in self.module_aliases
 
     def node_name(self, node_id):
         for node in self.graph["nodes"]:

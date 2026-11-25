@@ -114,17 +114,19 @@ EXTRA_SOURCE
 `
 
 type goDeclaredLocksCase struct {
-	extraSource    string
-	totalOptions   string
-	itemsOptions   string
-	repliesOptions string
-	rpcOptions     string
-	moveOptions    string
-	stepOptions    string
-	rpcBody        string
-	timeoutBody    string
-	waitBody       string
-	executeBody    string
+	extraSource string
+	// movementPackage, when set, is the source of package declaredlocks/movement, which workflow.go imports.
+	movementPackage string
+	totalOptions    string
+	itemsOptions    string
+	repliesOptions  string
+	rpcOptions      string
+	moveOptions     string
+	stepOptions     string
+	rpcBody         string
+	timeoutBody     string
+	waitBody        string
+	executeBody     string
 }
 
 const goReadThenWriteTotal = "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+2)"
@@ -222,7 +224,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"two writers without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute, at least one of them reads it, and no registration lock is held by every writer",
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute, at least one of them reads it, and no exact registration lock is held by every writer",
 		},
 		"blind writers are not nudged": {
 			source: goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
@@ -230,7 +232,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"read then write without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written by RPC Reply without a registration lock",
+			messageFragment: "is both read and written by RPC Reply without an exact registration lock",
 		},
 		"read then write under own lock without declaration": {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -241,7 +243,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"one unlocked writer of two without declaration": {
 			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no registration lock is held by every writer",
+			messageFragment: "and no exact registration lock is held by every writer",
 		},
 		"step writers alone are not nudged": {
 			source: goDeclaredLocksCase{waitBody: "_ = total.Set(ctx, 1)", executeBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -259,7 +261,7 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 		"writers hold different locks": {
 			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), stepOptions: goExecuteLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and no registration lock is held by every writer",
+			messageFragment: "and no exact registration lock is held by every writer",
 		},
 		"read in a helper counts as a read": {
 			source: goDeclaredLocksCase{
@@ -379,6 +381,27 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
 			messageFragment: "a Step reads it in its other phase, which holds its locks separately",
+		},
+		"movement from a helper in another package": {
+			source: goDeclaredLocksCase{
+				movementPackage: "package movement\n\nimport \"github.com/superdurable/dex/sdk-go/dex\"\n\nfunc Configured[IN any](step dex.Step[IN], input IN) dex.StepMovement {\n\treturn dex.MovementOf(step, input, dex.WithStepOptions(&dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{}}))\n}",
+				extraSource:     "func fanOut(input string) *dex.StepDecision {\n\tmovements := []dex.StepMovement{dex.MovementOf(AddItemStep{}, input)}\n\tmovements = append(movements, movement.Configured(AddItemStep{}, input))\n\treturn dex.GoToMany(movements...)\n}",
+				rpcOptions:      goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions:     goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:         "_ = total.Set(ctx, 1)",
+				executeBody:     goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"movement from a MovementOf function value": {
+			source: goDeclaredLocksCase{
+				extraSource: "var buildMovement = dex.MovementOf[string]\n\nfunc fanOut(input string) *dex.StepDecision {\n\treturn dex.GoToMany(buildMovement(AddItemStep{}, input))\n}",
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"context passed to a helper keeps the warning": {
 			source: goDeclaredLocksCase{
@@ -546,7 +569,13 @@ func analyzeGoDeclaredLocksSource(t *testing.T, source goDeclaredLocksCase) *Gra
 	module := "module declaredlocks\n\ngo 1.26.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.ToSlash(sdkDirectory) + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0o644))
 	sourcePath := filepath.Join(directory, "workflow.go")
-	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(goDeclaredLocksSource)), 0o644))
+	contents := replacer.Replace(goDeclaredLocksSource)
+	if source.movementPackage != "" {
+		require.NoError(t, os.MkdirAll(filepath.Join(directory, "movement"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "movement", "movement.go"), []byte(source.movementPackage), 0o644))
+		contents = strings.Replace(contents, `import "github.com/superdurable/dex/sdk-go/dex"`, "import (\n\t\"declaredlocks/movement\"\n\n\t\"github.com/superdurable/dex/sdk-go/dex\"\n)", 1)
+	}
+	require.NoError(t, os.WriteFile(sourcePath, []byte(contents), 0o644))
 	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "CartFlow"})
 	require.NoError(t, err)
 	return graph

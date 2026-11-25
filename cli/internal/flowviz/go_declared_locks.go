@@ -53,8 +53,8 @@ type goDeclaredLockChecker struct {
 	sources   *goStateLoadSources
 	reported  map[string]bool
 	rebound   map[types.Object]bool
-	// indirectRPCRegistration caches hasIndirectRPCRegistration; nil means not computed yet.
-	indirectRPCRegistration *bool
+	// scan caches packageScan; nil means not computed yet.
+	scan *goPackageScan
 }
 
 func newGoDeclaredLockChecker(analyzer *goAnalyzer, evaluator *goOptionsEvaluator, sources *goStateLoadSources) *goDeclaredLockChecker {
@@ -712,7 +712,7 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 					addHandlerLabel(rpcReadWriters, resourceID, label)
 				}
 			}
-			if readsInOtherPhase {
+			if sibling != nil && sibling.reads[resourceID] {
 				hasCrossPhaseRead[resourceID] = true
 			}
 			if !current.isFullyAnalyzed || readsInOtherPhase || (sibling != nil && !sibling.isFullyAnalyzed) {
@@ -743,10 +743,10 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 		switch {
 		case len(writers[resourceID]) >= 2 && rpcWriters[resourceID] && (readWriters[resourceID] || isExemptionBlocked[resourceID]):
 			reason = "is written by " + strings.Join(sortedLabels(writers[resourceID]), ", ") +
-				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], ", at least one of them reads it, and no registration lock is held by every writer")
+				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], ", at least one of them reads it, and no exact registration lock is held by every writer")
 		case len(rpcReadWriters[resourceID]) > 0:
 			reason = "is both read and written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") +
-				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], " without a registration lock")
+				goLockNudgeCause(hasCrossPhaseRead[resourceID], isExemptionBlocked[resourceID], " without an exact registration lock")
 		default:
 			continue
 		}
@@ -788,7 +788,8 @@ func (checker *goDeclaredLockChecker) exactHeldLocks(handler goHandlerSummary) m
 		shape := checker.stepOptionsShape(checker.analyzer.stepValueTypes[stepType])
 		if !shape.isLiteral || shape.hasUnreachableReturn || shape.returnCount > 1 || shape.returnCount < 0 ||
 			len(sources.stepOptionOverrides[handler.ownerID]) > 0 || len(sources.unattributedStepOverrides) > 0 ||
-			len(sources.stepOptionUnknowns[handler.ownerID]) > 0 || len(sources.unattributedStepUnknowns) > 0 {
+			len(sources.stepOptionUnknowns[handler.ownerID]) > 0 || len(sources.unattributedStepUnknowns) > 0 ||
+			checker.packageScan().hasUnprovenMovement {
 			return nil
 		}
 		locks, _ := checker.handlerLocks(handler)
@@ -798,7 +799,7 @@ func (checker *goDeclaredLockChecker) exactHeldLocks(handler goHandlerSummary) m
 		return checker.exactLockKeys(locks.locks)
 	case "rpc":
 		registrations, isRegistered := sources.rpcOptions[strings.TrimPrefix(handler.ownerID, "rpc:")]
-		if !isRegistered || sources.hasUnattributedRPCRegistration || checker.hasIndirectRPCRegistration() {
+		if !isRegistered || sources.hasUnattributedRPCRegistration || checker.packageScan().hasIndirectRPCRegistration {
 			return nil
 		}
 		var held map[string]bool
@@ -825,39 +826,98 @@ func (checker *goDeclaredLockChecker) exactHeldLocks(handler goHandlerSummary) m
 	return nil
 }
 
-// hasIndirectRPCRegistration reports whether the package uses dex.DefineRPC other than as the callee of a call
-// inside a function body, such as through a function value, whose registrations the collector cannot see.
-func (checker *goDeclaredLockChecker) hasIndirectRPCRegistration() bool {
-	if checker.indirectRPCRegistration != nil {
-		return *checker.indirectRPCRegistration
+// goPackageScan holds the package-wide facts that cancel nudge exemptions when the analyzer cannot follow them.
+type goPackageScan struct {
+	// hasIndirectRPCRegistration: dex.DefineRPC is used other than as the direct callee of a call in a function body.
+	hasIndirectRPCRegistration bool
+	// hasUnprovenMovement: some Step movement or decision may come from a form other than a direct
+	// dex.MovementOf(target, input) or dex.GoTo(target, input) call, or from same-package code built of them.
+	hasUnprovenMovement bool
+}
+
+// packageScan fails closed: it allows only explicitly recognized forms and flags everything else.
+func (checker *goDeclaredLockChecker) packageScan() goPackageScan {
+	if checker.scan != nil {
+		return *checker.scan
 	}
-	directCallees := make(map[*ast.Ident]bool)
+	scan := goPackageScan{}
+	directCalls := make(map[*ast.Ident]*ast.CallExpr)
+	var calls []*ast.CallExpr
 	for _, declaration := range checker.evaluator.functions.declarations {
 		if declaration.Body == nil {
 			continue
 		}
 		ast.Inspect(declaration.Body, func(node ast.Node) bool {
-			if call, isCall := node.(*ast.CallExpr); isCall {
-				switch callee := unwrapCallFun(ast.Unparen(call.Fun)).(type) {
-				case *ast.Ident:
-					directCallees[callee] = true
-				case *ast.SelectorExpr:
-					directCallees[callee.Sel] = true
-				}
+			call, isCall := node.(*ast.CallExpr)
+			if !isCall {
+				return true
+			}
+			calls = append(calls, call)
+			switch callee := unwrapCallFun(ast.Unparen(call.Fun)).(type) {
+			case *ast.Ident:
+				directCalls[callee] = call
+			case *ast.SelectorExpr:
+				directCalls[callee.Sel] = call
 			}
 			return true
 		})
 	}
-	isIndirect := false
+	isInPackage := func(function *types.Func) bool {
+		return checker.evaluator.functions.declarations[function.Origin()] != nil
+	}
 	for identifier, object := range checker.analyzer.typeInfo.Uses {
 		function, isFunction := object.(*types.Func)
-		if isFunction && function.Name() == "DefineRPC" && function.Pkg() != nil && function.Pkg().Path() == goSDKPackage && !directCallees[identifier] {
-			isIndirect = true
-			break
+		if !isFunction {
+			continue
+		}
+		isSDK := function.Pkg() != nil && function.Pkg().Path() == goSDKPackage
+		call := directCalls[identifier]
+		switch {
+		case isSDK && function.Name() == "DefineRPC" && call == nil:
+			scan.hasIndirectRPCRegistration = true
+		case isSDK && (function.Name() == "MovementOf" || function.Name() == "GoTo") && (call == nil || len(call.Args) != 2):
+			scan.hasUnprovenMovement = true
+		case !isSDK && !isInPackage(function) && goTypeCarriesMovement(function.Type()):
+			scan.hasUnprovenMovement = true
 		}
 	}
-	checker.indirectRPCRegistration = &isIndirect
-	return isIndirect
+	for _, call := range calls {
+		if !goTypeCarriesMovement(checker.analyzer.typeInfo.TypeOf(call)) {
+			continue
+		}
+		if function := checker.calledFunction(call); function == nil || (!isInPackage(function) && (function.Pkg() == nil || function.Pkg().Path() != goSDKPackage)) {
+			scan.hasUnprovenMovement = true
+		}
+	}
+	checker.scan = &scan
+	return scan
+}
+
+// goTypeCarriesMovement reports whether a type is, holds, or returns a dex.StepMovement or dex.StepDecision.
+func goTypeCarriesMovement(valueType types.Type) bool {
+	switch current := valueType.(type) {
+	case nil:
+		return false
+	case *types.Pointer:
+		return goTypeCarriesMovement(current.Elem())
+	case *types.Slice:
+		return goTypeCarriesMovement(current.Elem())
+	case *types.Array:
+		return goTypeCarriesMovement(current.Elem())
+	case *types.Tuple:
+		for index := range current.Len() {
+			if goTypeCarriesMovement(current.At(index).Type()) {
+				return true
+			}
+		}
+		return false
+	case *types.Signature:
+		return goTypeCarriesMovement(current.Results())
+	case *types.Named:
+		object := current.Obj()
+		return object.Pkg() != nil && object.Pkg().Path() == goSDKPackage && (object.Name() == "StepMovement" || object.Name() == "StepDecision")
+	}
+	return false
 }
 
 // contextReachesNonSDKCode reports whether the handler's dex.Context is used other than as an SDK call argument or
