@@ -59,6 +59,8 @@ export const SHIPMENT_REJECTED = "rejected";
 export const SHIPMENT_UNAVAILABLE = "unavailable";
 
 const DUPLICATE_SHIPMENT_PREFIX = "duplicate shipment number: ";
+const NEGATIVE_DELIVERY_DELAY_PREFIX = "negative delivery delay for shipment: ";
+const INVALID_RECONCILE_INTERVAL_MESSAGE = "reconcile interval must be positive";
 
 /** The input of OrderFulfillmentFlow. The order number is the Flow ID. */
 export interface Order {
@@ -133,7 +135,7 @@ export function shipmentStartRequestId(orderFlowId: string, shipment: Shipment):
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Registers the order's shipment numbers, then starts one branch per shipment."
+// dex:explanation text:"Checks the order, registers its shipment numbers, then starts one branch per shipment."
 class StartShipments implements Step<Order> {
   public getStepType(): string {
     return "StartShipments";
@@ -145,11 +147,17 @@ class StartShipments implements Step<Order> {
   }
 
   public execute(context: Context, order: Order): StepDecision {
+    if (order.reconcileIntervalSeconds <= 0) {
+      return forceFail(INVALID_RECONCILE_INTERVAL_MESSAGE);
+    }
     if (order.shipments.length === 0) {
       return gracefulComplete();
     }
     const numbers = new Set<string>();
     for (const shipment of order.shipments) {
+      if (shipment.deliveryDelaySeconds < 0) {
+        return forceFail(NEGATIVE_DELIVERY_DELAY_PREFIX + shipment.shipmentNumber);
+      }
       if (numbers.has(shipment.shipmentNumber)) {
         return forceFail(DUPLICATE_SHIPMENT_PREFIX + shipment.shipmentNumber);
       }

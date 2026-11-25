@@ -81,6 +81,12 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
 
     private static final String DUPLICATE_SHIPMENT_PREFIX = "duplicate shipment number: ";
 
+    private static final String NEGATIVE_DELIVERY_DELAY_PREFIX =
+            "negative delivery delay for shipment: ";
+
+    private static final String INVALID_RECONCILE_INTERVAL_MESSAGE =
+            "reconcile interval must be positive";
+
     private static final ObjectMapper START_REQUEST_MAPPER = new ObjectMapper();
 
     /**
@@ -240,7 +246,7 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
     }
 
     // dex:group group-id:start group-label:"Start shipments"
-    // dex:explanation text:"Registers the order's shipment numbers, then starts one branch per shipment."
+    // dex:explanation text:"Checks the order, registers its shipment numbers, then starts one branch per shipment."
     static final class StartShipments implements Step<Order> {
         @Override
         public Class<Order> getInputType() {
@@ -255,11 +261,18 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
 
         @Override
         public StepDecision execute(final Context context, final Order order) {
+            if (order.reconcileIntervalSeconds() <= 0) {
+                return StepDecision.forceFail(INVALID_RECONCILE_INTERVAL_MESSAGE);
+            }
             if (order.shipments() == null || order.shipments().isEmpty()) {
                 return StepDecision.gracefulComplete();
             }
             final Set<String> numbers = new HashSet<String>();
             for (final Shipment shipment : order.shipments()) {
+                if (shipment.deliveryDelaySeconds() < 0) {
+                    return StepDecision.forceFail(
+                            NEGATIVE_DELIVERY_DELAY_PREFIX + shipment.shipmentNumber());
+                }
                 if (!numbers.add(shipment.shipmentNumber())) {
                     return StepDecision.forceFail(
                             DUPLICATE_SHIPMENT_PREFIX + shipment.shipmentNumber());

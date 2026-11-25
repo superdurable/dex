@@ -68,6 +68,8 @@ SHIPMENT_REJECTED = "rejected"
 SHIPMENT_UNAVAILABLE = "unavailable"
 
 DUPLICATE_SHIPMENT_PREFIX = "duplicate shipment number: "
+NEGATIVE_DELIVERY_DELAY_PREFIX = "negative delivery delay for shipment: "
+INVALID_RECONCILE_INTERVAL_MESSAGE = "reconcile interval must be positive"
 
 
 class ShipmentNotClaimedError(Exception):
@@ -163,19 +165,23 @@ SHIPMENT_RECORDS_LOCK = Attribute("shipmentRecordsLock", bool)
 
 
 # dex:group group-id:start group-label:"Start shipments"
-# dex:explanation text:"Registers the order's shipment numbers, then starts one branch per shipment."
+# dex:explanation text:"Checks the order, registers its shipment numbers, then starts one branch per shipment."
 class StartShipments(Step[Order]):
-    """Registers every shipment, then starts one StartShipment branch per shipment."""
+    """Checks the order, registers every shipment, then starts one StartShipment branch each."""
 
     def get_step_options(self) -> StepOptions:
         """Takes the records lock, so registration never races a report."""
         return StepOptions(execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),))
 
     def execute(self, context: Context, order: Order) -> StepDecision:
+        if order.reconcile_interval_seconds <= 0:
+            return force_fail(INVALID_RECONCILE_INTERVAL_MESSAGE)
         if not order.shipments:
             return graceful_complete()
         numbers: set[str] = set()
         for shipment in order.shipments:
+            if shipment.delivery_delay_seconds < 0:
+                return force_fail(NEGATIVE_DELIVERY_DELAY_PREFIX + shipment.shipment_number)
             if shipment.shipment_number in numbers:
                 return force_fail(DUPLICATE_SHIPMENT_PREFIX + shipment.shipment_number)
             numbers.add(shipment.shipment_number)

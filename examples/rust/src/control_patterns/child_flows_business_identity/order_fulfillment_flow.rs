@@ -46,6 +46,8 @@ pub const SHIPMENT_NOT_CLAIMED_MESSAGE: &str =
     "childflows: the order has not claimed this shipment run yet";
 
 const DUPLICATE_SHIPMENT_PREFIX: &str = "duplicate shipment number: ";
+const NEGATIVE_DELIVERY_DELAY_PREFIX: &str = "negative delivery delay for shipment: ";
+const INVALID_RECONCILE_INTERVAL_MESSAGE: &str = "reconcile interval must be positive";
 
 /// The input of `OrderFulfillmentFlow`. The order number is the Flow ID.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -53,7 +55,7 @@ const DUPLICATE_SHIPMENT_PREFIX: &str = "duplicate shipment number: ";
 pub struct Order {
     pub shipments: Vec<Shipment>,
     /// How often the order reads a shipment that has not ended.
-    pub reconcile_interval_seconds: u64,
+    pub reconcile_interval_seconds: i64,
 }
 
 /// The input of the Steps that start and track one shipment.
@@ -61,7 +63,7 @@ pub struct Order {
 #[serde(rename_all = "camelCase")]
 pub struct TrackedShipment {
     pub shipment: Shipment,
-    pub reconcile_interval_seconds: u64,
+    pub reconcile_interval_seconds: i64,
     /// The run this order started and tracks; empty before the start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shipment_run_id: Option<String>,
@@ -180,7 +182,7 @@ impl Flow for OrderFulfillmentFlow {
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Registers the order's shipment numbers, then starts one branch per shipment."
+// dex:explanation text:"Checks the order, registers its shipment numbers, then starts one branch per shipment."
 #[derive(Default)]
 struct StartShipments;
 
@@ -193,11 +195,20 @@ impl Step for StartShipments {
     }
 
     fn execute(&self, context: &mut Context, order: Self::Input) -> HandlerResult<StepDecision> {
+        if order.reconcile_interval_seconds <= 0 {
+            return Ok(StepDecision::force_fail(INVALID_RECONCILE_INTERVAL_MESSAGE));
+        }
         if order.shipments.is_empty() {
             return Ok(StepDecision::graceful_complete(()));
         }
         let mut numbers = HashSet::with_capacity(order.shipments.len());
         for shipment in &order.shipments {
+            if shipment.delivery_delay_seconds < 0 {
+                return Ok(StepDecision::force_fail(format!(
+                    "{NEGATIVE_DELIVERY_DELAY_PREFIX}{}",
+                    shipment.shipment_number
+                )));
+            }
             if !numbers.insert(shipment.shipment_number.as_str()) {
                 return Ok(StepDecision::force_fail(format!(
                     "{DUPLICATE_SHIPMENT_PREFIX}{}",
@@ -319,7 +330,7 @@ impl Step for AwaitShipment {
     }
 
     fn wait_for(&self, _context: &mut Context, tracked: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+        Ok(Wait::until(Timer::by_duration(duration_from_seconds(
             tracked.reconcile_interval_seconds,
         ))))
     }
@@ -422,6 +433,11 @@ pub fn flow_status_name(status: FlowStatus) -> &'static str {
         FlowStatus::Terminated => "terminated",
         FlowStatus::ServerSideTimeoutInternalOnly => "server-side timeout (internal only)",
     }
+}
+
+/// Returns a Timer duration of `seconds`, treating a negative count as zero.
+pub(super) fn duration_from_seconds(seconds: i64) -> Duration {
+    Duration::from_secs(seconds.max(0).unsigned_abs())
 }
 
 pub(super) fn require_client(client: Option<&Arc<Client>>) -> HandlerResult<&Client> {

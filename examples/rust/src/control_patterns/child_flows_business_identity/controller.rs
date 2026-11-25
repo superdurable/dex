@@ -179,7 +179,7 @@ fn shipment(
     order_id: &str,
     index: u32,
     destination: &str,
-    delivery_delay_seconds: u64,
+    delivery_delay_seconds: i64,
 ) -> Shipment {
     Shipment {
         shipment_number: format!("{order_id}-{index}"),

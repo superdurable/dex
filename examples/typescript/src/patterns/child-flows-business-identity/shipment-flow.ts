@@ -109,8 +109,8 @@ class ReportShipmentOutcome implements Step<PendingReport> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
     const getOrderFlow = this.getOrderFlow;
-    // Stable per shipment, so a retried report changes the order once.
-    const requestId = `report:${context.flowId}`;
+    // Stable per shipment run, so a retried report changes the order once.
+    const requestId = `report:${context.flowId}:${context.runId}`;
     try {
       await getClient().invokeRPCWithOptions(
         getOrderFlow().recordShipmentOutcome,

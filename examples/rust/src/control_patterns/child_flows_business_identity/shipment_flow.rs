@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
 
 use dex_sdk::{
     Attribute, Client, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, SdkError,
@@ -21,7 +20,9 @@ use dex_sdk::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::order_fulfillment_flow::{RECORD_SHIPMENT_OUTCOME, ShipmentReport, require_client};
+use super::order_fulfillment_flow::{
+    RECORD_SHIPMENT_OUTCOME, ShipmentReport, duration_from_seconds, require_client,
+};
 
 /// One parcel of an order, identified by its shipment number.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -30,7 +31,7 @@ pub struct Shipment {
     pub shipment_number: String,
     pub destination: String,
     /// Simulates how long the carrier takes to deliver.
-    pub delivery_delay_seconds: u64,
+    pub delivery_delay_seconds: i64,
 }
 
 /// The input of `ShipmentFlow`.
@@ -100,7 +101,7 @@ impl Step for DeliverShipment {
     }
 
     fn wait_for(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+        Ok(Wait::until(Timer::by_duration(duration_from_seconds(
             request.shipment.delivery_delay_seconds,
         ))))
     }

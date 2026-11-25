@@ -565,6 +565,7 @@ fn child_flows_business_identity_accepts_reports_only_from_the_claimed_run() {
     for (shipment_number, shipment_run_id) in [
         (&delivered, delivered_run_id.as_str()),
         (&canceled, "another-run"),
+        (&canceled, ""),
         (&unknown, "another-run"),
     ] {
         environment.invoke_retrying_lock_conflicts(
@@ -658,16 +659,18 @@ fn child_flows_business_identity_rejects_a_shipment_number_owned_by_another_requ
         ..ShipmentRecord::default()
     };
     environment.wait_for_shipment_record(&second_order_id, &number, &rejected);
-    // The run that owns the number reports to the second order: the rejected record stays as it is.
-    environment.invoke_retrying_lock_conflicts(
-        &second_order_id,
-        RECORD_SHIPMENT_OUTCOME,
-        ShipmentReport {
-            shipment_number: number.clone(),
-            shipment_run_id: run_id,
-            outcome: "delivered to Boise".to_string(),
-        },
-    );
+    // Reports to the second order, from the owning run or with no run ID, leave the rejected record as it is.
+    for report_run_id in [run_id.as_str(), ""] {
+        environment.invoke_retrying_lock_conflicts(
+            &second_order_id,
+            RECORD_SHIPMENT_OUTCOME,
+            ShipmentReport {
+                shipment_number: number.clone(),
+                shipment_run_id: report_run_id.to_string(),
+                outcome: "delivered to Boise".to_string(),
+            },
+        );
+    }
     assert_eq!(
         environment.shipment_record(&second_order_id, &number),
         rejected
@@ -685,7 +688,7 @@ fn child_flows_business_identity_ignores_a_reopened_shipment_number() {
         &order_id,
         Order {
             shipments: vec![shipment(&number, "Seattle", 3600)],
-            reconcile_interval_seconds: 3,
+            reconcile_interval_seconds: 10,
         },
     );
     let claimed_run_id = environment.wait_for_claimed_run(&order_id, &number);
@@ -695,7 +698,7 @@ fn child_flows_business_identity_ignores_a_reopened_shipment_number() {
         .expect("cancel the claimed run");
     environment.wait_for_shipment_status(&number, FlowStatus::Canceled);
 
-    // Another caller reopens the number; its run reports to the same order.
+    // Another caller reopens the number; its run reports to the same order and completes.
     environment
         .client
         .start_flow_with_options(
@@ -710,56 +713,85 @@ fn child_flows_business_identity_ignores_a_reopened_shipment_number() {
         .expect("reopen the shipment number");
     environment.wait_for_shipment_status(&number, FlowStatus::Completed);
 
-    environment.wait_for_completed_flow(&order_id);
-    let record = environment.shipment_record(&order_id, &number);
-    assert_eq!(record.run_id, Some(claimed_run_id));
+    // The order has not read the shipment yet, and it ignored the other run's report.
+    environment.assert_running(&order_id);
     assert_eq!(
-        record.outcome, None,
-        "the reopened run's outcome must not reach the order"
+        environment.shipment_record(&order_id, &number),
+        ShipmentRecord {
+            status: Some(SHIPMENT_STARTED.to_string()),
+            run_id: Some(claimed_run_id.clone()),
+            outcome: None,
+        }
     );
-    assert!(
-        matches!(
-            record.status.as_deref(),
-            Some("canceled" | SHIPMENT_UNAVAILABLE)
-        ),
-        "{record:?}"
+
+    environment.wait_for_completed_flow(&order_id);
+    assert_eq!(
+        environment.shipment_record(&order_id, &number),
+        ShipmentRecord {
+            status: Some(SHIPMENT_UNAVAILABLE.to_string()),
+            run_id: Some(claimed_run_id),
+            outcome: None,
+        }
     );
 }
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn child_flows_business_identity_fails_an_order_with_a_duplicate_shipment_number() {
+fn child_flows_business_identity_fails_an_invalid_order() {
     let environment = ControlPatternsEnvironment::start();
-    let order_id = unique_flow_id("order");
-    let number = format!("{order_id}-1");
-    environment.start_order(
-        &order_id,
-        Order {
-            shipments: vec![
-                shipment(&number, "Seattle", 1),
-                shipment(&number, "Portland", 1),
-            ],
-            reconcile_interval_seconds: 2,
-        },
-    );
-    let result = environment.wait_for_closed_flow(&order_id, FlowStatus::Failed);
-    let message = result.error_message().unwrap_or_default();
-    assert!(
-        message.contains(&format!("duplicate shipment number: {number}")),
-        "{message}"
-    );
-    assert!(
-        matches!(
-            environment.client.describe_flow(&number),
-            Err(SdkError::FlowNotFound { .. })
+    type InvalidOrderCase = (&'static str, fn(&str) -> Order, &'static str);
+    let cases: [InvalidOrderCase; 3] = [
+        (
+            "duplicate shipment number",
+            |number| Order {
+                shipments: vec![
+                    shipment(number, "Seattle", 1),
+                    shipment(number, "Portland", 1),
+                ],
+                reconcile_interval_seconds: 2,
+            },
+            "duplicate shipment number: ",
         ),
-        "no shipment {number} starts"
-    );
+        (
+            "negative delivery delay",
+            |number| Order {
+                shipments: vec![shipment(number, "Seattle", -1)],
+                reconcile_interval_seconds: 2,
+            },
+            "negative delivery delay for shipment: ",
+        ),
+        (
+            "zero reconcile interval",
+            |number| Order {
+                shipments: vec![shipment(number, "Seattle", 1)],
+                reconcile_interval_seconds: 0,
+            },
+            "reconcile interval must be positive",
+        ),
+    ];
+    for (name, order, expected_message) in cases {
+        let order_id = unique_flow_id("order");
+        let number = format!("{order_id}-1");
+        environment.start_order(&order_id, order(&number));
+        let result = environment.wait_for_closed_flow(&order_id, FlowStatus::Failed);
+        let message = result.error_message().unwrap_or_default();
+        assert!(message.contains(expected_message), "{name}: {message}");
+        environment.assert_no_shipment_record(&order_id, &number);
+        assert!(
+            matches!(
+                environment.client.describe_flow(&number),
+                Err(SdkError::FlowNotFound { .. })
+            ),
+            "{name}: no shipment {number} starts"
+        );
+    }
 }
 
+// The explicit SYNC options override the Flow's ASYNC default, so the outcome stays readable once
+// the order recorded it. This does not prove the commit order of the two Steps.
 #[test]
 #[ignore = "requires dexcli dev"]
-fn child_flows_business_identity_stores_the_outcome_before_reporting_under_async_defaults() {
+fn child_flows_business_identity_keeps_the_outcome_readable_when_sync_overrides_an_async_default() {
     let environment = ControlPatternsEnvironment::start();
     let order_id = unique_flow_id("order");
     let number = format!("{order_id}-1");
@@ -921,7 +953,7 @@ impl ControlPatternsEnvironment {
     }
 }
 
-fn shipment(shipment_number: &str, destination: &str, delivery_delay_seconds: u64) -> Shipment {
+fn shipment(shipment_number: &str, destination: &str, delivery_delay_seconds: i64) -> Shipment {
     Shipment {
         shipment_number: shipment_number.to_string(),
         destination: destination.to_string(),

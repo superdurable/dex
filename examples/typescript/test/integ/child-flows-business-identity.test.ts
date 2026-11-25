@@ -103,6 +103,7 @@ test("child Flows with business identity accept reports only from the claimed ru
   const reports: ShipmentReport[] = [
     { shipmentNumber: delivered, shipmentRunId: deliveredRunId, outcome: "delivered to Boise" },
     { shipmentNumber: canceled, shipmentRunId: "another-run", outcome: "delivered to Boise" },
+    { shipmentNumber: canceled, shipmentRunId: "", outcome: "delivered to Boise" },
     { shipmentNumber: `${orderId}-9`, shipmentRunId: "another-run", outcome: "delivered to Boise" },
   ];
   for (const report of reports) {
@@ -157,12 +158,14 @@ test("child Flows with business identity reject a shipment number owned by anoth
   });
   const rejected: ShipmentRecord = { status: SHIPMENT_REJECTED };
   await waitForShipmentRecord(secondOrderId, shipment.shipmentNumber, rejected);
-  // The run that owns the number reports to the second order: the rejected record stays as it is.
-  await recordShipmentOutcome(secondOrderId, {
-    shipmentNumber: shipment.shipmentNumber,
-    shipmentRunId: runId,
-    outcome: "delivered to Boise",
-  });
+  // Reports to the second order, from the owning run or with no run ID, leave the rejected record as it is.
+  for (const reportRunId of [runId, ""]) {
+    await recordShipmentOutcome(secondOrderId, {
+      shipmentNumber: shipment.shipmentNumber,
+      shipmentRunId: reportRunId,
+      outcome: "delivered to Boise",
+    });
+  }
   assert.deepEqual(await readShipmentRecord(secondOrderId, shipment.shipmentNumber), rejected);
   await terminateFlows(shipment.shipmentNumber, firstOrderId, `${secondOrderId}-2`, secondOrderId);
 });
@@ -172,13 +175,13 @@ test("child Flows with business identity ignore a reopened shipment number", asy
   const number = `${orderId}-1`;
   await startOrder(orderId, {
     shipments: [{ shipmentNumber: number, destination: "Seattle", deliveryDelaySeconds: 3600 }],
-    reconcileIntervalSeconds: 3,
+    reconcileIntervalSeconds: 10,
   });
   const claimedRunId = await waitForClaimedRun(orderId, number);
   await environment.client.stopFlow(number, { type: StopType.CANCEL });
   await waitForShipmentStatus(number, "cancelled");
 
-  // Another caller reopens the number; its run reports to the same order.
+  // Another caller reopens the number; its run reports to the same order and completes.
   await environment.client.startFlow(
     environment.shipmentFlow,
     number,
@@ -190,37 +193,66 @@ test("child Flows with business identity ignore a reopened shipment number", asy
   );
   await waitForShipmentStatus(number, "completed");
 
+  // The order has not read the shipment yet, and it ignored the other run's report.
+  assert.equal((await environment.client.describeFlow(orderId)).status, "running");
+  assert.deepEqual(await readShipmentRecord(orderId, number), { status: SHIPMENT_STARTED, runId: claimedRunId });
+
   const result = await environment.client.waitForFlow(orderId, WAIT_TIMEOUT_MS);
   assert.equal(result.status, "completed", result.errorMessage);
-  const record = await readShipmentRecord(orderId, number);
-  assert.equal(record.runId, claimedRunId);
-  assert.equal(record.outcome, undefined, "the reopened run's outcome must not reach the order");
-  assert.ok(
-    record.status === "canceled" || record.status === SHIPMENT_UNAVAILABLE,
-    `unexpected status: ${record.status}`,
-  );
-});
-
-test("child Flows with business identity fail an order with a duplicate shipment number", async () => {
-  const orderId = environment.newFlowId("order");
-  const number = `${orderId}-1`;
-  await startOrder(orderId, {
-    shipments: [
-      { shipmentNumber: number, destination: "Seattle", deliveryDelaySeconds: 1 },
-      { shipmentNumber: number, destination: "Portland", deliveryDelaySeconds: 1 },
-    ],
-    reconcileIntervalSeconds: 2,
+  assert.deepEqual(await readShipmentRecord(orderId, number), {
+    status: SHIPMENT_UNAVAILABLE,
+    runId: claimedRunId,
   });
-  const result = await environment.client.waitForFlow(orderId, WAIT_TIMEOUT_MS);
-  assert.equal(result.status, "failed");
-  assert.ok(
-    result.errorMessage?.includes(`duplicate shipment number: ${number}`),
-    `unexpected error: ${result.errorMessage}`,
-  );
-  await assert.rejects(environment.client.describeFlow(number), FlowNotFoundError);
 });
 
-test("child Flows with business identity store the outcome before reporting under async defaults", async () => {
+test("child Flows with business identity fail an invalid order", async (t) => {
+  const testCases: { name: string; order: (number: string) => Order; message: string }[] = [
+    {
+      name: "duplicate shipment number",
+      order: (number) => ({
+        shipments: [
+          { shipmentNumber: number, destination: "Seattle", deliveryDelaySeconds: 1 },
+          { shipmentNumber: number, destination: "Portland", deliveryDelaySeconds: 1 },
+        ],
+        reconcileIntervalSeconds: 2,
+      }),
+      message: "duplicate shipment number: ",
+    },
+    {
+      name: "negative delivery delay",
+      order: (number) => ({
+        shipments: [{ shipmentNumber: number, destination: "Seattle", deliveryDelaySeconds: -1 }],
+        reconcileIntervalSeconds: 2,
+      }),
+      message: "negative delivery delay for shipment: ",
+    },
+    {
+      name: "zero reconcile interval",
+      order: (number) => ({
+        shipments: [{ shipmentNumber: number, destination: "Seattle", deliveryDelaySeconds: 1 }],
+        reconcileIntervalSeconds: 0,
+      }),
+      message: "reconcile interval must be positive",
+    },
+  ];
+  for (const testCase of testCases) {
+    await t.test(testCase.name, async () => {
+      const orderId = environment.newFlowId("order");
+      const number = `${orderId}-1`;
+      await startOrder(orderId, testCase.order(number));
+      const result = await environment.client.waitForFlow(orderId, WAIT_TIMEOUT_MS);
+      assert.equal(result.status, "failed");
+      assert.ok(result.errorMessage?.includes(testCase.message), `unexpected error: ${result.errorMessage}`);
+      const [record] = await environment.client.getAttributes(orderId, shipmentRecords.instance(number));
+      assert.equal(record, undefined, `record of ${number}`);
+      await assert.rejects(environment.client.describeFlow(number), FlowNotFoundError);
+    });
+  }
+});
+
+// The explicit SYNC options override the Flow's ASYNC default, so the outcome stays readable once
+// the order recorded it. This does not prove the commit order of the two Steps.
+test("child Flows with business identity keep the outcome readable when SYNC overrides an ASYNC default", async () => {
   const orderId = environment.newFlowId("order");
   const number = `${orderId}-1`;
   await startOrder(orderId, {
@@ -248,8 +280,8 @@ async function waitForShipmentStatus(shipmentNumber: string, status: FlowStatus)
     async () => {
       try {
         return (await environment.client.describeFlow(shipmentNumber)).status;
-      } catch {
-        return undefined;
+      } catch (error) {
+        return undefinedWhenFlowNotFound(error);
       }
     },
     (current) => current === status,
@@ -261,13 +293,7 @@ async function waitForShipmentStatus(shipmentNumber: string, status: FlowStatus)
 // Waits until the order claimed a run of the shipment and returns its run ID.
 async function waitForClaimedRun(orderId: string, shipmentNumber: string): Promise<string> {
   const record = await awaitCondition(
-    async () => {
-      try {
-        return (await environment.client.getAttributes(orderId, shipmentRecords.instance(shipmentNumber)))[0];
-      } catch {
-        return undefined;
-      }
-    },
+    () => readShipmentRecordIfFlowExists(orderId, shipmentNumber),
     (current) => (current?.runId ?? "") !== "",
     WAIT_TIMEOUT_MS,
     `claimed run of ${shipmentNumber}`,
@@ -287,17 +313,30 @@ async function waitForShipmentRecord(
   expected: ShipmentRecord,
 ): Promise<void> {
   await awaitCondition(
-    async () => {
-      try {
-        return (await environment.client.getAttributes(orderId, shipmentRecords.instance(shipmentNumber)))[0];
-      } catch {
-        return undefined;
-      }
-    },
+    () => readShipmentRecordIfFlowExists(orderId, shipmentNumber),
     (record) => isDeepStrictEqual(record, expected),
     WAIT_TIMEOUT_MS,
     `record of ${shipmentNumber}`,
   );
+}
+
+async function readShipmentRecordIfFlowExists(
+  orderId: string,
+  shipmentNumber: string,
+): Promise<ShipmentRecord | undefined> {
+  try {
+    return (await environment.client.getAttributes(orderId, shipmentRecords.instance(shipmentNumber)))[0];
+  } catch (error) {
+    return undefinedWhenFlowNotFound(error);
+  }
+}
+
+// Returns undefined for FlowNotFoundError and rethrows every other error.
+function undefinedWhenFlowNotFound(error: unknown): undefined {
+  if (error instanceof FlowNotFoundError) {
+    return undefined;
+  }
+  throw error;
 }
 
 async function readShipmentRecord(orderId: string, shipmentNumber: string): Promise<ShipmentRecord> {

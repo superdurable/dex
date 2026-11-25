@@ -104,6 +104,7 @@ async def test_child_flows_business_identity_accepts_reports_only_from_the_claim
     for report in (
         ShipmentReport(delivered, delivered_run_id, "delivered to Boise"),
         ShipmentReport(canceled, "another-run", "delivered to Boise"),
+        ShipmentReport(canceled, "", "delivered to Boise"),
         ShipmentReport(f"{order_id}-9", "another-run", "delivered to Boise"),
     ):
         await _report_shipment_outcome(app, client, order_id, report)
@@ -166,13 +167,14 @@ async def test_child_flows_business_identity_rejects_a_shipment_number_owned_by_
     )
     rejected = ShipmentRecord(status=SHIPMENT_REJECTED)
     await _wait_for_shipment_record(client, second_order_id, shipment.shipment_number, rejected)
-    # The run that owns the number reports to the second order: the rejected record stays as it is.
-    await _report_shipment_outcome(
-        app,
-        client,
-        second_order_id,
-        ShipmentReport(shipment.shipment_number, run_id, "delivered to Boise"),
-    )
+    # Reports to the second order, from the owning run or with no run ID, leave the rejected record as it is.
+    for report_run_id in (run_id, ""):
+        await _report_shipment_outcome(
+            app,
+            client,
+            second_order_id,
+            ShipmentReport(shipment.shipment_number, report_run_id, "delivered to Boise"),
+        )
     assert (
         await _read_shipment_record(client, second_order_id, shipment.shipment_number)
         == rejected
@@ -197,13 +199,13 @@ async def test_child_flows_business_identity_ignores_a_reopened_shipment_number(
         app,
         client,
         order_id,
-        Order(shipments=[Shipment(number, "Seattle", 3600)], reconcile_interval_seconds=3),
+        Order(shipments=[Shipment(number, "Seattle", 3600)], reconcile_interval_seconds=10),
     )
     claimed_run_id = await _wait_for_claimed_run(client, order_id, number)
     await client.stop_flow(number, StopFlowOptions(type=StopType.CANCEL))
     await wait_for_flow_status(client, number, FlowStatus.CANCELED)
 
-    # Another caller reopens the number; its run reports to the same order.
+    # Another caller reopens the number; its run reports to the same order and completes.
     await client.start_flow(
         app.shipment,
         number,
@@ -212,38 +214,68 @@ async def test_child_flows_business_identity_ignores_a_reopened_shipment_number(
     )
     await wait_for_flow_status(client, number, FlowStatus.COMPLETED)
 
+    # The order has not read the shipment yet, and it ignored the other run's report.
+    order = await client.describe_flow(order_id)
+    assert order.status == FlowStatus.RUNNING
+    assert await _read_shipment_record(client, order_id, number) == ShipmentRecord(
+        status=SHIPMENT_STARTED, run_id=claimed_run_id
+    )
+
     result = await client.wait_for_flow(order_id, WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED, result.error_message
-    record = await _read_shipment_record(client, order_id, number)
-    assert record.run_id == claimed_run_id
-    assert record.outcome == "", "the reopened run's outcome must not reach the order"
-    assert record.status in ("canceled", SHIPMENT_UNAVAILABLE)
+    assert await _read_shipment_record(client, order_id, number) == ShipmentRecord(
+        status=SHIPMENT_UNAVAILABLE, run_id=claimed_run_id
+    )
 
 
-async def test_child_flows_business_identity_fails_an_order_with_a_duplicate_shipment_number(
+@pytest.mark.parametrize(
+    ("build_order", "message"),
+    [
+        pytest.param(
+            lambda number: Order(
+                shipments=[Shipment(number, "Seattle", 1), Shipment(number, "Portland", 1)],
+                reconcile_interval_seconds=2,
+            ),
+            "duplicate shipment number: ",
+            id="duplicate shipment number",
+        ),
+        pytest.param(
+            lambda number: Order(
+                shipments=[Shipment(number, "Seattle", -1)], reconcile_interval_seconds=2
+            ),
+            "negative delivery delay for shipment: ",
+            id="negative delivery delay",
+        ),
+        pytest.param(
+            lambda number: Order(
+                shipments=[Shipment(number, "Seattle", 1)], reconcile_interval_seconds=0
+            ),
+            "reconcile interval must be positive",
+            id="zero reconcile interval",
+        ),
+    ],
+)
+async def test_child_flows_business_identity_fails_an_invalid_order(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
+    build_order: Callable[[str], Order],
+    message: str,
 ) -> None:
     order_id = new_flow_id("order")
     number = f"{order_id}-1"
-    await _start_order(
-        app,
-        client,
-        order_id,
-        Order(
-            shipments=[Shipment(number, "Seattle", 1), Shipment(number, "Portland", 1)],
-            reconcile_interval_seconds=2,
-        ),
-    )
+    await _start_order(app, client, order_id, build_order(number))
     result = await client.wait_for_flow(order_id, WAIT_TIMEOUT)
     assert result.status == FlowStatus.FAILED
-    assert f"duplicate shipment number: {number}" in (result.error_message or "")
+    assert message in (result.error_message or "")
+    await _require_no_shipment_record(client, order_id, number)
     with pytest.raises(FlowNotFoundError):
         await client.describe_flow(number)
 
 
-async def test_child_flows_business_identity_stores_the_outcome_before_reporting_under_async_defaults(
+# The explicit SYNC options override the Flow's ASYNC default, so the outcome stays readable once
+# the order recorded it. This does not prove the commit order of the two Steps.
+async def test_child_flows_business_identity_keeps_the_outcome_readable_when_sync_overrides_an_async_default(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],

@@ -37,14 +37,18 @@ import io.superdurable.dex.patterns.childflowsbusinessidentity.ShipmentRecord;
 import io.superdurable.dex.patterns.childflowsbusinessidentity.ShipmentReport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -88,6 +92,7 @@ public class ChildFlowsBusinessIdentityIntegTest {
         for (final ShipmentReport report : List.of(
                 new ShipmentReport(delivered, deliveredRunId, "delivered to Boise"),
                 new ShipmentReport(canceled, "another-run", "delivered to Boise"),
+                new ShipmentReport(canceled, "", "delivered to Boise"),
                 new ShipmentReport(orderId + "-9", "another-run", "delivered to Boise"))) {
             retryOnLockConflict(() -> client().invokeRPC(stub::recordShipmentOutcome, report));
         }
@@ -133,11 +138,13 @@ public class ChildFlowsBusinessIdentityIntegTest {
         final ShipmentRecord rejected =
                 new ShipmentRecord(OrderFulfillmentFlow.SHIPMENT_REJECTED, null, null);
         waitForShipmentRecord(secondOrderId, shipment.shipmentNumber(), rejected);
-        // The run that owns the number reports to the second order: the rejected record stays as it is.
+        // Reports to the second order, from the owning run or with no run ID, leave the rejected record as it is.
         final OrderFulfillmentFlow stub =
                 client().newRpcStub(OrderFulfillmentFlow.class, secondOrderId);
-        retryOnLockConflict(() -> client().invokeRPC(stub::recordShipmentOutcome,
-                new ShipmentReport(shipment.shipmentNumber(), runId, "delivered to Boise")));
+        for (final String reportRunId : List.of(runId, "")) {
+            retryOnLockConflict(() -> client().invokeRPC(stub::recordShipmentOutcome,
+                    new ShipmentReport(shipment.shipmentNumber(), reportRunId, "delivered to Boise")));
+        }
         assertEquals(rejected, readShipmentRecord(secondOrderId, shipment.shipmentNumber()));
         terminateFlows(
                 shipment.shipmentNumber(), firstOrderId, secondOrderId + "-2", secondOrderId);
@@ -147,12 +154,12 @@ public class ChildFlowsBusinessIdentityIntegTest {
     void ignoresAReopenedShipmentNumber() {
         final String orderId = environment().newFlowId("order");
         final String number = orderId + "-1";
-        startOrder(orderId, new Order(List.of(new Shipment(number, "Seattle", 3600)), 3));
+        startOrder(orderId, new Order(List.of(new Shipment(number, "Seattle", 3600)), 10));
         final String claimedRunId = waitForClaimedRun(orderId, number);
         client().stopFlow(number, new StopFlowOptions(StopType.CANCEL, ""));
         waitForShipmentStatus(number, FlowStatus.CANCELED);
 
-        // Another caller reopens the number; its run reports to the same order.
+        // Another caller reopens the number; its run reports to the same order and completes.
         client().startFlow(
                 environment().workflowPatternFlow(ShipmentFlow.class),
                 number,
@@ -162,36 +169,59 @@ public class ChildFlowsBusinessIdentityIntegTest {
                         .build());
         waitForShipmentStatus(number, FlowStatus.COMPLETED);
 
+        // The order has not read the shipment yet, and it ignored the other run's report.
+        assertEquals(FlowStatus.RUNNING, client().describeFlow(orderId).getStatus());
+        assertEquals(
+                new ShipmentRecord(OrderFulfillmentFlow.SHIPMENT_STARTED, claimedRunId, null),
+                readShipmentRecord(orderId, number));
+
         final FlowResult result = client().waitForFlow(orderId, WAIT_TIMEOUT);
         assertEquals(FlowStatus.COMPLETED, result.getStatus(), result.getErrorMessage());
-        final ShipmentRecord record = readShipmentRecord(orderId, number);
-        assertEquals(claimedRunId, record.runId());
-        assertNull(record.outcome(), "the reopened run's outcome must not reach the order");
-        assertTrue(
-                List.of("canceled", OrderFulfillmentFlow.SHIPMENT_UNAVAILABLE)
-                        .contains(record.status()),
-                record.status());
+        assertEquals(
+                new ShipmentRecord(OrderFulfillmentFlow.SHIPMENT_UNAVAILABLE, claimedRunId, null),
+                readShipmentRecord(orderId, number));
     }
 
-    @Test
-    void failsAnOrderWithADuplicateShipmentNumber() {
+    static Stream<Arguments> invalidOrders() {
+        return Stream.of(
+                Arguments.of(
+                        "duplicate shipment number",
+                        (Function<String, Order>) number -> new Order(
+                                List.of(
+                                        new Shipment(number, "Seattle", 1),
+                                        new Shipment(number, "Portland", 1)),
+                                2),
+                        "duplicate shipment number: "),
+                Arguments.of(
+                        "negative delivery delay",
+                        (Function<String, Order>) number -> new Order(
+                                List.of(new Shipment(number, "Seattle", -1)), 2),
+                        "negative delivery delay for shipment: "),
+                Arguments.of(
+                        "zero reconcile interval",
+                        (Function<String, Order>) number -> new Order(
+                                List.of(new Shipment(number, "Seattle", 1)), 0),
+                        "reconcile interval must be positive"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidOrders")
+    void failsAnInvalidOrder(
+            final String name, final Function<String, Order> order, final String message) {
         final String orderId = environment().newFlowId("order");
         final String number = orderId + "-1";
-        startOrder(orderId, new Order(
-                List.of(
-                        new Shipment(number, "Seattle", 1),
-                        new Shipment(number, "Portland", 1)),
-                2));
+        startOrder(orderId, order.apply(number));
         final FlowResult result = client().waitForFlow(orderId, WAIT_TIMEOUT);
         assertEquals(FlowStatus.FAILED, result.getStatus());
-        assertTrue(
-                result.getErrorMessage().contains("duplicate shipment number: " + number),
-                result.getErrorMessage());
+        assertTrue(result.getErrorMessage().contains(message), result.getErrorMessage());
+        assertTrue(findShipmentRecord(orderId, number).isEmpty(), "record of " + number);
         assertThrows(FlowNotFoundException.class, () -> client().describeFlow(number));
     }
 
+    // The explicit SYNC options override the Flow's ASYNC default, so the outcome stays readable once
+    // the order recorded it. This does not prove the commit order of the two Steps.
     @Test
-    void storesTheOutcomeBeforeReportingUnderAsyncDefaults() {
+    void keepsTheOutcomeReadableWhenSyncOverridesAnAsyncDefault() {
         final String orderId = environment().newFlowId("order");
         final String number = orderId + "-1";
         startOrder(orderId, new Order(List.of(new Shipment(number, "Austin", 3)), 3600));
