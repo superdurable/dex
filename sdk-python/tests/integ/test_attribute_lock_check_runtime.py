@@ -1,10 +1,12 @@
-# Copyright (c) 2026 Super Durable, Inc.
+# Portions of this file are derived from indeedeng/iwf-java-sdk.
+# Those portions are licensed under the Apache License, Version 2.0.
+# See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
 #
-# Licensed under the Sustainable Use License 1.0.
-# You may not use this file except in compliance with the License.
-# See the LICENSE file in the repository root.
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# Modifications are licensed under the Sustainable Use License 1.0.
+# Third-Party Materials remain under the Apache License, Version 2.0.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from __future__ import annotations
 
@@ -61,7 +63,6 @@ COUNTER = Attribute("py-lock-check-counter", int)
 OTHER = Attribute("py-lock-check-other", int)
 ENTRIES = AttributeMap("py-lock-check-entries", int)
 
-
 def _single_attempt_options(**overrides: Any) -> StepOptions:
     return StepOptions(
         wait_for_retry=RetryPolicy(maximum_attempts=1),
@@ -69,14 +70,11 @@ def _single_attempt_options(**overrides: Any) -> StepOptions:
         **overrides,
     )
 
-
 def _increment(context: Context) -> None:
     COUNTER.set(context, COUNTER.get(context) + 1)
 
-
 def _increment_entry(context: Context, instance: str) -> None:
     ENTRIES.set(context, instance, (ENTRIES.get(context, instance) or 0) + 1)
-
 
 class PyLockCheckUnlockedStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
@@ -85,7 +83,6 @@ class PyLockCheckUnlockedStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         _increment(context)
         return graceful_complete()
-
 
 class PyLockCheckUnlockedWaitForStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
@@ -98,7 +95,6 @@ class PyLockCheckUnlockedWaitForStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         return graceful_complete()
 
-
 class PyLockCheckUnlockedMapStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
         return _single_attempt_options(execute_load_attribute_maps=(ENTRIES,))
@@ -107,7 +103,6 @@ class PyLockCheckUnlockedMapStep(Step[None]):
         _increment_entry(context, "e1")
         return graceful_complete()
 
-
 class PyLockCheckLockedStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
         return _single_attempt_options(execute_lock_attributes=(COUNTER.lock(),))
@@ -115,7 +110,6 @@ class PyLockCheckLockedStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         _increment(context)
         return graceful_complete()
-
 
 class PyLockCheckLockedMapStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
@@ -127,7 +121,6 @@ class PyLockCheckLockedMapStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         _increment_entry(context, "e1")
         return graceful_complete()
-
 
 class PyLockCheckSingleWriterStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
@@ -141,7 +134,6 @@ class PyLockCheckSingleWriterStep(Step[None]):
         ENTRIES.declare_single_writer(context, "e1")
         return graceful_complete()
 
-
 class PyLockCheckReadOrWriteOnlyStep(Step[None]):
     def get_step_options(self) -> StepOptions | None:
         return _single_attempt_options()
@@ -153,14 +145,12 @@ class PyLockCheckReadOrWriteOnlyStep(Step[None]):
         OTHER.set(context, OTHER.get(context) + 1)
         return graceful_complete()
 
-
 class PyLockCheckDispatchStep(Step[str]):
     def __init__(self, targets: dict[str, Step[None]]) -> None:
         self._targets = targets
 
     def execute(self, context: Context, input: str) -> StepDecision:
         return go_to(self._targets[input], None)
-
 
 class PyLockCheckStepFlow(Flow[str]):
     def __init__(self) -> None:
@@ -180,7 +170,6 @@ class PyLockCheckStepFlow(Flow[str]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(COUNTER, OTHER, ENTRIES)
-
 
 class PyLockCheckRpcFlow(Flow[None]):
     """Has no Steps, so it stays open for RPC cases."""
@@ -207,18 +196,14 @@ class PyLockCheckRpcFlow(Flow[None]):
     def runtime_selected_entry_increment(self, context: Context, instance: str) -> None:
         _increment_entry(context, instance)
 
-
 STEP_FLOW = PyLockCheckStepFlow()
 RPC_FLOW = PyLockCheckRpcFlow()
-
 
 def _server_address() -> str:
     return os.environ.get("DEX_SERVER_ADDRESS", "127.0.0.1:8801")
 
-
 def _registry() -> Registry:
     return Registry((STEP_FLOW, RPC_FLOW))
-
 
 def _worker_options(task_queue: str, is_strict: bool) -> WorkerOptions:
     return WorkerOptions(
@@ -226,7 +211,6 @@ def _worker_options(task_queue: str, is_strict: bool) -> WorkerOptions:
         pull=PullWorkerOptions(max_concurrent_tasks=2, task_queue=task_queue),
         fail_on_unlocked_attribute_read_modify_write=is_strict,
     )
-
 
 @contextmanager
 def _sync_worker(task_queue: str, is_strict: bool) -> Iterator[Worker]:
@@ -252,7 +236,6 @@ def _sync_worker(task_queue: str, is_strict: bool) -> Iterator[Worker]:
             cache.close()
         if failures:
             raise RuntimeError("lock check Worker failed") from failures[0]
-
 
 @contextmanager
 def _async_worker(task_queue: str, is_strict: bool) -> Iterator[AsyncWorker]:
@@ -286,7 +269,6 @@ def _async_worker(task_queue: str, is_strict: bool) -> Iterator[AsyncWorker]:
             loop.close()
             cache.close()
 
-
 @contextmanager
 def _client() -> Iterator[Client]:
     with TemporaryDirectory(prefix="dex-python-lock-check-client-") as cache_directory:
@@ -298,10 +280,8 @@ def _client() -> Iterator[Client]:
             client.close()
             cache.close()
 
-
 def _task_queue(prefix: str) -> str:
     return f"{prefix}-{uuid4().hex[:12]}"
-
 
 @dataclass(frozen=True)
 class _LockCheckWorkers:
@@ -310,7 +290,6 @@ class _LockCheckWorkers:
     warn_count: Callable[[], int]
     strict_queue: str
     strict_count: Callable[[], int]
-
 
 @contextmanager
 def _lock_check_workers(is_async: bool) -> Iterator[_LockCheckWorkers]:
@@ -334,14 +313,12 @@ def _lock_check_workers(is_async: bool) -> Iterator[_LockCheckWorkers]:
             lambda: strict_worker.unlocked_attribute_read_modify_write_count,
         )
 
-
 def _run_step_case(client: Client, task_queue: str, step_case: str) -> FlowStatus:
     flow_id = unique_id(f"py-lock-check-{step_case}")
     client.start_flow(
         STEP_FLOW, flow_id, step_case, StartFlowOptions(task_queue=task_queue)
     )
     return client.wait_for_flow(flow_id, WAIT_TIMEOUT).status
-
 
 def _warning_logged(
     caplog: pytest.LogCaptureFixture, handler: str, attribute: str
@@ -352,7 +329,6 @@ def _warning_logged(
         if record.name == LOCK_CHECK_LOGGER
     )
 
-
 STEP_CASES = [
     ("unlocked", "PyLockCheckUnlockedStep.execute", COUNTER.name),
     ("unlocked-wait-for", "PyLockCheckUnlockedWaitForStep.wait_for", COUNTER.name),
@@ -362,7 +338,6 @@ STEP_CASES = [
     ("single-writer", None, None),
     ("read-or-write-only", None, None),
 ]
-
 
 def _check_step_cases(
     workers: _LockCheckWorkers, caplog: pytest.LogCaptureFixture
@@ -388,7 +363,6 @@ def _check_step_cases(
             assert status is FlowStatus.COMPLETED, step_case
             assert detections == 0, step_case
 
-
 def _invoke_on_queue(
     client: Client, task_queue: str, invoke: Callable[[str], None]
 ) -> None:
@@ -398,7 +372,6 @@ def _invoke_on_queue(
         invoke(flow_id)
     finally:
         client.stop_flow(flow_id)
-
 
 def _rpc_cases(
     client: Client,
@@ -440,7 +413,6 @@ def _rpc_cases(
         ),
     ]
 
-
 def _check_rpc_cases(
     workers: _LockCheckWorkers, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -467,7 +439,6 @@ def _check_rpc_cases(
         ), name
         assert attribute in raised.value.worker_error_detail, name
 
-
 def test_unlocked_read_modify_write_detection_with_worker(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -475,7 +446,6 @@ def test_unlocked_read_modify_write_detection_with_worker(
     with _lock_check_workers(is_async=False) as workers:
         _check_step_cases(workers, caplog)
         _check_rpc_cases(workers, caplog)
-
 
 def test_unlocked_read_modify_write_detection_with_async_worker(
     caplog: pytest.LogCaptureFixture,
