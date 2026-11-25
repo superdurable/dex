@@ -31,10 +31,13 @@ Use a Client at the boundary between your application and its Flows:
 
 ## The Flow owns decisions {#flow-owns-decisions}
 
-The caller supplies business facts. The Flow owns the decisions and status of
-this process. Its Steps and RPC handlers apply its business rules and write the
-resulting state. When an initial status depends on those rules, compute it in
-the first Step. Dex Web and later reads use the committed state.
+A Client never writes Flow state directly. Within that boundary, prefer that
+the Flow owns the decisions and status of its process. The caller passes
+business facts as start input or initial Attributes. The Flow's Steps and RPC
+handlers apply the business rules and write the resulting state. When an
+initial status depends on those rules, compute it in the first Step. Then the
+rules live in one place, and status changes commit together with the Flow's
+progress. Dex Web and later reads use the committed state.
 
 ## Guarantees
 

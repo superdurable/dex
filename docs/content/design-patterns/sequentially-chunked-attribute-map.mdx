@@ -118,7 +118,7 @@ A page token is **current** or the 20-digit name of an archived chunk; see [Chun
 
 Archived chunks are immutable, so a page read again, such as on a retry, returns the same records while its chunk is retained. To update older records, use a different pattern or a separate index.
 
-For an append-only history, archive bounded chunks and load only the requested page. If the history has a retention window, archive the full chunk, delete expired chunks by key, and record the oldest retained token in one commit. Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
+For an append-only history, archive bounded chunks and load only the requested page. Bound the total as well, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, and record the oldest retained token in one commit. When the business must keep old records, archive those chunks outside the Flow before you delete them. Size limits per value and per Flow are in the [Server configuration reference](/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 
 Many concurrent appends contend on **current**. When they would conflict often, route them through an RPC that publishes each record to a Channel. One writing Step consumes it and appends, as in the [Inbound Event Loop](/design-patterns/inbound-event-loop).
 

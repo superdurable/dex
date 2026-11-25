@@ -416,6 +416,11 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 </SdkSnippet>
 </SdkTabs>
 
+The Flow timeout is a Timer too. Skip it the same way to test the timeout
+path, and keep the real timeout in the Flow.
+[Skip a Timer](/reference/server/runtime-client#skip-a-timer) shows how to
+select it.
+
 ## Test the failure route {#retry-exhaustion}
 
 Each failure test verifies one thing.

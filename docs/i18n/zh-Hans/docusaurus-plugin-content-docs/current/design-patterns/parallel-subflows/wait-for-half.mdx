@@ -613,9 +613,9 @@ impl Step for WaitSubFlows {
 
 ## 在阈值时刻结束的子 Flow {#late-finishers}
 
-每次停止之后，Step 都读取子 Flow，并记录它是怎样结束的。子 Flow 可能恰好在停止消息到达时结束；两者同时就绪时，Channel condition 优先于 SubFlow condition，所以 Step 可能去停止一个已经结束的子 Flow。停止成功后，或停止被拒绝（比如 "not found"、"not active" 或 "closing"）后，都通过 Client 读取子 Flow。记录已关闭子 Flow 的终态和已存储的结果，让报告计入每个已经结束的子 Flow。仍在运行或正在关闭的子 Flow 稍后再读。找不到的子 Flow 按业务策略记录，比如 "unavailable"。其他停止或读取错误直接返回，让 Step 重试。每个子 Flow，无论是完成的还是被停止的，都记进同一份以 SubFlow ID 为键的记录。示例做了简化：停止成功后它不读取子 Flow 的终态。
+报告要计入每个子 Flow，或后续动作取决于每个子 Flow 怎样结束时，Step 在每次停止之后都读取子 Flow，并记录它是怎样结束的。父 Flow 只需要达到所需数量时，停止剩下的子 Flow 后直接往下走，不做这次读取。子 Flow 可能恰好在停止消息到达时结束；两者同时就绪时，Channel condition 优先于 SubFlow condition，所以 Step 可能去停止一个已经结束的子 Flow。停止成功后，或停止被拒绝（比如 "not found"、"not active" 或 "closing"）后，都通过 Client 读取子 Flow。记录已关闭子 Flow 的终态和已存储的结果，让报告计入每个已经结束的子 Flow。仍在运行或正在关闭的子 Flow 稍后再读。找不到的子 Flow 按业务策略记录，比如 "unavailable"。其他停止或读取错误直接返回，让 Step 重试。每个子 Flow，无论是完成的还是被停止的，都记进同一份以 SubFlow ID 为键的记录。示例做了简化：停止成功后它不读取子 Flow 的终态。
 
-如果每个子 Flow 都需要自己的业务身份，就把它作为[顶层 Flow](/concepts/flow#child-flows) 启动。等待所需数量的 Step 停止每个还没报告的子 Flow，并按那一页的规则对账。正常报告和对账得到的结果写进同一份记录，以子 Flow ID 为键。
+如果每个子 Flow 都需要自己的业务身份，就把它作为[顶层 Flow](/concepts/flow#child-flows) 启动。等待所需数量的 Step 停止每个还没报告的子 Flow；父 Flow 需要它的结局时，按那一页的规则对账。正常报告和对账得到的结果写进同一份记录，以子 Flow ID 为键。
 
 ## 下一步
 

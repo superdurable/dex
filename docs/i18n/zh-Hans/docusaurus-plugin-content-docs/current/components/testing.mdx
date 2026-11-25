@@ -393,6 +393,8 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 </SdkSnippet>
 </SdkTabs>
 
+Flow timeout 也是一个 Timer。测试 timeout 路径时，用同样的方式跳过它，Flow 里保留真实的 timeout。[跳过 Timer](/reference/server/runtime-client#skip-a-timer) 说明了怎样选中它。
+
 ## 测试 failure 路径 {#retry-exhaustion}
 
 每个失败测试只验证一件事。
