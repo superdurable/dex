@@ -22,11 +22,10 @@ A self-hosted Temporal Service runs four services on a database, and Temporal ap
 | Processes | Frontend, History, Matching, and Worker services. They can share a process. Temporal recommends separate processes in production. | One binary. One active node holds a lease in object storage. See [Dex Server](/components/server). |
 | Required storage | A database: Cassandra, MySQL, or PostgreSQL. SQLite for development and testing only. | Object storage, such as Amazon S3, or [db9](/reference/server/object-storage#db9) in its place. |
 | Search storage | A Visibility store: Elasticsearch, OpenSearch, MySQL, PostgreSQL, or SQLite. Temporal recommends Elasticsearch in production. Custom Search Attributes are not supported on Cassandra. | Built in by default. PostgreSQL or ParadeDB optional. |
-| Fixed at creation | The History Shard count: "the total number of History Shards for the Temporal Service cannot be changed." | The partition count, recorded at the first start. One node owns every partition. See [Partition count](/reference/server/configuration#single-node-partition-count). |
 
 The Temporal facts come from [Temporal Server](https://docs.temporal.io/temporal-service/temporal-server), [Persistence](https://docs.temporal.io/temporal-service/persistence), [Visibility](https://docs.temporal.io/self-hosted-guide/visibility), and the [production checklist](https://docs.temporal.io/self-hosted-guide/production-checklist).
 
-A Dex standby node takes over after the active node's [lease](/reference/server/high-availability#lease) ends, 10 seconds by default. At failover, Dex fails every Step attempt that a Worker had received. Each attempt is retried under its Step's retry policy. See [Failover and Deploys](/concepts/failover-and-deploys).
+A Dex standby node takes over after the active node's [lease](/reference/server/high-availability#lease) ends, 10 seconds by default. See [Failover and Deploys](/concepts/failover-and-deploys).
 
 ## What you tune and code around {#tune-and-code-around}
 

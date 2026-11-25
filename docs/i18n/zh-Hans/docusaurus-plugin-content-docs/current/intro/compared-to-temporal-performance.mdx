@@ -70,7 +70,7 @@ Temporal 的 Worker 把 Workflow 状态缓存在内存里，Dex 的 Worker 从 D
 | 加锁并更新一个 Attribute 的 RPC | 每秒 2,165 个 | 每秒 13.8k 个 |
 | 读取十个 16 KiB 的 Attribute，不经过 Worker | 每秒 5,941 次 | 每秒 11.3k 次 |
 
-Temporal Cloud 默认把一个 Namespace 限制在每秒 500 个 action（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)）。自托管的 Temporal Service 没有找到公开的吞吐数据。
+Temporal Cloud 默认把一个 Namespace 限制在每秒 500 个 action（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)）。
 
 ## 下一步 {#next}
 

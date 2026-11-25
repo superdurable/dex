@@ -9,14 +9,6 @@ description: Dex 和 Temporal 在恢复和消息上的区别。Time Travel 保�
 
 Dex 的 Time Travel 让同一次运行退回到较早的点，Temporal 的 Reset 则结束当前运行并开始一次新的运行（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)）。Dex 的 RPC 和 Channel 消息没有单次运行的总量上限，Stream 消息也不进入运行的历史。
 
-| 主题 | Temporal | Dex |
-| --- | --- | --- |
-| [Time Travel 与 Reset](#time-travel) | Reset 终止当前运行，开始一次新的运行（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)）。 | Time Travel 让同一次运行退回，Run ID 不变，开始新的 run attempt。 |
-| [SubFlow 与 Child Workflow](#subflow) | 父 Workflow 使用 Continue-As-New 时，Child Workflow 不会带到新运行（[Child Workflows](https://docs.temporal.io/child-workflows)）。 | 父 Flow 的 SubFlow 等待一直留在同一次运行里。 |
-| [RPC 与 Update](#rpc) | 在 Temporal Cloud 上，每个 Workflow Execution 最多 10 个进行中的 Update，总共 2,000 个（[limits](https://docs.temporal.io/cloud/limits)）。 | 没有每个 Flow 的进行中上限，也没有单次运行的总数上限。 |
-| [Channel 与 Signal](#channel) | 在 Temporal Cloud 上，每个 Workflow Execution 最多接收 10,000 个 Signal（[limits](https://docs.temporal.io/cloud/limits)）。 | 单次运行没有消息总数上限。 |
-| [Stream 与 Workflow Streams](#stream) | Workflow Streams：一个从 2026-06-17 起处于 Public Preview 的库，构建在 Signal 和 Update 之上（[blog](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | 五种 SDK 都内置的原语，保存在运行的历史之外。 |
-
 ## Time Travel 与 Reset {#time-travel}
 
 | Temporal | Dex |
@@ -76,5 +68,5 @@ Stream 适合实时进度，例如生成的文本片段。不能丢失的数据�
 
 ## 下一步 {#next}
 
-- [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)：在两个引擎里编写和修改同一个流程。
+- [编程模型](/intro/compared-to-temporal/programming-model)：在两个引擎里编写和修改同一个流程。
 - [运维](/intro/compared-to-temporal/operations)：运行服务器、历史上限和数据大小。

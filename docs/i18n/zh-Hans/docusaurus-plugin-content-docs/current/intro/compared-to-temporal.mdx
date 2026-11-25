@@ -21,18 +21,18 @@ Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续
 | 主题 | Temporal | Dex |
 | --- | --- | --- |
 | [Worker 内存和 CPU](/intro/compared-to-temporal/performance#worker) | 在 512 MB 的容器里，Worker 被 [OOM kill](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/temporal-default-cache-512m)，715 条消息没有得到回复。给 2 GB、缓存 50 个 Workflow 时，峰值是 [581.6 MiB，CPU 36.3%](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/temporal-cache50-2g)。 | 在 512 MB 里，Worker 峰值是 [85.5 MiB](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/dex-512m)，3,000 条消息全部得到回复。给 2 GB 时，峰值是 [79.8 MiB，CPU 17.4%](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/bench/results/dex-2g)。 |
-| [Server 吞吐量](/intro/compared-to-temporal/performance#server) | Temporal Cloud 的默认上限是[每个 Namespace 每秒 500 个 action](https://docs.temporal.io/cloud/limits)。 | 一个运行在 S3 上的 Dex Server 节点，[2 vCPU 时每秒运行 1,772 个 SYNC Step，16 vCPU 时 8,403 个](/intro/performance)。 |
+| [Server 吞吐量](/intro/compared-to-temporal/performance#server) | Temporal Cloud 的默认上限是[每个 Namespace 每秒 500 个 action](https://docs.temporal.io/cloud/limits)。 | 一个运行在 S3 上的 Dex Server 节点，[2 vCPU 时每秒运行 1,772 个 SYNC Step，16 vCPU 时 8,403 个](/intro/performance)。16 vCPU 的节点每秒回答 67.3k 个读 Attribute 的 RPC。 |
 | [运行服务器](/intro/compared-to-temporal/operations#run-the-server) | [Frontend、History、Matching 和 Worker 服务](https://docs.temporal.io/temporal-service/temporal-server)，运行在 Cassandra、MySQL 或 PostgreSQL 上，另外还要一个 Visibility 存储。 | 一个二进制。唯一必需的依赖是对象存储（例如 Amazon S3）或 db9。 |
 | [长时间运行的流程](/intro/compared-to-temporal/operations#history-limit) | 一个 Event History 最多 [51,200 个事件或 50 MB](https://docs.temporal.io/workflow-execution/limits)。更长的流程要在代码里做 Continue-As-New。 | Dex 保留每次运行最新的事件，清理更早的事件。运行一直继续，不需要开始新的运行。 |
 | [数据大小](/intro/compared-to-temporal/operations#data-size) | 一个 payload 最多 [2 MB](https://docs.temporal.io/troubleshooting/blob-size-limit-error)。自托管的 server 在 512 KB 时警告。 | [默认](/reference/server/configuration#limits)情况下，一个值最多 16 MiB，一次 Flow 运行最多 64 MiB 的活跃状态。 |
 | [回到较早的时间点](/intro/compared-to-temporal/experience#time-travel) | [Reset](https://docs.temporal.io/cli/workflow) 终止当前运行，开始一次新的运行，Run ID 也是新的。 | Time Travel 让同一次运行回到较早的时间点。Run ID 不变。 |
-| [Dex 独有的功能](/intro/compared-to-temporal/features) | [Web UI](https://docs.temporal.io/web-ui) 显示每个 Workflow Execution 的 Event History。 | 从源码画出的 Flow design、Dex Web 生成的表单、Clone fork、Connector、`SkipTimer`、等待某个 Step 或某个 Attribute，以及不需要 Worker 的读取。 |
+| [Dex 独有的功能](/intro/compared-to-temporal/features) | 每个功能在 Temporal 里最接近的机制见该页。 | 从源码画出的 Flow design、Dex Web 生成的表单、Clone fork、Connector、`SkipTimer`、等待某个 Step 或某个 Attribute，以及不需要 Worker 的读取。 |
 | [改代码](/intro/compared-to-temporal/programming-model#change-code) | 如果一次部署改变了未结束的运行产生的 command，它的 Workflow Task 会因非确定性错误而失败。[Patching](https://docs.temporal.io/develop/python/workflows/versioning#patching) 或 [Worker Versioning](https://docs.temporal.io/worker-versioning) 让未结束的运行继续正常工作。 | 每个 Step 运行接手它的 Worker 上的代码。演示里的改动不需要任何版本控制代码。 |
 | [写代码](/intro/compared-to-temporal/programming-model#more-code) | workflow 代码必须是[确定性的](#the-main-difference-an-explicit-step-graph-not-replayed-code)。演示里带审批的回复 Workflow 有 26 行。 | Step 是普通代码。同样的 Flow 也是 26 行。 |
 
 ## 架构 {#architecture}
 
-注意两边的 Worker。Temporal 的 Worker [在内存里缓存 Workflow 状态](https://docs.temporal.io/sticky-execution)。Dex 的 Worker 通过磁盘上的 [blob cache](/components/application#blob-cache) 读取大的值。
+Temporal 的 Worker [在内存里缓存 Workflow 状态](https://docs.temporal.io/sticky-execution)。Dex 的 Worker 通过磁盘上的 [blob cache](/components/application#blob-cache) 读取大的值。
 
 <TemporalArchitectureDiagram markdownDescription="Temporal：你的 Worker 在内存里缓存 Workflow 状态，并连接 Temporal Service。Temporal Service 由 Frontend、History、Matching 和 Worker 四个服务组成，运行在数据库（Cassandra、MySQL 或 PostgreSQL）上。Dex：你的 Worker 在磁盘上保留 blob cache，并连接一个 Dex Server 二进制。Dex Server 把当前状态存在本地磁盘，并写入对象存储。" />
 

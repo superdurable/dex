@@ -24,11 +24,10 @@ import TemporalDeploymentDiagram from '@site/src/components/diagrams/TemporalDep
 | 进程 | Frontend、History、Matching 和 Worker 服务。它们可以共用一个进程。Temporal 建议在生产环境中分开运行。 | 一个二进制。一个活跃节点在对象存储里持有 lease。见 [Dex Server](/components/server)。 |
 | 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发和测试。 | 对象存储，例如 Amazon S3，或者用 [db9](/reference/server/object-storage#db9)（英文）代替。 |
 | 搜索存储 | Visibility 存储：Elasticsearch、OpenSearch、MySQL、PostgreSQL 或 SQLite。Temporal 建议生产环境使用 Elasticsearch。Cassandra 不支持自定义 Search Attribute。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
-| 创建后固定 | History Shard 数：Temporal Service 的 History Shard 总数不能更改。 | 分区数，在第一次启动时记录。一个节点拥有全部分区。见 [Partition count](/reference/server/configuration#single-node-partition-count)（英文）。 |
 
 关于 Temporal 的事实来自 [Temporal Server](https://docs.temporal.io/temporal-service/temporal-server)、[Persistence](https://docs.temporal.io/temporal-service/persistence)、[Visibility](https://docs.temporal.io/self-hosted-guide/visibility) 和[生产环境检查清单](https://docs.temporal.io/self-hosted-guide/production-checklist)。
 
-活跃节点的 [lease](/reference/server/high-availability#lease)（英文）到期后，Dex 的备用节点接管，lease 默认 10 秒。故障转移时，Dex 让 Worker 已经收到的每个 Step 尝试失败。每个尝试按它的 Step 的重试策略重试。见[故障转移和部署](/concepts/failover-and-deploys)。
+活跃节点的 [lease](/reference/server/high-availability#lease)（英文）到期后，Dex 的备用节点接管，lease 默认 10 秒。见[故障转移和部署](/concepts/failover-and-deploys)。
 
 ## 要调的和要在代码里应对的 {#tune-and-code-around}
 
