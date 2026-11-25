@@ -50,26 +50,33 @@ Attribute to that store's tables.
   **dexzd_attribute_sync_dropped_entries_total** increases, compare the affected
   rows with the Flow's Attributes, and write the Attributes again.
 - While a close waits, Dex accepts SetAttributes and RPCs that are neither
-  transactional nor locking. Their synced writes extend the wait, and they
-  start no Step. Transactional or locking RPCs, WaitForStepCompletion,
+  transactional nor locking. They start no Step, and the synced writes they
+  commit extend the wait. Transactional or locking RPCs, WaitForStepCompletion,
   WaitForAttribute, DeleteChannelMessage, and PublishToChannel calls made
   during the wait fail with FAILED_PRECONDITION and sub-status FLOW_CLOSING.
   See
   [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
   Changed in 0.1.26: before, PublishToChannel was accepted.
+- Any RPC whose result publishes to a Channel during the wait fails with
+  FAILED_PRECONDITION and FLOW_CLOSING and commits nothing, so its writes do
+  not extend the wait. This includes a transactional or locking RPC that Dex
+  accepted before the close. Changed in 0.1.38: before, Dex stored the
+  message, but no Step could consume it.
 - A natural close also waits for every transactional or locking RPC that Dex
   accepted before the close, even without an Attribute Store. Such an RPC still
-  commits, and its synced writes join the wait. Dex records the close once
-  those RPCs commit, fail, or time out. An RPC whose result publishes to a
-  Channel fails with FLOW_CLOSING instead and commits nothing. Changed in
-  0.1.38: before, it committed the publication.
+  commits unless its result publishes to a Channel, and its synced writes join
+  the wait. Dex records the close once those RPCs commit, fail, or time out. A
+  rejected RPC stops holding the close like a failed one.
 - **syncRetryPolicy.totalDuration** limits how long Dex retries each pending
   write, not the whole close. During a PostgreSQL outage, a close waits until
   its pending writes are dropped. Every synced write accepted while the close
   waits starts its own retry window and extends the wait.
-- StopFlow and Terminate never wait. StopFlow closes the Flow run as soon as it
+- A StopFlow that cancels, terminates, or fails the Flow never waits, and
+  neither does Terminate. Such a StopFlow closes the Flow run as soon as it
   commits, even while a close waits, and the pending writes keep syncing after
-  the close. A later **SetAttributes** on that Flow run returns NOT_FOUND, with
+  the close. A StopFlow with a complete stop type closes naturally, so it waits
+  like a Step's close decision. While another close waits, it fails with
+  FLOW_CLOSING. A later **SetAttributes** on that Flow run returns NOT_FOUND, with
   one exception from server-zd v0.1.5: it succeeds when every write erases a
   currently stored
   [hard-delete Attribute](/reference/server/runtime-data#hard-delete-attributes)
