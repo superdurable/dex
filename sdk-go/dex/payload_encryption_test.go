@@ -232,7 +232,8 @@ func TestPayloadEncryptionSealsWorkerResults(t *testing.T) {
 	flow, found := registry.lookupFlow("payloadEncryptionTestFlow")
 	require.True(t, found)
 	encryption, codec := newTestRecordingPayloadEncryption(t, PayloadEncryptionOptions{})
-	service := newWorkerService(registry, concreteValueHydrator{}, nil, &negotiatedServerProtocol{}, encryption)
+	service := newWorkerService(registry, concreteValueHydrator{}, nil, &negotiatedServerProtocol{}, encryption,
+		newUnlockedAttributeReadModifyWriteCheck(false, nil))
 	metadata := workerStepContext()
 
 	null := &dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}}
@@ -494,7 +495,8 @@ func TestPayloadEncryptionNeverLeaksKeyProviderErrorText(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			logger := &capturingPayloadLogger{}
-			service := newWorkerService(registry, concreteValueHydrator{}, logger, &negotiatedServerProtocol{}, encryption)
+			service := newWorkerService(registry, concreteValueHydrator{}, logger, &negotiatedServerProtocol{}, encryption,
+				newUnlockedAttributeReadModifyWriteCheck(false, logger))
 
 			// Client decryption and encryption errors.
 			received := encrypted
@@ -712,7 +714,8 @@ func requireCodecFailuresHideSentinel(t *testing.T, encryption *payloadEncryptio
 	require.NoError(t, err)
 	flow, _ := registry.lookupFlow("payloadEncryptionTestFlow")
 	logger := &capturingPayloadLogger{}
-	service := newWorkerService(registry, concreteValueHydrator{}, logger, &negotiatedServerProtocol{}, encryption)
+	service := newWorkerService(registry, concreteValueHydrator{}, logger, &negotiatedServerProtocol{}, encryption,
+		newUnlockedAttributeReadModifyWriteCheck(false, logger))
 
 	received := encrypted
 	clientDecryptErr := encryption.decryptFlowValues(context.Background(), valuePointersForFlow(

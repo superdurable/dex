@@ -105,6 +105,51 @@ func (a Attribute[T]) Delete(ctx Context) error {
 	return invocation.deleteAttribute(a.name, a.index)
 }
 
+// DeclareSingleWriter tells the Worker's unlocked read-modify-write check that only this handler
+// writes the Attribute, so the current invocation needs no lock for it.
+//
+// A Worker checks every successful WaitFor, Execute, and RPC invocation. When the invocation reads
+// an Attribute with Get and later writes it with Set or Delete, and the handler's registered
+// options do not lock it, the Worker logs a warning once per Flow type, handler, and Attribute.
+// With WorkerOptions.FailOnUnlockedAttributeReadModifyWrite, the invocation fails with
+// UnlockedAttributeReadModifyWriteError instead. See WorkerOptions.FailOnUnlockedAttributeReadModifyWrite
+// for the exact rule.
+//
+// Call DeclareSingleWriter when no other Step or RPC can write the Attribute while this handler
+// runs. One example is an Attribute that only one sequential Step of the Flow writes. The
+// declaration applies to the current invocation only, and it may come before or after the read
+// and the write. It changes nothing that Dex stores, and it does not lock the Attribute. When two
+// handlers can run at the same time and both write the Attribute, lock it with LockAttribute
+// instead.
+//
+// Example:
+//
+//	func (RecordAttemptStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+//		if err := attemptCount.DeclareSingleWriter(ctx); err != nil {
+//			return nil, err
+//		}
+//		count, err := attemptCount.Get(ctx)
+//		if err != nil && !errors.As(err, new(*dex.AttributeNotFoundError)) {
+//			return nil, err
+//		}
+//		if err := attemptCount.Set(ctx, count+1); err != nil {
+//			return nil, err
+//		}
+//		return dex.GracefulComplete(nil), nil
+//	}
+//
+// It returns an error when ctx is not a WaitFor, Execute, or RPC invocation, or when the Flow's
+// PersistenceSchema does not declare the Attribute.
+//
+// Since 1.45.17.
+func (a Attribute[T]) DeclareSingleWriter(ctx Context) error {
+	invocation, ok := ctx.(attributeInvocation)
+	if !ok {
+		return errInvalidInvocationContext
+	}
+	return invocation.declareAttributeSingleWriter(a.name, "", false)
+}
+
 // AttributeName returns the stable name sent to Dex and used in PersistenceSchema.
 func (a Attribute[T]) AttributeName() string {
 	return a.name
@@ -219,6 +264,44 @@ func (a AttributeMap[T]) Delete(ctx Context, instance string) error {
 		return errInvalidInvocationContext
 	}
 	return invocation.deleteAttributeMap(a.name, instance, a.index)
+}
+
+// DeclareSingleWriter tells the Worker's unlocked read-modify-write check that only this handler
+// writes one map instance, so the current invocation needs no lock for it.
+//
+// The Worker checks each AttributeMap instance on its own, the same way Attribute.DeclareSingleWriter
+// describes for a singleton Attribute. The declaration covers only the given instance and only the
+// current invocation. It may come before or after the read and the write. It changes nothing that
+// Dex stores, and it does not lock the instance. When two handlers can write the same instance at
+// the same time, lock it with LockAttributeMap instead.
+//
+// Example:
+//
+//	func (CloseTicketStep) Execute(ctx dex.Context, ticketID string) (*dex.StepDecision, error) {
+//		if err := tickets.DeclareSingleWriter(ctx, ticketID); err != nil {
+//			return nil, err
+//		}
+//		ticket, err := tickets.Get(ctx, ticketID)
+//		if err != nil {
+//			return nil, err
+//		}
+//		ticket.Status = "closed"
+//		if err := tickets.Set(ctx, ticketID, ticket); err != nil {
+//			return nil, err
+//		}
+//		return dex.GracefulComplete(nil), nil
+//	}
+//
+// It returns an error when ctx is not a WaitFor, Execute, or RPC invocation, when the instance is
+// empty or contains "/", or when the Flow's PersistenceSchema does not declare the AttributeMap.
+//
+// Since 1.45.17.
+func (a AttributeMap[T]) DeclareSingleWriter(ctx Context, instance string) error {
+	invocation, ok := ctx.(attributeInvocation)
+	if !ok {
+		return errInvalidInvocationContext
+	}
+	return invocation.declareAttributeSingleWriter(a.name, instance, true)
 }
 
 // MapSize returns the number of existing instances, including writes buffered by this invocation.
@@ -513,6 +596,7 @@ type attributeInvocation interface {
 	setAttributeMap(name string, instance string, value any, index *AttributeIndex) error
 	deleteAttributeMap(name string, instance string, index *AttributeIndex) error
 	attributeMapKeys(name string) []string
+	declareAttributeSingleWriter(name string, instance string, isMap bool) error
 }
 
 type attributeConfig struct {

@@ -13,6 +13,7 @@ package dex
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
@@ -119,6 +120,79 @@ func (e *InvalidStepResultError) Error() string {
 // Unwrap returns the underlying result-contract violation.
 func (e *InvalidStepResultError) Unwrap() error {
 	return e.Err
+}
+
+// UnlockedAttributeReadModifyWriteError reports a handler invocation that read and then wrote an
+// Attribute without locking it.
+//
+// A Worker returns it only when WorkerOptions.FailOnUnlockedAttributeReadModifyWrite is set. The
+// failed invocation saves none of its changes. Dex reports it like any other handler error: it
+// retries a Step method under the Step's retry policy and returns the failure to the RPC caller,
+// whose error carries the Go type name *dex.UnlockedAttributeReadModifyWriteError. A retry fails the
+// same way, because the handler code is the cause. Fix the handler: lock the Attribute with
+// LockAttribute or LockAttributeMap in the handler's registered options, or call
+// Attribute.DeclareSingleWriter or AttributeMap.DeclareSingleWriter when only this handler writes it.
+// See WorkerOptions.FailOnUnlockedAttributeReadModifyWrite for the exact rule.
+//
+// Example:
+//
+//	var unlocked *dex.UnlockedAttributeReadModifyWriteError
+//	if errors.As(err, &unlocked) {
+//		for _, access := range unlocked.Attributes {
+//			log.Printf("lock %s %s in %s", access.AttributeName, access.Instance, unlocked.StepType)
+//		}
+//	}
+//
+// Since 1.45.17.
+type UnlockedAttributeReadModifyWriteError struct {
+	// FlowType identifies the Flow whose handler ran.
+	FlowType string
+	// StepType identifies the Step, or is empty for an RPC.
+	StepType string
+	// Method is "WaitFor", "Execute", or "RPC".
+	Method string
+	// RPCName is the RPC name for an RPC invocation, or empty for a Step method.
+	RPCName string
+	// Attributes lists every unlocked Attribute and AttributeMap instance, sorted by stored key.
+	Attributes []UnlockedAttributeAccess
+}
+
+// UnlockedAttributeAccess names one Attribute, or one AttributeMap instance, that a handler read
+// and then wrote without a lock.
+//
+// Since 1.45.17.
+type UnlockedAttributeAccess struct {
+	// AttributeName is the Attribute or AttributeMap name.
+	AttributeName string
+	// Instance is the AttributeMap instance, or empty for a singleton Attribute.
+	Instance string
+}
+
+// Error names the handler and each unlocked Attribute, and says how to fix the handler.
+func (e *UnlockedAttributeReadModifyWriteError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	handler := fmt.Sprintf("flow %q step %q %s", e.FlowType, e.StepType, e.Method)
+	if e.Method == attributeLockCheckMethodRPC {
+		handler = fmt.Sprintf("flow %q RPC %q", e.FlowType, e.RPCName)
+	}
+	accesses := make([]string, 0, len(e.Attributes))
+	for _, access := range e.Attributes {
+		if access.Instance == "" {
+			accesses = append(accesses, fmt.Sprintf("Attribute %q", access.AttributeName))
+		} else {
+			accesses = append(accesses, fmt.Sprintf(
+				"AttributeMap %q instance %q", access.AttributeName, access.Instance))
+		}
+	}
+	return fmt.Sprintf(
+		"dex: %s read and then wrote %s without a lock, so a concurrent Step or RPC can overwrite "+
+			"the update; lock it in the handler's options, or call DeclareSingleWriter when only "+
+			"this handler writes it",
+		handler,
+		strings.Join(accesses, ", "),
+	)
 }
 
 // HardDeleteAttributeUnsupportedError reports a hard-delete Attribute write to a Server that cannot keep it out of history.

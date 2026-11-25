@@ -25,11 +25,12 @@ import (
 const timeoutHandlerStepType = "sys:timeout_handler"
 
 type workerService struct {
-	registry          *Registry
-	hydrator          valueHydrator
-	logger            Logger
-	serverProtocol    *negotiatedServerProtocol
-	payloadEncryption *payloadEncryption
+	registry           *Registry
+	hydrator           valueHydrator
+	logger             Logger
+	serverProtocol     *negotiatedServerProtocol
+	payloadEncryption  *payloadEncryption
+	attributeLockCheck *unlockedAttributeReadModifyWriteCheck
 }
 
 func newWorkerService(
@@ -38,6 +39,7 @@ func newWorkerService(
 	logger Logger,
 	serverProtocol *negotiatedServerProtocol,
 	payloadEncryption *payloadEncryption,
+	attributeLockCheck *unlockedAttributeReadModifyWriteCheck,
 ) *workerService {
 	if registry == nil {
 		panic("dex: WorkerService requires registry")
@@ -51,12 +53,16 @@ func newWorkerService(
 	if payloadEncryption == nil {
 		panic("dex: WorkerService requires payload encryption settings")
 	}
+	if attributeLockCheck == nil {
+		panic("dex: WorkerService requires the unlocked Attribute read-modify-write check")
+	}
 	return &workerService{
-		registry:          registry,
-		hydrator:          hydrator,
-		logger:            resolveLogger(logger, nil),
-		serverProtocol:    serverProtocol,
-		payloadEncryption: payloadEncryption,
+		registry:           registry,
+		hydrator:           hydrator,
+		logger:             resolveLogger(logger, nil),
+		serverProtocol:     serverProtocol,
+		payloadEncryption:  payloadEncryption,
+		attributeLockCheck: attributeLockCheck,
 	}
 }
 
@@ -212,6 +218,12 @@ func (service *workerService) invokeWaitForMethod(
 	if err != nil {
 		return err
 	}
+	if err := service.attributeLockCheck.checkInvocation(
+		stepAttributeLockCheckHandler(flow, step, attributeLockCheckMethodWaitFor),
+		invocation,
+	); err != nil {
+		return err
+	}
 	waiting, err := mapRegisteredWait(service.registry, flow, wait)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
@@ -333,6 +345,12 @@ func (service *workerService) invokeExecuteMethod(
 	}
 	decision, err := callExecuteHandler(step, invocation, input)
 	if err != nil {
+		return err
+	}
+	if err := service.attributeLockCheck.checkInvocation(
+		stepAttributeLockCheckHandler(flow, step, attributeLockCheckMethodExecute),
+		invocation,
+	); err != nil {
 		return err
 	}
 	mapped, err := mapRegisteredDecision(flow, decision)
@@ -537,6 +555,12 @@ func (service *workerService) invokeWorkerRPC(
 	}
 	result, err := callRPCHandler(rpc, invocation, input)
 	if err != nil {
+		return nil, err
+	}
+	if err := service.attributeLockCheck.checkInvocation(
+		rpcAttributeLockCheckHandler(flow, rpc),
+		invocation,
+	); err != nil {
 		return nil, err
 	}
 	response, err := mapRegisteredRPCResult(flow, result)
