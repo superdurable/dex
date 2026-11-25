@@ -28,6 +28,7 @@ import (
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	failfast "github.com/superdurable/dex/examples/go/patterns/fail-fast"
 	hashpartitionedattributemap "github.com/superdurable/dex/examples/go/patterns/hash-partitioned-attribute-map"
 	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
@@ -97,6 +98,8 @@ var (
 	CronSchedule          *cron.CronScheduleFlow
 	Polling               *patternspolling.PollingFlow
 	PollingJobs           *patternspolling.FakeJobService
+	ExpenseReimbursement  *failfast.ExpenseReimbursementFlow
+	PaymentProvider       *failfast.FakePaymentProvider
 	Interruptible         *interruptible.InterruptibleFlow
 	Reminder              *reminders.ReminderFlow
 	UserProfile           *entitystore.UserProfileFlow
@@ -182,6 +185,8 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingJobs = patternspolling.NewFakeJobService()
 	Polling = patternspolling.NewPollingFlow(PollingJobs)
+	PaymentProvider = failfast.NewFakePaymentProvider()
+	ExpenseReimbursement = failfast.NewExpenseReimbursementFlow(PaymentProvider)
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
 	UserProfile = entitystore.NewUserProfileFlow()
@@ -249,6 +254,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ManagerApprovalRefund,
 		CronSchedule,
 		Polling,
+		ExpenseReimbursement,
 		Interruptible,
 		Reminder,
 		UserProfile,
