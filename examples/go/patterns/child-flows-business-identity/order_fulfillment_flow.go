@@ -46,7 +46,11 @@ const (
 	ShipmentUnavailable = "unavailable"
 )
 
-const duplicateShipmentPrefix = "duplicate shipment number: "
+const (
+	duplicateShipmentPrefix         = "duplicate shipment number: "
+	negativeDeliveryDelayPrefix     = "negative delivery delay for shipment: "
+	invalidReconcileIntervalMessage = "reconcile interval must be positive"
+)
 
 // Order is the input of OrderFulfillmentFlow. The order number is the Flow ID.
 type Order struct {
@@ -121,19 +125,37 @@ func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
 			LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
 			LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
 		}),
-		dex.DefineRPC(flow.GetDexSummary, nil),
-		dex.DefineRPC(flow.GetDexDisplay, nil),
+		dex.DefineRPC(flow.GetDexSummary, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
+		dex.DefineRPC(flow.GetDexDisplay, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
 	}
 }
 
-// GetDexSummary returns no summary fields for Dex Web.
-func (*OrderFulfillmentFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
-	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+// GetDexSummary returns the status of each shipment, keyed by shipment number, for Dex Web.
+// It returns an error when a record cannot be read.
+func (*OrderFulfillmentFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	statuses := map[string]any{}
+	for _, number := range ShipmentRecords.AllInstanceKeys(ctx) {
+		record, err := ShipmentRecords.Get(ctx, number)
+		if err != nil {
+			return nil, err
+		}
+		statuses[number] = record.Status
+	}
+	return &dex.RPCResult[map[string]any]{Output: statuses}, nil
 }
 
-// GetDexDisplay returns no display fields for Dex Web.
-func (*OrderFulfillmentFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
-	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+// GetDexDisplay returns each shipment's record, keyed by shipment number, for Dex Web.
+// It returns an error when a record cannot be read.
+func (*OrderFulfillmentFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	records := map[string]any{}
+	for _, number := range ShipmentRecords.AllInstanceKeys(ctx) {
+		record, err := ShipmentRecords.Get(ctx, number)
+		if err != nil {
+			return nil, err
+		}
+		records[number] = record
+	}
+	return &dex.RPCResult[map[string]any]{Output: records}, nil
 }
 
 func (*OrderFulfillmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
@@ -165,7 +187,7 @@ func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report Shipm
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Registers the order's shipment numbers, then starts one branch per shipment."
+// dex:explanation text:"Checks the order, registers its shipment numbers, then starts one branch per shipment."
 type StartShipments struct {
 	dex.StepDefaultsNoWaitFor[Order]
 }
@@ -176,11 +198,17 @@ func (StartShipments) GetStepOptions() *dex.StepOptions {
 }
 
 func (StartShipments) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
+	if order.ReconcileIntervalSeconds <= 0 {
+		return dex.ForceFail(invalidReconcileIntervalMessage), nil
+	}
 	if len(order.Shipments) == 0 {
 		return dex.GracefulComplete(nil), nil
 	}
 	numbers := make(map[string]bool, len(order.Shipments))
 	for _, shipment := range order.Shipments {
+		if shipment.DeliveryDelaySeconds < 0 {
+			return dex.ForceFail(negativeDeliveryDelayPrefix + shipment.ShipmentNumber), nil
+		}
 		if numbers[shipment.ShipmentNumber] {
 			return dex.ForceFail(duplicateShipmentPrefix + shipment.ShipmentNumber), nil
 		}
@@ -427,14 +455,24 @@ func (*ShipmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{ShipmentOutcome}}
 }
 
-// GetDexSummary returns no summary fields for Dex Web.
-func (*ShipmentFlow) GetDexSummary(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
-	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+// GetDexSummary returns the shipment's committed outcome for Dex Web, or no fields before delivery.
+// It returns an error when the outcome cannot be read.
+func (*ShipmentFlow) GetDexSummary(ctx dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
+	outcome, err := ShipmentOutcome.Get(ctx)
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[map[string]any]{Output: map[string]any{"outcome": outcome}}, nil
 }
 
-// GetDexDisplay returns no display fields for Dex Web.
-func (*ShipmentFlow) GetDexDisplay(_ dex.Context, _ dex.None) (*dex.RPCResult[map[string]any], error) {
-	return &dex.RPCResult[map[string]any]{Output: map[string]any{}}, nil
+// GetDexDisplay returns the same fields as GetDexSummary for Dex Web.
+// It returns an error when the outcome cannot be read.
+func (flow *ShipmentFlow) GetDexDisplay(ctx dex.Context, input dex.None) (*dex.RPCResult[map[string]any], error) {
+	return flow.GetDexSummary(ctx, input)
 }
 
 // dex:group group-id:deliver group-label:"Deliver"
@@ -488,8 +526,8 @@ func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport
 	if client == nil {
 		return nil, errClientUnavailable
 	}
-	// Stable per shipment, so a retried report changes the order once.
-	requestID := "report:" + ctx.FlowID()
+	// Stable per shipment run, so a retried report changes the order once.
+	requestID := "report:" + ctx.FlowID() + ":" + ctx.RunID()
 	err := client.InvokeRPCWithOptions(ctx, pending.OrderFlowID, (&OrderFulfillmentFlow{}).RecordShipmentOutcome,
 		pending.Report, nil, dex.RPCInvokeOptions{RequestID: &requestID})
 	// A closed order ends the attempts; the outcome stays readable through the Client.

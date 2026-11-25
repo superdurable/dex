@@ -66,6 +66,7 @@ func TestChildFlowsBusinessIdentityAcceptsReportsOnlyFromTheClaimedRun(t *testin
 	for _, report := range []childflows.ShipmentReport{
 		{ShipmentNumber: delivered, ShipmentRunID: deliveredRunID, Outcome: "delivered to Boise"},
 		{ShipmentNumber: canceled, ShipmentRunID: "another-run", Outcome: "delivered to Boise"},
+		{ShipmentNumber: canceled, ShipmentRunID: "", Outcome: "delivered to Boise"},
 		{ShipmentNumber: orderID + "-9", ShipmentRunID: "another-run", Outcome: "delivered to Boise"},
 	} {
 		invokeWorkflowPatternRPC(t, orderID, registry.OrderFulfillment.RecordShipmentOutcome, report, nil)
@@ -117,9 +118,11 @@ func TestChildFlowsBusinessIdentityRejectsAShipmentNumberOwnedByAnotherRequest(t
 	})
 	rejected := childflows.ShipmentRecord{Status: childflows.ShipmentRejected}
 	waitForShipmentRecord(t, secondOrderID, shipment.ShipmentNumber, rejected)
-	// The run that owns the number reports to the second order: the rejected record stays as it is.
-	invokeWorkflowPatternRPC(t, secondOrderID, registry.OrderFulfillment.RecordShipmentOutcome,
-		childflows.ShipmentReport{ShipmentNumber: shipment.ShipmentNumber, ShipmentRunID: runID, Outcome: "delivered to Boise"}, nil)
+	// Reports to the second order, from the owning run or with no run ID, leave the rejected record as it is.
+	for _, reportRunID := range []string{runID, ""} {
+		invokeWorkflowPatternRPC(t, secondOrderID, registry.OrderFulfillment.RecordShipmentOutcome,
+			childflows.ShipmentReport{ShipmentNumber: shipment.ShipmentNumber, ShipmentRunID: reportRunID, Outcome: "delivered to Boise"}, nil)
+	}
 	require.Equal(t, rejected, readShipmentRecord(t, secondOrderID, shipment.ShipmentNumber))
 	terminateFlows(t, shipment.ShipmentNumber, firstOrderID, secondOrderID+"-2", secondOrderID)
 }
@@ -129,13 +132,13 @@ func TestChildFlowsBusinessIdentityIgnoresAReopenedShipmentNumber(t *testing.T) 
 	number := orderID + "-1"
 	startOrder(t, orderID, childflows.Order{
 		Shipments:                []childflows.Shipment{{ShipmentNumber: number, Destination: "Seattle", DeliveryDelaySeconds: 3600}},
-		ReconcileIntervalSeconds: 3,
+		ReconcileIntervalSeconds: 10,
 	})
 	claimedRunID := waitForClaimedRun(t, orderID, number)
 	require.NoError(t, integClient.StopFlow(integrationContext(t), number, dex.StopOptions{Type: dex.CancelFlow}))
 	waitForShipmentStatus(t, number, dex.FlowCanceled)
 
-	// Another caller reopens the number; its run reports to the same order.
+	// Another caller reopens the number; its run reports to the same order and completes.
 	_, err := integClient.StartFlow(integrationContext(t), registry.Shipment, number,
 		childflows.ShipmentRequest{
 			OrderFlowID: orderID,
@@ -145,33 +148,74 @@ func TestChildFlowsBusinessIdentityIgnoresAReopenedShipmentNumber(t *testing.T) 
 	require.NoError(t, err)
 	waitForShipmentStatus(t, number, dex.FlowCompleted)
 
+	// The order has not read the shipment yet, and it ignored the other run's report.
+	requireWorkflowPatternRunning(t, orderID)
+	require.Equal(t, childflows.ShipmentRecord{Status: childflows.ShipmentStarted, RunID: claimedRunID},
+		readShipmentRecord(t, orderID, number))
+
 	result := waitForFlow(t, orderID)
 	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
-	record := readShipmentRecord(t, orderID, number)
-	require.Equal(t, claimedRunID, record.RunID)
-	require.Empty(t, record.Outcome, "the reopened run's outcome must not reach the order")
-	require.Contains(t, []string{"canceled", childflows.ShipmentUnavailable}, record.Status)
+	require.Equal(t, childflows.ShipmentRecord{Status: childflows.ShipmentUnavailable, RunID: claimedRunID},
+		readShipmentRecord(t, orderID, number))
 }
 
-func TestChildFlowsBusinessIdentityFailsAnOrderWithADuplicateShipmentNumber(t *testing.T) {
-	orderID := newFlowID(t, "order")
-	number := orderID + "-1"
-	startOrder(t, orderID, childflows.Order{
-		Shipments: []childflows.Shipment{
-			{ShipmentNumber: number, Destination: "Seattle", DeliveryDelaySeconds: 1},
-			{ShipmentNumber: number, Destination: "Portland", DeliveryDelaySeconds: 1},
+func TestChildFlowsBusinessIdentityFailsAnInvalidOrder(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		order   func(number string) childflows.Order
+		message string
+	}{
+		{
+			name: "duplicate shipment number",
+			order: func(number string) childflows.Order {
+				return childflows.Order{
+					Shipments: []childflows.Shipment{
+						{ShipmentNumber: number, Destination: "Seattle", DeliveryDelaySeconds: 1},
+						{ShipmentNumber: number, Destination: "Portland", DeliveryDelaySeconds: 1},
+					},
+					ReconcileIntervalSeconds: 2,
+				}
+			},
+			message: "duplicate shipment number: ",
 		},
-		ReconcileIntervalSeconds: 2,
-	})
-	result := waitForFlow(t, orderID)
-	require.Equal(t, dex.FlowFailed, result.Status)
-	require.Contains(t, result.ErrorMessage, "duplicate shipment number: "+number)
-	_, err := integClient.DescribeFlow(integrationContext(t), number)
-	var notFound *dex.FlowNotFoundError
-	require.ErrorAs(t, err, &notFound)
+		{
+			name: "negative delivery delay",
+			order: func(number string) childflows.Order {
+				return childflows.Order{
+					Shipments:                []childflows.Shipment{{ShipmentNumber: number, Destination: "Seattle", DeliveryDelaySeconds: -1}},
+					ReconcileIntervalSeconds: 2,
+				}
+			},
+			message: "negative delivery delay for shipment: ",
+		},
+		{
+			name: "zero reconcile interval",
+			order: func(number string) childflows.Order {
+				return childflows.Order{
+					Shipments: []childflows.Shipment{{ShipmentNumber: number, Destination: "Seattle", DeliveryDelaySeconds: 1}},
+				}
+			},
+			message: "reconcile interval must be positive",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			orderID := newFlowID(t, "order")
+			number := orderID + "-1"
+			startOrder(t, orderID, testCase.order(number))
+			result := waitForFlow(t, orderID)
+			require.Equal(t, dex.FlowFailed, result.Status)
+			require.Contains(t, result.ErrorMessage, testCase.message)
+			requireNoShipmentRecord(t, orderID, number)
+			_, err := integClient.DescribeFlow(integrationContext(t), number)
+			var notFound *dex.FlowNotFoundError
+			require.ErrorAs(t, err, &notFound)
+		})
+	}
 }
 
-func TestChildFlowsBusinessIdentityStoresTheOutcomeBeforeReportingUnderAsyncDefaults(t *testing.T) {
+// The explicit SYNC options override the Flow's ASYNC default, so the outcome stays readable once
+// the order recorded it. This does not prove the commit order of the two Steps.
+func TestChildFlowsBusinessIdentityKeepsTheOutcomeReadableWhenSyncOverridesAnAsyncDefault(t *testing.T) {
 	orderID := newFlowID(t, "order")
 	number := orderID + "-1"
 	startOrder(t, orderID, childflows.Order{
