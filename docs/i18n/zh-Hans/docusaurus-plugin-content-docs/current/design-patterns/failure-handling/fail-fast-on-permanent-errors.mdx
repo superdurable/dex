@@ -10,7 +10,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/fail
 
 例如通过支付服务商支付一笔报销单。超时是暂时错误：下一次尝试可能成功。银行账户无效是永久错误：服务商已经拒绝了请求，每次重试都会得到同样的答复。
 
-Step 重试会重试 Step 代码抛出的每一个错误。如果 Step 的重试策略是一小时，永久错误会被重试一小时，之后失败路径才会运行。改为在 `Execute` 中对错误分类，并立即转走永久错误。
+Step 重试会按 Step 的重试策略重试 Step 代码抛出的每一个错误。示例的重试调度预算是一小时，所以 `Execute` 抛出的永久错误会一直被重试，直到这个预算用完。改为在 `Execute` 中对错误分类，并立即转走永久错误。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -18,22 +18,24 @@ Step 重试会重试 Step 代码抛出的每一个错误。如果 Step 的重试
 
 - 在 `Execute` 中调用服务商。`Execute` 看到服务商的错误，并决定它的含义。
 - 让暂时错误使这次尝试失败：抛出或返回这个错误。Step 重试按 Step 自己的重试策略再次调用。
-- 捕获永久错误，并返回一个 Step decision。转到一个失败处理 Step，由它记录业务失败。如果整个 Flow 必须立即结束，则改为返回 `ForceFail`。
+- 捕获永久错误，并返回一个 Step decision。转到一个失败处理 Step，由它记录业务失败。如果需要立即把整个 Flow 标记为失败，则改为返回 `ForceFail`。
 - 只有服务商确认的错误才算永久错误，例如输入被拒绝或请求无效。未知错误仍按暂时错误处理，让重试继续覆盖它。
-- 重试策略只按暂时错误来设定。永久错误不会消耗它。
-- 可能永久失败的调用放在 `Execute` 中。`Execute` 在看到失败的同一次调用里，返回转走这个失败的 decision。
+- 重试策略只按暂时错误来设定。已被转走的永久错误不会消耗它。
+- 优先把可能失败的调用放在 `Execute` 中。`Execute` 在看到失败的同一次调用里，返回转走这个失败的 decision。
+- 拒绝的 decision 提交后，这个错误不会再让 `SubmitPayout` 重试。失败处理 Step 是一个独立的 Step，Dex 仍可以单独重试它。
+- 失败记录中只保存不敏感的信息。示例记录固定的原因，从不记录银行账号。
 
 在示例中：
 
 1. `ExpenseReimbursementFlow` 用报销单启动 `SubmitPayout`。Flow ID 就是报销单 ID，也是服务商的幂等键。
 2. `SubmitPayout` 调用支付服务商。成功时，它把付款记录到 `PayoutOutcome` Attribute，并完成 Flow。
-3. 服务商超时时，`SubmitPayout` 让这个错误使本次尝试失败。Step 重试带退避再次调用服务商，最长一小时。
-4. 服务商拒绝银行账户时，`SubmitPayout` 带着原因转到 `RecordRejectedClaim`。不会发生任何重试。
+3. 服务商超时时，`SubmitPayout` 让这个错误使本次尝试失败。Step 重试带退避再次调用服务商，直到一小时的重试调度预算用完。
+4. 服务商拒绝银行账户时，`SubmitPayout` 带着固定的原因转到 `RecordRejectedClaim`。这个错误不会让 `SubmitPayout` 重试。
 5. `RecordRejectedClaim` 把拒绝记录到 `PayoutOutcome`，并完成 Flow。
 
 ## 示例 {#example}
 
-模拟服务商只接受八位数字的银行账户，其他账户一律拒绝。每个有效报销单第一次提交时它会超时，之后才付款。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中运行 HTTP 示例。
+模拟服务商只接受由八位 ASCII 数字组成的银行账户，其他账户一律拒绝。每个有效报销单第一次提交时它会超时，之后才付款。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中运行 HTTP 示例。
 
 <SdkTabs
   examples={{
@@ -303,10 +305,10 @@ impl Step for RecordRejectedClaim {
 
 用 Step 真实的重试策略测试。缩短了重试策略的测试，测的已经不是这条路径。
 
-- 让模拟服务商返回永久错误。断言失败处理 Step 立即运行，并且服务商只被调用一次。等待上限远短于重试策略，就能证明没有发生重试。
-- 让模拟服务商返回一次暂时错误。断言 Step 会重试，然后成功。
+- 让模拟服务商返回永久错误。断言 Flow 的终态，并断言结果来自 `SubmitPayout` 的第一次尝试。测试能观察到模拟服务商时，再断言它只被调用了一次。
+- 让模拟服务商返回一次暂时错误。断言 Step 会重试，并在第二次尝试时成功。
 
-示例通过 `PayoutOutcome` Attribute 断言这两条路径，它记录了产生结果的那次尝试。
+示例从 `PayoutOutcome` Attribute 读取尝试次数，它记录了产生结果的那次尝试。
 
 ## 与 Execute 失败恢复的区别 {#compared-with-execute-failure-recovery}
 
