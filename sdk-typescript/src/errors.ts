@@ -309,6 +309,133 @@ export class InvalidStepResultError extends FlowDefinitionError {
 }
 
 /**
+ * Names one write or publish whose required lock the handler did not register.
+ *
+ * {@link MissingAttributeLockError.accesses} lists these values. Read them to see which
+ * definition a handler wrote or published to and which lock it must register.
+ *
+ * @example
+ * ```ts
+ * const access: MissingAttributeLockAccess = {
+ *   kind: "AttributeMap",
+ *   name: "cart-items",
+ *   instance: "sku-1",
+ *   lockAttributeName: "cart-lock",
+ * };
+ * ```
+ * @since 1.45.17
+ */
+export interface MissingAttributeLockAccess {
+  /** Kind of the written or published definition. */
+  readonly kind: "Attribute" | "AttributeMap" | "Channel" | "ChannelMap";
+  /** The Attribute, AttributeMap, Channel, or ChannelMap name. */
+  readonly name: string;
+  /** The AttributeMap or ChannelMap instance, or `undefined` for a singleton definition. */
+  readonly instance?: string;
+  /** The name of the Attribute or AttributeMap whose lock is required. */
+  readonly lockAttributeName: string;
+  /**
+   * The AttributeMap instance whose lock is required.
+   *
+   * It is `undefined` when the required lock is a singleton Attribute's lock.
+   */
+  readonly lockInstance?: string;
+}
+
+/**
+ * Reports a handler that wrote or published without registering a declared required lock.
+ *
+ * A definition declares its lock requirement with {@link Attribute.writesRequireLock},
+ * {@link Attribute.writesRequireAttributeLock}, {@link AttributeMap.writesRequireLock},
+ * {@link AttributeMap.writesRequireAttributeLock}, {@link Channel.publishesRequireAttributeLock},
+ * or {@link ChannelMap.publishesRequireAttributeLock}. After a `waitFor`, `execute`, or RPC
+ * handler returns, the Worker compares each such write and publish with the locks that the
+ * handler registered. When a required lock is missing, the Worker fails the invocation with this
+ * error. Dex then discards the Attribute writes, Channel publications, and other changes buffered
+ * for the invocation's result. Stream writes that the Step already sent and external side effects
+ * stay.
+ *
+ * Dex reports it like any other handler error. It retries a Step method under the Step's retry
+ * policy and returns the failure to the RPC caller. A retry runs the same handler with the same
+ * registered locks, so it fails again unless the handler takes another path.
+ *
+ * Fix the handler registration. Add the lock to `waitForLockAttributes` or
+ * `executeLockAttributes` of the Step's {@link StepOptions}, or to `lockAttributes` of the RPC's
+ * {@link RPCOptions}. Locks added for one call, such as `lockAttributeMapInstances` of
+ * {@link RPCInvokeOptions} or the options of a {@link StepMovement}, do not satisfy the
+ * requirement.
+ *
+ * The error object exists only inside the Worker. A Client that invokes the RPC receives a
+ * {@link WorkerInvocationError} whose `workerErrorType` is `"MissingAttributeLockError"` and whose
+ * `workerErrorDetail` is this error's message.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await client.invokeRPC(cartFlow.addItem, "cart-1", "sku-1");
+ * } catch (failure) {
+ *   if (
+ *     failure instanceof WorkerInvocationError
+ *     && failure.workerErrorType === "MissingAttributeLockError"
+ *   ) {
+ *     console.error(`register the required lock on the RPC: ${failure.workerErrorDetail}`);
+ *   }
+ * }
+ * ```
+ * @since 1.45.17
+ */
+export class MissingAttributeLockError extends Error {
+  /**
+   * Every write and publish whose required lock was missing.
+   *
+   * Attribute writes come first, in the order the handler first wrote each key. Channel publishes
+   * follow, in the order the handler first published to each Channel or ChannelMap instance.
+   */
+  public readonly accesses: readonly MissingAttributeLockAccess[];
+
+  /**
+   * Creates the error for one handler invocation.
+   * @param flowType - The Flow type whose handler ran.
+   * @param stepType - The Step type, or `undefined` for an RPC.
+   * @param method - The handler method: `"waitFor"`, `"execute"`, or `"rpc"`.
+   * @param rpcName - The RPC name, or `undefined` for a Step method.
+   * @param accesses - Every write and publish whose required lock was missing.
+   * @param options - Standard Error construction options.
+   */
+  public constructor(
+    public readonly flowType: string,
+    public readonly stepType: string | undefined,
+    public readonly method: "waitFor" | "execute" | "rpc",
+    public readonly rpcName: string | undefined,
+    accesses: readonly MissingAttributeLockAccess[],
+    options?: ErrorOptions,
+  ) {
+    const handler = method === "rpc"
+      ? `Flow ${JSON.stringify(flowType)} RPC ${JSON.stringify(rpcName ?? "")}`
+      : `Flow ${JSON.stringify(flowType)} Step ${JSON.stringify(stepType ?? "")} ${method}`;
+    const descriptions = accesses.map(describeMissingAttributeLockAccess).join(", ");
+    super(
+      `${handler} ${descriptions}; register the lock in the handler's StepOptions or RPCOptions`,
+      options,
+    );
+    this.name = new.target.name;
+    this.accesses = Object.freeze(accesses.map((access) => Object.freeze({ ...access })));
+  }
+}
+
+function describeMissingAttributeLockAccess(access: MissingAttributeLockAccess): string {
+  const operation = access.kind === "Channel" || access.kind === "ChannelMap" ? "published to" : "wrote";
+  let target = `${access.kind} ${JSON.stringify(access.name)}`;
+  if (access.instance !== undefined) {
+    target += ` instance ${JSON.stringify(access.instance)}`;
+  }
+  const lock = access.lockInstance === undefined
+    ? `Attribute ${JSON.stringify(access.lockAttributeName)}`
+    : `AttributeMap ${JSON.stringify(access.lockAttributeName)} instance ${JSON.stringify(access.lockInstance)}`;
+  return `${operation} ${target} without the required lock of ${lock}`;
+}
+
+/**
  * Reports a Wait with a graceful completion condition for a Server that cannot evaluate it.
  *
  * The condition that `GracefulCompletion.requested` returns requires Server protocol version 7

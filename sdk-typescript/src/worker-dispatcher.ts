@@ -46,15 +46,18 @@ import {
   type Value,
 } from "./gen/dex.js";
 import { actionPermissionMappingsForWrites, appendInitialWorkQueuePermissions } from "./action.js";
+import { requireRegisteredRPCLocks, requireRegisteredStepLocks } from "./attribute-lock-enforcement.js";
 import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
   registeredFlowByName,
   registeredFlow,
+  registeredStepLockSnapshot,
   registeredStepTarget,
   registeredRPCByName,
   registeredStep,
   type RegisteredFlow,
   type RegisteredStep,
+  type RegisteredStepLocks,
   type Registry,
 } from "./flow.js";
 import { InvocationContext, type StepOutputEmitter } from "./invocation-context.js";
@@ -154,6 +157,7 @@ export class WorkerDispatcher {
     }
     try {
       const wait = await step.step.waitFor(context, input);
+      requireRegisteredStepLocks(flow, step.name, "waitFor", context);
       let response: InvokeWaitForMethodResponse;
       try {
         response = InvokeWaitForMethodResponse.create({
@@ -228,6 +232,7 @@ export class WorkerDispatcher {
     );
     try {
       const decision = await step.step.execute(context, input);
+      requireRegisteredStepLocks(flow, step.name, "execute", context);
       let response: InvokeExecuteMethodResponse;
       try {
         response = InvokeExecuteMethodResponse.create({
@@ -331,6 +336,7 @@ export class WorkerDispatcher {
       this.payloadEncryption,
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
+    requireRegisteredRPCLocks(flow, rpc.name, context);
     let response: InvokeWorkerRPCResponse;
     try {
       const result = rpcResult(rpc, returned);
@@ -904,24 +910,48 @@ function mapMovement(flow: RegisteredFlow, movement: StepMovement<any>): ProtoSt
   return ProtoStepMovement.create({
     stepType: target.name,
     stepInput: encodeValue(codecOrJson(target.step.inputCodec), movement.input),
-    stepOptions: mapStepOptions(
-      flow,
-      movement.options ?? target.step.getStepOptions?.(),
-      target.step.waitFor === undefined,
-    ),
+    stepOptions: mapDefaultableStepOptions(flow, movement.options, target),
   });
 }
 
+/**
+ * Maps explicit options, or the target's default options when `explicit` is nullish.
+ * Only default options use the target's registered lock snapshot; `explicit` is read once.
+ */
+function mapDefaultableStepOptions(
+  flow: RegisteredFlow,
+  explicit: StepOptions | undefined,
+  target: RegisteredStep,
+): ProtoStepOptions {
+  const usesDefault = explicit === undefined || explicit === null;
+  return mapStepOptions(
+    flow,
+    explicit ?? target.step.getStepOptions?.(),
+    target.step.waitFor === undefined,
+    usesDefault ? registeredStepLockSnapshot(flow, target) : undefined,
+  );
+}
+
+/**
+ * Maps Step options for a movement.
+ * A registered lock snapshot, when given, supplies both lock fields instead of `options`.
+ */
 function mapStepOptions(
   flow: RegisteredFlow,
   options: StepOptions | undefined,
   skipWaitFor: boolean,
+  lockSnapshot?: RegisteredStepLocks,
 ): ProtoStepOptions {
   const failureTarget = options?.executeFailure?.step;
   const failureDefinition = failureTarget === undefined
     ? undefined
     : registeredStepTarget(flow, failureTarget);
-  const failureOptions = options?.executeFailure?.options ?? failureDefinition?.step.getStepOptions?.();
+  const explicitFailureOptions = options?.executeFailure?.options;
+  const failureOptions = explicitFailureOptions ?? failureDefinition?.step.getStepOptions?.();
+  const failureLockSnapshot =
+    (explicitFailureOptions === undefined || explicitFailureOptions === null) && failureDefinition !== undefined
+      ? registeredStepLockSnapshot(flow, failureDefinition)
+      : undefined;
   const waitForLoads = mapHandlerStateLoads(flow, {
     attributeMaps: options?.waitForLoadAttributeMaps,
     attributeMapInstances: options?.waitForLoadAttributeMapInstances,
@@ -960,6 +990,7 @@ function mapStepOptions(
             flow,
             failureOptions,
             failureDefinition.step.waitFor === undefined,
+            failureLockSnapshot,
           ),
     skipWaitFor,
     waitForDurabilityOverride:
@@ -974,12 +1005,15 @@ function mapStepOptions(
         : options?.executeDurability === "async"
           ? 2
           : 0,
-    waitForLockAttributeKeys: (options?.waitForLockAttributes ?? []).map((lock) =>
+    // Locks are read here, in their original order relative to the other fields.
+    waitForLockAttributeKeys: ((lockSnapshot === undefined ? options?.waitForLockAttributes : lockSnapshot.waitFor)
+      ?? []).map((lock) =>
       lock.instance === undefined
         ? lock.attribute.name
         : physicalName(lock.attribute.name, lock.instance),
     ),
-    executeLockAttributeKeys: (options?.executeLockAttributes ?? []).map((lock) =>
+    executeLockAttributeKeys: ((lockSnapshot === undefined ? options?.executeLockAttributes : lockSnapshot.execute)
+      ?? []).map((lock) =>
       lock.instance === undefined
         ? lock.attribute.name
         : physicalName(lock.attribute.name, lock.instance),
@@ -1089,6 +1123,7 @@ class ConditionMapper {
             target,
             start.step.getStepOptions?.(),
             start.step.waitFor === undefined,
+            registeredStepLockSnapshot(target, start),
           ),
           options: mapSubFlowOptions(target, options),
           subFlowIndex: this.subFlows.length,
@@ -1220,11 +1255,7 @@ function mapFlowTimeoutHandlerOptions(
     failureProceedStepType: failureDefinition?.name ?? "",
     failureProceedStepOptions: failureDefinition === undefined
       ? undefined
-      : mapStepOptions(
-          flow,
-          options.failure?.options ?? failureDefinition.step.getStepOptions?.(),
-          failureDefinition.step.waitFor === undefined,
-        ),
+      : mapDefaultableStepOptions(flow, options.failure?.options, failureDefinition),
     durabilityOverride: mapDurability(options.durability),
     lockAttributeKeys: mapAttributeLocks(flow, options.lockAttributes ?? [], "timeout handler"),
     loadAttributeMapInstances: loads.attributeMaps,

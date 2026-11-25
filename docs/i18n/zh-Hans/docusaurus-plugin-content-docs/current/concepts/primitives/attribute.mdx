@@ -332,7 +332,7 @@ Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时�
 
 两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，两个先读后写这个 Attribute 的 Step 或 RPC 可能互相覆盖对方的更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
 
-两个并行 Step，或者一个 Step 和一个 RPC，如果都会先读后写同一个 Attribute，就给它加 lock。Dex 不会根据 Step 或 RPC 读写了什么去猜它缺了哪个 lock。使用 Go、Python、Java 和 Rust SDK 时，你可以在 Attribute 上声明规则：每次写入都必须持有 lock。这个 lock 是 Attribute 自己的 lock，或者一个共享的协调 Attribute 的 lock。之后，Step method 或 RPC 写这个 Attribute 时如果没有注册这个 lock，Worker 会让它失败，Dex 丢弃这次 method 的改动。只有 Step 或 RPC 注册时声明的 lock 才算数。Channel 也可以为发布声明同样的规则。具体规则见 [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements)（英文）。测试 lock 的方法是同时运行两个写入方，再检查最终的值。
+两个并行 Step，或者一个 Step 和一个 RPC，如果都会先读后写同一个 Attribute，就给它加 lock。Dex 不会根据 Step 或 RPC 读写了什么去猜它缺了哪个 lock。使用 Go、Python、Java、Rust 和 TypeScript SDK 时，你可以在 Attribute 上声明规则：每次写入都必须持有 lock。这个 lock 是 Attribute 自己的 lock，或者一个共享的协调 Attribute 的 lock。之后，Step method 或 RPC 写这个 Attribute 时如果没有注册这个 lock，Worker 会让它失败，Dex 丢弃这次 method 的改动。只有 Step 或 RPC 注册时声明的 lock 才算数。Channel 也可以为发布声明同样的规则。具体规则见 [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements)（英文）。测试 lock 的方法是同时运行两个写入方，再检查最终的值。
 
 lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute，除非这个 Attribute 声明了写入必须持有这个 lock。
 

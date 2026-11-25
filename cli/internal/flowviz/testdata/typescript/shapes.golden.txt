@@ -326,6 +326,15 @@ edge resource_write timeout_handler:ApprovalFlow -> resource:attribute:status se
 edge subflow wait:ReviewBounds:86:12 -> subflow:wait:ReviewBounds:86:12:4:reviewFlow:91:7 start
 == localAlias valid=false
 == localInstanceComputed valid=false
+== lockRequirement valid=true
+node decision:step:AddItem:49:12 condition=""
+edge resource_read resource:attribute:cartTotal -> step:AddItem get
+edge resource_lock rpc:reply -> resource:attribute:cartLock lock
+edge resource_publish rpc:reply -> resource:channel:replies publish
+edge resource_write step:AddItem -> resource:attribute:cartItems set
+edge resource_write step:AddItem -> resource:attribute:cartTotal set
+edge resource_publish step:AddItem -> resource:channel:events publish
+== lockRequirementMismatch valid=false
 == moduleReassigned valid=false
 == moduleReusedWait valid=false
 == nestedHelper valid=true

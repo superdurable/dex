@@ -338,7 +338,8 @@ func TestTypeScriptWaitAndRPCShapesAreCorrectOrBlocked(t *testing.T) {
 func TestTypeScriptReviewShapes(t *testing.T) {
 	expectedErrorCodes := map[string][]string{
 		"baseline": nil, "both": nil, "computedLiteral": nil, "contextWeakMap": nil, "hard": nil,
-		"helperNestedBinding": nil, "helperParameter": nil, "innerReturn": nil, "nestedHelper": nil, "plaintext": nil,
+		"helperNestedBinding": nil, "helperParameter": nil, "innerReturn": nil, "lockRequirement": nil,
+		"nestedHelper": nil, "plaintext": nil,
 		"r03-void-helper": nil, "r10-weakmap": nil, "repeatHelper": nil, "reusedWait": nil,
 		"rpcHelperVoidPath": nil, "streamReboundWriter": nil, "sync": nil, "thisField": nil,
 		"unreachableAfterEmpty": nil, "unrelatedMap": nil, "waitTernary": nil,
@@ -357,8 +358,9 @@ func TestTypeScriptReviewShapes(t *testing.T) {
 		"helperAlias": {"dynamic_resource_access"}, "helperChangedToBuckets": {"dynamic_resource_access"},
 		"helperInstance": {"dynamic_resource_access"}, "helperReassign": {"dynamic_resource_access"},
 		"helperRecursiveResources": {"dynamic_resource_access"}, "localAlias": {"dynamic_resource_access"},
-		"localInstanceComputed": {"dynamic_resource_access"}, "parameterShadow": {"dynamic_resource_access"},
-		"r04-this-chain": {"dynamic_resource_access"}, "r05-reassigned-helper": {"dynamic_resource_access"},
+		"localInstanceComputed": {"dynamic_resource_access"}, "lockRequirementMismatch": {"dynamic_resource_access"},
+		"parameterShadow": {"dynamic_resource_access"}, "r04-this-chain": {"dynamic_resource_access"},
+		"r05-reassigned-helper":  {"dynamic_resource_access"},
 		"r06-resource-recursion": {"dynamic_resource_access"}, "r07-context-alias": {"dynamic_resource_access"},
 		"r08-unresolved-computed": {"dynamic_resource_access"}, "r09-writer-computed": {"dynamic_resource_access"},
 		"streamComputedWriter": {"dynamic_resource_access"}, "thisChainWrong": {"dynamic_resource_access"},
