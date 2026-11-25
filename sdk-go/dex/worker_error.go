@@ -175,18 +175,39 @@ func workerErrorType(reported error) string {
 }
 
 // reportedWorkerFailure returns the failure to report without the RetryAfter and NonRetryable
-// wrappers, the RetryAfter request or nil, and whether any wrapper in err marks it non-retryable.
+// wrappers, the first RetryAfter request in err or nil, and whether err holds a
+// NonRetryableError. A marked failure reports the cause of the marker it found, so an
+// errors.Join reports the marked branch.
 func reportedWorkerFailure(err error) (error, *RetryAfterError, bool) {
-	reported := err
 	var retryAfter *RetryAfterError
-	if errors.As(err, &retryAfter) {
-		reported = retryAfter.Cause
-	}
+	hasRetryAfter := errors.As(err, &retryAfter)
 	var nonRetryable *NonRetryableError
-	if errors.As(reported, &nonRetryable) {
-		return nonRetryable.Cause, retryAfter, true
+	if errors.As(err, &nonRetryable) {
+		return withoutControlWrappers(nonRetryable.Cause), retryAfter, true
 	}
-	return reported, retryAfter, errors.As(err, &nonRetryable)
+	if hasRetryAfter {
+		return withoutControlWrappers(retryAfter.Cause), retryAfter, false
+	}
+	return err, nil, false
+}
+
+// maxControlWrapperDepth bounds the unwrap loop; a hand-built wrapper can point to itself.
+const maxControlWrapperDepth = 64
+
+// withoutControlWrappers returns err without the RetryAfterError and NonRetryableError
+// wrappers directly around it.
+func withoutControlWrappers(err error) error {
+	for range maxControlWrapperDepth {
+		switch wrapper := err.(type) {
+		case *RetryAfterError:
+			err = wrapper.Cause
+		case *NonRetryableError:
+			err = wrapper.Cause
+		default:
+			return err
+		}
+	}
+	return err
 }
 
 func classifyWorkerError(err error) (codes.Code, error) {

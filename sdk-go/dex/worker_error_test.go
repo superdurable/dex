@@ -85,6 +85,29 @@ func TestFinishWorkerCallMarksNonRetryableAndReportsCause(t *testing.T) {
 	}
 }
 
+func TestFinishWorkerCallReportsTheMarkedCauseUnderControlWrappers(t *testing.T) {
+	cause := &os.PathError{Op: "open", Path: "input", Err: os.ErrNotExist}
+	other := errors.New("transient")
+	for name, failure := range map[string]error{
+		"nested retry after": RetryAfter(7*time.Second, NonRetryable(RetryAfter(8*time.Second, cause))),
+		"joined branches":    errors.Join(RetryAfter(7*time.Second, other), NonRetryable(cause)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rpcStatus, _ := status.FromError(finishWorkerCall(testLogger{}, nil, failure))
+			workerError := rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse)
+			if !workerError.GetNonRetryable() {
+				t.Fatal("non_retryable = false, want true")
+			}
+			if workerError.GetErrorType() != "*fs.PathError" || workerError.GetDetail() != cause.Error() {
+				t.Fatalf("reported %q %q, want the marked cause", workerError.GetErrorType(), workerError.GetDetail())
+			}
+			if workerError.GetRetryAfterSeconds() != 7 {
+				t.Fatalf("retry after = %d, want the outer 7", workerError.GetRetryAfterSeconds())
+			}
+		})
+	}
+}
+
 func TestFinishWorkerCallPlainErrorSkipsWrapSiteStack(t *testing.T) {
 	err := finishWorkerCall(testLogger{}, nil, errors.New("plain boom"))
 	if err == nil {

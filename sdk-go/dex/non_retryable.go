@@ -19,8 +19,9 @@ package dex
 // proceed to a recovery Step starts that Step. Dex reports Cause as the Worker
 // error, so the recovery Step sees the Cause's type, message, and stack trace.
 //
-// The error may wrap or be wrapped by a RetryAfterError; NonRetryableError
-// wins and no retry runs. Returned from an RPC handler, it has no effect,
+// The error may wrap or be wrapped by a RetryAfterError, fmt.Errorf with %w, or
+// errors.Join; NonRetryableError wins and no retry runs. Dex reports the Cause
+// of the marker it finds. Returned from an RPC handler, it has no effect,
 // because RPC handlers never retry.
 //
 // It needs server-zd 0.1.38 or later. An older server ignores the request and
@@ -41,16 +42,17 @@ package dex
 //		return dex.GracefulComplete(receipt), nil
 //	}
 type NonRetryableError struct {
-	// Cause is the current attempt failure reported to Dex.
+	// Cause is the current attempt failure reported to Dex. Since 1.45.17.
 	Cause error
 }
 
-// Error returns the underlying attempt failure message.
+// Error returns the underlying attempt failure message. Since 1.45.17.
 func (nonRetryable *NonRetryableError) Error() string {
 	return nonRetryable.Cause.Error()
 }
 
 // Unwrap returns the underlying attempt failure for errors.Is and errors.As.
+// Since 1.45.17.
 func (nonRetryable *NonRetryableError) Unwrap() error {
 	return nonRetryable.Cause
 }
