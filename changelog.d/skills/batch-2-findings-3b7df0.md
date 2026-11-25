@@ -3,17 +3,18 @@ bump: patch
 ---
 - **dex-sdk** and **dex-app-builder** model a child job with its own business identity as a top-level child Flow: a Step starts it with a stable Flow ID and Request ID, and the parent receives its result durably. A routing row points to it.
 - A top-level child commits its outcome in one SYNC Step and reports in the next with a stable Request ID; the parent keeps one record per child, with the outcome and terminal status as separate fields.
-- The parent reconciles every child it stops in five steps from the child's stored state, because a stopped child runs no report or cleanup path; late reports and children that finish after a quorum fill the same record.
-- A Step with a call that can run longer than the short default heartbeat timeout without a heartbeat sets its heartbeat timeout and an explicit retry total duration. The total duration only decides whether to retry, so a business deadline uses a durable Timer. Each StepOptions section names them.
+- StopFlow starts no new handlers in a child, so the parent reconciles every child it stops: DescribeFlow first, then the outcome Attribute; only a typed missing-run result goes to the business policy. Late reports fill the same record.
+- If a call can go a full heartbeat timeout without a heartbeat or Dex Stream write, the attempt times out; raising only the method timeout keeps that deadline. Such a Step sets its heartbeat timeout and an explicit retry total duration.
 - **Graceful timeout**: active Steps keep running while the timeout handler runs; when it commits ForceComplete or ForceFail, Dex starts closing the Flow, possibly after the deadline.
 - **Cancel with child Flows** and Channel guidance: once the decision is final, do not drain the cancel Channel, so a late cancel cannot override it.
 - **Inbound event loop** skeletons close with ForceCompleteIfChannelsEmpty on the reply Channel, also check resolutions on an inactivity close, and reject an empty resolution reason.
-- **Drain an external Channel**: the RPC only validates and publishes, and writes no Attribute a Step reads or locks. A routing row sends bursts of events per entity to it.
-- Execute routes a permanent provider error to the failure Step itself; only transient errors use Step retry. Tests reach the failure route with a fake permanent error and keep the real retry budget.
-- Java and Rust references show the **dex:group** and **dex:explanation** directives; WaitFor returns its Wait directly in source, never from a helper.
-- First-win losers and cancelled Partial join branches watch the Step's cancellation signal and abort or withdraw their in-flight call; each language reference names the API.
+- **Drain an external Channel**: one stable Flow ID per entity; the RPC only validates and publishes. The controller restarts a closed Flow ID with a per-message start Request ID and publishes to the run that won a start race. A routing row points to it.
+- Patterns that need confirmed handling record each message's business ID in the consuming Step's commit; the caller reads that record. The close-window detail lives in the Developer reference.
+- A provider-confirmed permanent rejection routes to the failure Step from Execute; ForceFail only when the whole Flow must end at once. Tests cover it with a fake rejection; the retry-exhausted route needs no shortened test.
+- Java and Rust references show the **dex:group** and **dex:explanation** directives. Every WaitFor return path resolves to a Wait factory the analyzer can read.
+- First-win losers and cancelled Partial join branches pass the cancellation signal to calls that accept it, or use short timeouts and check it, and withdraw a known reservation with a bounded idempotent call.
 - **Long-lived parent** closes its intake: each worker returns the request it took once the intake is closed, and idle workers end through the graceful completion Condition or a wake message.
-- **Short-lived parent** opens its intake only after the start batch is queued, so an empty batch completes at once; its buffer limit is approximate.
+- **Short-lived parent** opens its intake only after the start batch is queued, so an empty batch completes at once; its buffer limit is soft, and a hard limit needs atomic admission.
 - **Polling** adds a deadline watchdog that shares the lock with the Step that records the result and checks the status before it declares the work overdue. Polling guidance no longer restates default values.
 - Fixed kinds of work use distinct domain-named Step types, never one Step type with a kind field. Skeletons use domain Step names, and the Go, Java, and Rust checklists require them.
 - Every result or status a user must see has a durable read path: a result Attribute or the Flow's completion output.

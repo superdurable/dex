@@ -272,9 +272,10 @@ class ChargeInBatches(Step[OrderRequest]):
   durability, locks, loads, `wait_for_failure=WaitForFailurePolicy.PROCEED`,
   and the execute failure route. `on_execute_failure_proceed_to` returns a
   copy; Registry rejects a fallback Step with a different input type.
-- The default `heartbeat_timeout` is short. A Step with a call that can run
-  longer than it without sending a heartbeat sets `heartbeat_timeout` to at
-  least that call's `execute_method_timeout`, or
+- The default `heartbeat_timeout` is short. If a call can go a full heartbeat
+  timeout without a heartbeat or Dex Stream write, the attempt times out;
+  raising only `execute_method_timeout` keeps the heartbeat deadline. Such a
+  Step sets `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
   heartbeats from a loop of short calls. It also sets
   `execute_retry=RetryPolicy(maximum_attempts=n, total_duration=d)` with `d`
   sized as in [step.md](../core/step.md#time-bounds), such as about `n` times

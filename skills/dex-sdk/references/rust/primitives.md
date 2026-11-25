@@ -144,10 +144,8 @@ impl Step for AwaitApproval {
 - `.cancel_sibling_step(&Step)` cancels executions of that Step type scheduled
   by the same predecessor. `.cancel_step(&Step)` cancels every execution of
   it. Steps created by the same decision are not canceled.
-- First-win losers and branches of a cancelling join stop their in-flight
-  external call when canceled. Check `context.is_cancelled()` between bounded
-  calls, or give the call a short timeout and check after it returns.
-  Withdraw a reservation the call already made.
+- First-win losers and branches of a cancelling join give each call a short
+  timeout and check `context.is_cancelled()` after it returns.
 - Clone owned input only where two movements need it.
 
 ## StepOptions
@@ -170,9 +168,10 @@ fn options(&self) -> StepOptions<Self::Input> {
   (`initial_interval`, `backoff_coefficient`, `maximum_interval`,
   `maximum_attempts`, `total_duration`). Bound retries whenever a recovery
   route must eventually run.
-- The default `heartbeat_timeout` is short. A Step with a call that can run
-  longer than it without sending a heartbeat sets `heartbeat_timeout` to at
-  least that call's `execute_method_timeout`, or
+- The default `heartbeat_timeout` is short. If a call can go a full heartbeat
+  timeout without a heartbeat or Dex Stream write, the attempt times out;
+  raising only `execute_method_timeout` keeps the heartbeat deadline. Such a
+  Step sets `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
   heartbeats from a loop of short calls. It also sets `maximum_attempts(n)` and
   `total_duration(d)` on `execute_retry`, with `d` sized as in
   [step.md](../core/step.md#time-bounds), such as about `n` times
@@ -523,7 +522,7 @@ building blocks:
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `timeout_handler` plus `StartFlowOptions::timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drain_channels` |
-| Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])` | `patterns/drain_channels` |
+| Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])`; the controller starts with `.id_reuse_policy(IdReusePolicy::AllowIfNotRunning)` and a per-message `.request_id(...)` | `patterns/drain_channels` |
 | Interruptible | RPC writes an interrupt Attribute or cancels Steps; handlers check it | `patterns/interruptible` |
 | Wait for Step completion | `wait_for_step_completion` after start | `patterns/wait_for_step_completion` |
 | Wait for Attribute match | locked revision Attribute plus `wait_for_attribute_match` | `products/job_post` |

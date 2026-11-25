@@ -144,8 +144,8 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 
 | Bound | Meaning |
 | --- | --- |
-| Method timeout | Bounds one attempt, from hand-out. The only bound on a single attempt. |
-| Heartbeat timeout | Fails an Execute attempt that stays silent longer. Detects a stalled Worker sooner than the method timeout. |
+| Method timeout | Sets the total time limit of one attempt, from hand-out. |
+| Heartbeat timeout | Can end a WaitFor or Execute attempt earlier when it makes no progress: no heartbeat or Dex Stream write for that long. Detects a stalled Worker sooner than the method timeout. |
 | Retry total duration | Starts at the first hand-out. Checked only after an attempt fails, to decide whether to retry. It never ends a running attempt, so the last attempt can end after it. Queue time after backoff counts toward it. |
 | Attempt deadline | The absolute end of the current attempt, supplied by the Server on the Context. |
 
@@ -162,7 +162,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - A heartbeat value is a retry checkpoint. The next attempt receives the last stored value.
 - An explicit valueless heartbeat clears the checkpoint. A Stream message keeps the current one.
 - Heartbeats are not acknowledged. A returned heartbeat call does not prove Dex stored it, even for SYNC. Checkpoints are batched; the next attempt may get an older value. Never use a checkpoint as the only record of an external effect.
-- The default heartbeat timeout is short; see each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults). Any call that can run longer than the heartbeat timeout without sending a heartbeat fails a healthy attempt, such as a non-streaming provider call or a long LLM generation, which is silent for its whole duration. Raising only the method timeout does not prevent this. Raise the heartbeat timeout to the longest acceptable silent interval, at least the method timeout for one silent call. Do not add periodic heartbeats only to mask provider silence: they prove only that the Worker runs.
+- The default heartbeat timeout is short; see each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults). If a call can go a full heartbeat timeout without a heartbeat or Dex Stream write, the attempt times out; raising only the method timeout keeps the heartbeat deadline. A non-streaming provider call, such as a long LLM generation, sends neither for its whole duration. Raise the heartbeat timeout to the longest acceptable silent interval, at least the method timeout for one silent call. Do not add periodic heartbeats only to mask provider silence: they prove only that the Worker runs.
 - A loop of short calls that heartbeats between them, such as the [Polling pattern](patterns.md#polling), sets its call timeout and interval so the longest real silent interval stays below the heartbeat timeout, with a margin. Check that against the default before keeping it. The defaults are in each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Act on cancellation promptly. Dex cancels a handler that exceeds its heartbeat timeout even if it records none.
 

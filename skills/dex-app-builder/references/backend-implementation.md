@@ -121,10 +121,11 @@ permission model.
   bounded timeout, and query-first reconciliation of uncertain outcomes.
 - `WaitFor` only declares durable conditions. It never queries or mutates
   providers or Dex state, and it never computes or persists a deadline.
-- Fail a deterministic, non-retryable condition with the SDK's force-fail
-  decision (`dex.ForceFail` in Go). A
+- Handle a deterministic, non-retryable condition in `Execute`: route to the
+  failure Step with an ordinary decision. Use the SDK's force-fail decision
+  (`dex.ForceFail` in Go) only when the whole Flow must end at once. A
   returned error is retried for the whole retry budget. Return errors only
-  for transient faults.
+  for provider errors the application treats as retryable.
 
 ## Workers
 
@@ -176,11 +177,11 @@ Flow, Connector, and application boundary are being implemented.
 ## Local Dex stack
 
 Show Dex Web early. As soon as a Flow source first renders with
-`dexcli visualize --schema-version 2.0 --json`, even with warnings, and before
+`dexcli visualize --json`, even with warnings, and before
 you finish implementation or tests:
 
 1. Render every Flow file into one persistent definition directory:
-   `dexcli visualize path/to/flow-source --schema-version 2.0 --json --out DIRECTORY/<flow-name>`.
+   `dexcli visualize path/to/flow-source --json --out DIRECTORY/<flow-name>`.
 2. Start one long-lived `dexcli dev` for the user in the background, on stable
    ports with persistent state. Pass that directory with
    `--flow-rendering-dir`, and any local Connector override a Connector

@@ -48,11 +48,11 @@ If the RPC appended to the transcript, the waiting Step would have to lock the t
 
 ## Replies after the resolution
 
-Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). A reply committed after the resolution but before the empty check is still recorded. If the reply Channel is not empty, Dex follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
+Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). A reply still queued, or taken by a Step that has not finished, at the empty check blocks the close. Dex then follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
 
 The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
 
-This is the design to use: close with `ForceCompleteIfChannelsEmpty`, and keep the waiting Step the only consumer. The empty check counts queued and consumed replies, so a reply committed before it reaches the fallback and is recorded. How requests behave while the Flow closes is in [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
+When the caller must confirm each reply was handled, the waiting Step records the reply's business ID in the same commit, and the caller reads that record; see [Confirm that a message was handled](/reference/server/runtime-client#confirm-message-handled).
 
 ## Examples
 

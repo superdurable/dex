@@ -24,7 +24,7 @@ application types.
 | Manual recovery | failed Step proceeds to a Step waiting on operator Channels fed by verb-named RPCs | `patterns/intervention/manual-recovery-flow.ts` |
 | Graceful timeout | `StartFlowOptions.timeoutMs` plus `Flow.handleTimeout` returning a decision | `patterns/timeout/flow-graceful-timeout.ts` |
 | Drain internal Channels | side Step loops until a final marker | `patterns/drain-channels/internal/drain-internal-channels-flow.ts` |
-| Drain for external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)` | `patterns/drain-channels/external-publishing/draining-channel-flow.ts` |
+| Drain for external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts with `idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING` and a per-message `requestId` | `patterns/drain-channels/external-publishing/draining-channel-flow.ts` |
 | Interruptible execution | RPC records an interrupt; work runs in bounded slices and checks between them | `patterns/interruptible/interruptible-execution-flow.ts` |
 | Responsive update: Step completion | `client.waitForStepCompletion(flowId, StepExecutionId.of("Step"), options)` | `patterns/wait-for-step-completion` |
 | Responsive update: Attribute match | `client.waitForAttributeMatch(flowId, revision, AttributeMatch.greaterThan(seen), options)` | `products/job-post/job-post-flow.ts` |
@@ -175,8 +175,8 @@ class AwaitInit implements Step<number> {
 ## TypeScript notes for other patterns
 
 - First win: the winner returns `withCancelingSiblingSteps(decision, Work)`.
-  Losers, and branches of a cancelling join, watch `context.cancellationSignal`
-  and pass it to their external call.
+  Losers, and branches of a cancelling join, pass `context.cancellationSignal`
+  to calls that accept it, such as `fetch(url, { signal })`.
 - Partitioned AttributeMaps: an upsert passes the same bucket to both
   `lockAttributeMapInstances` and `loadAttributeMapInstances` in
   `client.invokeRPCWithOptions`. A read passes only the load.

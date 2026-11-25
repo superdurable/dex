@@ -17,7 +17,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 取消选择器只取消同一 Step 类型的 sibling execution。其他分支继续运行。
 
-每个落败的 execution 都要关注它所在 Step 的取消信号。信号触发时，它中止或撤回正在进行的外部调用，比如一个待处理的报价请求。取消是协作式的，不会撤销已经发生的外部效果。
+每个落败的 execution 都要关注它所在 Step 的取消信号。支持取消的调用，把信号传给它。其他调用设置较短的超时，并在调用之间检查信号。取消是协作式的，不会撤销已经发生的外部效果。已经生效的预留，用一次独立、有界、幂等的调用撤回。
 
 <SdkTabs
   examples={{

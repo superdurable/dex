@@ -236,7 +236,7 @@ class LookupRecord implements Step<String> {
 }
 ```
 
-Then run `dexcli visualize SOURCE --schema-version 2.0` and fix every error.
+Then run `dexcli visualize <flow-source> --json` and fix every error.
 See [Flow visualization](https://docs.superdurable.io/reference/web/flow-visualization).
 
 ## What Java does not have

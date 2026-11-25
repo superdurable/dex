@@ -218,7 +218,7 @@ class LookupRecord(Step[str]):
         return graceful_complete(input)
 ```
 
-Then run `dexcli visualize SOURCE --schema-version 2.0`. Keep Step objects in
+Then run `dexcli visualize <flow-source> --json`. Keep Step objects in
 the Flow file, keep Step types static, and avoid reflection, `setattr`, and
 class decorators other than `dataclass` and `final`. See
 [Flow visualization](https://docs.superdurable.io/reference/web/flow-visualization).

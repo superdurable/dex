@@ -83,23 +83,45 @@ are neither transactional nor locking. An RPC that commits during the close,
 including one the server accepted before the close began, keeps its Attribute
 writes and Channel publications. It starts and cancels no Steps.
 
-A close can wait after the server records it. For example, a
-**ForceCompleteIfChannelsEmpty** decision finds the Channels empty, records
-the close, and stops the consumers. The close then waits for pending Attribute
-Sync writes and for transactional or locking RPCs admitted before it. During
-that window, an RPC that is neither transactional nor locking can still commit
-a Channel publication. No Step consumes that message, so the RPC's accepted
-reply does not mean the message will be handled. Adding or removing a lock on
-the RPC does not close the window. A retry that reuses a recorded request ID
-can return the earlier result.
+### Pending close {#pending-close}
 
-When a caller must confirm that every message was handled, give each message
-a stable business ID. The Step that consumes the message records the handled
-IDs in the same commit. The caller reads that record, for example with an
-Attribute read. It sends a missing ID again to a Flow run that still accepts
-it, or reports that ID as unconfirmed.
+A close decision can leave the run in a pending close before its terminal
+commit. For example, a **ForceCompleteIfChannelsEmpty** decision checks the
+Channels and accepts the close in one atomic commit. The server cancels the
+consumer Steps at once. When Attribute Sync writes are pending, or a
+transactional or locking RPC was admitted before the close, the run waits for
+them. During that wait:
 
-The Flow reports **RUNNING** until the server records the close.
+- the run still reports **RUNNING**, and no Step runs or starts;
+- an RPC that is neither transactional nor locking is still admitted, and its
+  Attribute writes and Channel publications commit. No Step consumes those
+  messages;
+- a transactional or locking RPC admitted before the close can still commit;
+- a new transactional or locking RPC is rejected with **FLOW_CLOSING**.
+
+So a lock on an RPC changes whether it is admitted during the close. It gives
+no guarantee that a Step consumes what the RPC published. The final terminal
+commit rejects new effects. A retry that reuses a recorded request ID can
+still return the earlier result.
+
+### Confirm that a message was handled {#confirm-message-handled}
+
+An accepted RPC reply confirms the publication, not its handling. When a
+caller must confirm each message:
+
+- Give each message a stable business ID. The consuming Step records that ID
+  as handled in the same commit as its Dex effects, and skips an ID it has
+  already handled. An external effect uses the same ID for idempotency.
+- The caller reads that record, for example with a Client Attribute read.
+- To deliver a missing message again, keep its business ID and use a new RPC
+  request ID. A network retry of the same delivery reuses its request ID; a
+  new delivery that reuses it returns the old reply and publishes nothing.
+- When a Flow ID is reused across runs, key the record so it can be read for
+  the run that took the message, or keep it across runs. The latest run's
+  record does not show what an earlier run handled.
+- When no run accepts the message, report it as unconfirmed.
+
+The Flow reports **RUNNING** until the server records the terminal close.
 
 Each SDK exposes a typed Flow closing error. When you get it, read the Flow
 state again after the close, before you decide whether to do anything more.

@@ -200,9 +200,10 @@ class RecordChargeFailure implements Step<Order> {
   `waitForDurability` or `executeDurability`.
 - Defaults and units are in the installed declarations and the
   [StepOptions reference](https://docs.superdurable.io/reference/typescript/step-options#defaults).
-- The default `heartbeatTimeoutMs` is short. A Step with a call that can run
-  longer than it without sending a heartbeat sets `heartbeatTimeoutMs` to at
-  least that call's `executeMethodTimeoutMs`, or
+- The default `heartbeatTimeoutMs` is short. If a call can go a full heartbeat
+  timeout without a heartbeat or Dex Stream write, the attempt times out;
+  raising only `executeMethodTimeoutMs` keeps the heartbeat deadline. Such a
+  Step sets `heartbeatTimeoutMs` to at least that call's `executeMethodTimeoutMs`, or
   heartbeats from a loop of short calls. It also sets
   `executeRetry: { maximumAttempts: n, totalDurationMs: d }` with `d` sized as
   in [step.md](../core/step.md#time-bounds), such as about `n` times

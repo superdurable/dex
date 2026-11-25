@@ -30,9 +30,9 @@ Core behavior:
 
 - Start a Flow and verify its typed terminal output.
 - Replace or restart the Worker while the Flow waits, then verify it continues from durable state.
-- Force a retryable Execute failure. Verify the retry count, resume from the heartbeat checkpoint, and the exhausted-retry route.
-- Errors the provider reports as permanent, such as rejected input or a refused or invalid request, need no retry. Execute catches them and routes to the failure Step itself; only transient errors go through Step retry.
-- Tests reach the failure route by having the fake return such a permanent error. Retry exhaustion of transient errors keeps the real retry budget: do not cap attempts or shorten durations for a test.
+- Force a retryable Execute failure. Verify the retry and the resume from the heartbeat checkpoint.
+- Business failure path: when the provider confirms a permanent rejection, such as rejected input or a refused request, Execute catches it and routes to the failure Step itself. Provider errors the application treats as retryable go through Step retry. Test this path with a fake that returns the rejection, under the production configuration, and assert that no retry happens.
+- Retry-exhausted route: Dex takes it after the real retry budget is spent. It needs no shortened test; test the target Step's logic through the business failure path or directly. Never cap attempts or shorten durations for a test.
 - Let a handler exceed its heartbeat timeout and assert the retry.
 - Publish Channel and ChannelMap messages through typed RPCs. Verify order, single consumption, stale message IDs, and rejection after closure.
 - Invoke read-only and mutating RPCs. After closure, verify that query-only reads still work, that a non-transactional RPC's effects are rejected, and that transactional or locked RPCs are rejected before the handler. For transactional RPCs, verify all effects commit or none do.

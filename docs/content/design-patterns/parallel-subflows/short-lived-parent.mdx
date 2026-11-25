@@ -565,7 +565,8 @@ The example is simplified: its RPC can publish as soon as the Flow starts, and i
 
 - The intake opens only when the first Step has queued the start batch. The RPC reads the gate and rejects a request before that. An empty start batch then completes at once, because no request can be waiting.
 - The Steps that change the child count lock the gate's Attribute. Keep the RPC free of locks.
-- Set the buffer limit below any hard capacity, because it is approximate. Concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken. Check the start batch against the limit where the Flow is started.
+- The buffer limit is a soft limit. Concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken. A hard limit needs atomic admission, such as a locked reservation. Check the start batch against the limit where the Flow is started.
+- When the caller must confirm each request was handled, the consuming Step records the request's business ID in the same commit, and the caller reads that record; see [Confirm that a message was handled](/reference/server/runtime-client#confirm-message-handled).
 
 ```pseudocode
 AdmitBatch.execute(requests)                     // locks admission

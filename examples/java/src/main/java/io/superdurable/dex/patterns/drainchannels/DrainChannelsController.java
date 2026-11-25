@@ -17,6 +17,9 @@
 package io.superdurable.dex.patterns.drainchannels;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.IdReusePolicy;
+import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.patterns.drainchannels.internal.DrainInternalChannelFlow;
 import io.superdurable.dex.patterns.drainchannels.externalpublishing.DrainingExternalChannelFlow;
@@ -27,9 +30,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/patterns/drain-channels")
 public class DrainChannelsController {
+    /** Bounds how often a message that lost a start race is published again. */
+    private static final int START_OR_PUBLISH_ATTEMPTS = 3;
+
     private final Client client;
     private final DrainInternalChannelFlow drainInternalChannelFlow;
     private final DrainingExternalChannelFlow drainingExternalChannelFlow;
@@ -54,24 +63,43 @@ public class DrainChannelsController {
     }
 
     @GetMapping("/external-publishing/start-or-publish")
-    ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
-        String response;
-        try {
-            final DrainingExternalChannelFlow stub = client.newRpcStub(
-                    DrainingExternalChannelFlow.class,
-                    workflowId);
-            client.invokeRPC(
-                    stub::publishExternalChannelMessage,
-                    "message from start-or-publish endpoint");
-            response = "Published to the Flow";
-        } catch (final FlowNotActiveOrNotFoundException inactive) {
-            final String runId = client.startFlow(
-                    drainingExternalChannelFlow,
-                    workflowId,
-                    "first message from start-or-publish",
-                    ExampleFlows.startOptions());
-            response = "Started the workflow with runId " + runId;
+    ResponseEntity<String> startDrainingChannel(
+            @RequestParam final String workflowId,
+            @RequestParam(required = false) final String messageId) {
+        final String stableMessageId =
+                messageId == null || messageId.isEmpty() ? UUID.randomUUID().toString() : messageId;
+        final String message = "message " + stableMessageId;
+        final DrainingExternalChannelFlow stub = client.newRpcStub(
+                DrainingExternalChannelFlow.class,
+                workflowId);
+        for (int attempt = 0; attempt < START_OR_PUBLISH_ATTEMPTS; attempt++) {
+            try {
+                client.invokeRPC(stub::publishExternalChannelMessage, message);
+                return ResponseEntity.ok("Published to the Flow");
+            } catch (final FlowNotActiveOrNotFoundException inactive) {
+                // No run is active: start one with this message as its input.
+            }
+            try {
+                final String runId = client.startFlow(
+                        drainingExternalChannelFlow,
+                        workflowId,
+                        message,
+                        externalPublishingStartOptions(stableMessageId));
+                return ResponseEntity.ok("Started the workflow with runId " + runId);
+            } catch (final FlowAlreadyStartedException alreadyStarted) {
+                // Another caller started the run first: publish this message to that run.
+            }
         }
-        return ResponseEntity.ok(response);
+        throw new IllegalStateException(
+                "message " + stableMessageId + " is unconfirmed: no run accepted it");
+    }
+
+    /** Restarts the Flow ID once its run closed, with one start per message. */
+    private static StartFlowOptions externalPublishingStartOptions(final String messageId) {
+        return StartFlowOptions.newBuilder()
+                .timeout(Duration.ofHours(1))
+                .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
+                .requestId("start:" + messageId)
+                .build();
     }
 }

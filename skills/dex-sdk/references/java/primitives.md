@@ -135,10 +135,9 @@ public class OrderFlow implements Flow<OrderRequest> {
   the same predecessor. `.withCancelingSteps(X.class)` cancels every execution
   of `X`. Steps created by the same decision are not canceled. These varargs
   methods produce an unchecked-generics warning; suppress it locally.
-- First-win losers and branches of a cancelling join stop their in-flight
-  external call when canceled. Dex interrupts the handler thread: return on
-  `InterruptedException`, and check `context.isCancellationRequested()`
-  between bounded calls. Withdraw a reservation the call already made.
+- First-win losers and branches of a cancelling join: Dex interrupts the
+  handler thread, so return after an interrupt and check
+  `context.isCancellationRequested()` between bounded calls.
 
 ## StepOptions
 
@@ -165,9 +164,10 @@ public StepOptions getStepOptions() {
   (`initialInterval`, `backoffCoefficient`, `maximumInterval`,
   `maximumAttempts`, `totalDuration`). Bound retries whenever a recovery route
   must eventually run.
-- The default `heartbeatTimeout` is short. A Step with a call that can run
-  longer than it without sending a heartbeat sets `heartbeatTimeout` to at
-  least that call's `executeMethodTimeout`, or
+- The default `heartbeatTimeout` is short. If a call can go a full heartbeat
+  timeout without a heartbeat or Dex Stream write, the attempt times out;
+  raising only `executeMethodTimeout` keeps the heartbeat deadline. Such a
+  Step sets `heartbeatTimeout` to at least that call's `executeMethodTimeout`, or
   heartbeats from a loop of short calls. It also sets `maximumAttempts(n)` and
   `totalDuration(d)` on `executeRetry`, with `d` sized as in
   [step.md](../core/step.md#time-bounds), such as about `n` times
@@ -503,7 +503,7 @@ building blocks:
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `handleTimeout` plus `StartFlowOptions.timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drainchannels` |
-| Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)` | `patterns/drainchannels` |
+| Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts with `.idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)` and a per-message `.requestId(...)` | `patterns/drainchannels` |
 | Interruptible | RPC cancels running Steps; handlers check cancellation | `patterns/interruptible` |
 | Wait for Step completion | `client.waitForStepCompletion` after start | `patterns/waitforstepcompletion` |
 | Wait for Attribute match | locked revision Attribute plus `waitForAttributeMatch` | `products/jobpost` |

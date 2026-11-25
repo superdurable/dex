@@ -147,7 +147,7 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
-- In the cancelling variant, each branch watches its Step's cancellation signal and, when it fires, aborts or withdraws its in-flight external call, as in [First-win parallel Steps](#first-win-parallel-steps).
+- In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
 
@@ -162,7 +162,7 @@ FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
-- Each loser watches its Step's cancellation signal and, when it fires, aborts or withdraws its in-flight external call, such as a pending quote request or a reserved slot. Pass the signal to the call's client, or check it between bounded units of work. The language reference names the signal.
+- Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. The language reference names the signal.
 
 ## Parallel SubFlows
 
@@ -200,7 +200,8 @@ rpc sendRequest(request)                         // reads admission; takes no lo
 - Use the atomic complete-if-Channels-empty decision. Never check the Channel size in application code before completing.
 - The Steps that change the counter declare the same `admission` lock. Keep the RPC free of locks; it only reads the gate.
 - The intake opens only when the first Step has queued the start batch. An RPC before that is rejected, so an empty start batch can complete at once. Check the start batch against the limit at the start boundary.
-- Treat the buffer limit as approximate and set it below any hard capacity: concurrent RPCs can read the same size, and the Channel size counts only queued requests, not work already taken.
+- The buffer limit is a soft limit: concurrent RPCs can read the same size, and the Channel size counts only queued requests. A hard limit needs atomic admission, such as a locked reservation.
+- When the caller must confirm each request was handled, the consuming Step records the request's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 - The runnable example is simplified: it has no intake gate and starts the workers even for an empty batch. Follow the skeleton above.
 
 ### Long-lived parent
@@ -417,9 +418,9 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
-- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A reply committed after the resolution but before the empty check is still recorded. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
+- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A reply still queued, or taken by a Step that has not finished, at the empty check blocks the close and takes the fallback. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because the Timer wins over a resolution that is ready at the same moment; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
 - The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
-- This is the design to use: ForceCompleteIfChannelsEmpty closing with the waiting Step as the only consumer. The empty check counts queued and consumed replies, so a reply committed before it reaches the fallback and is recorded. How requests behave while the Flow closes is in [Requests during Flow close](https://docs.superdurable.io/reference/server/runtime-client#requests-during-flow-close).
+- When the caller must confirm each reply was handled, the waiting Step records the reply's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
 Why not write the transcript from the RPC: the waiting Step must then lock the transcript, and the RPC must lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC does, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
 
@@ -508,15 +509,22 @@ HandleMessage.execute -> handle the message
                          forceCompleteIfChannelsEmpty([Queue], else goTo(HandleMessage, empty))
 rpc publishExternalMessage -> Queue.publish(message)
 
-Controller:
-    try invokeRPC(flowId, publishExternalMessage, message)
-    on missing-or-inactive: startFlow(flowId, input = message)
-    other errors: return them
+Controller(entityId, message):                   // flowId = entityId; message has a stable ID
+    repeat a few times:
+        try invokeRPC(flowId, publishExternalMessage, message); return accepted
+        on missing-or-inactive:
+            try startFlow(flowId, input = message, reuse = allow if not running,
+                          requestId = "start:" + message.id); return accepted
+            on already started: continue        // another caller won; publish to its run
+        other errors: return them
+    return unconfirmed
 ```
 
+- One stable Flow ID per entity, one active run at a time, messages handled in the order their publications commit. An external business order needs its own ordering mechanism.
 - The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. The consuming Step owns all state, so concurrent RPCs never hit a lock conflict.
 - The decision checks the Channel atomically. A message already consumed by a Step that is still in Execute counts as not empty.
 - Only one Step may consume a Channel that the decision checks.
+- When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
 ## Interruptible execution
 

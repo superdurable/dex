@@ -49,11 +49,11 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 
 ## 结论之后到达的回复
 
-每个结束 Step 都在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow。在结论之后、空检查之前提交的回复也会被记录。做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。如果回复 Channel 不为空，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。不活跃关闭还检查结论 Channel，因为 Timer 和结论同时就绪时 Timer 胜出；它的 fallback 重新开始等待。回复 Channel 只能由等待中的 Step 消费。
+每个结束 Step 都在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow。做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。空检查时仍在排队、或已被领取但 Step 还没完成的回复会阻止关闭，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。不活跃关闭还检查结论 Channel，因为 Timer 和结论同时就绪时 Timer 胜出；它的 fallback 重新开始等待。回复 Channel 只能由等待中的 Step 消费。
 
 结论 RPC 拒绝空的原因，因为空的待定结论表示"没有结论"。
 
-这就是应该采用的设计：用 `ForceCompleteIfChannelsEmpty` 结束 Flow，并让等待中的 Step 作为唯一的消费者。空检查会计入排队中和已被领取的回复，所以在它之前提交的回复会走 fallback 并被记录。Flow 关闭期间请求如何处理，见 [Flow 关闭期间的请求](/reference/server/runtime-client#requests-during-flow-close)（英文）。
+调用方必须确认每条回复都已处理时，等待中的 Step 在同一次提交里记录回复的业务 ID，调用方读取这份记录；见 [确认消息已处理](/reference/server/runtime-client#confirm-message-handled)（英文）。
 
 ## 示例
 

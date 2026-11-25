@@ -90,10 +90,10 @@ StartChildJob.execute(job)                    // Client injected through the Flo
     goTo(AwaitChildJob, job)
 AwaitChildJob.waitFor(job) -> AnyOf(ChildReports[job.number].ForOne(), Timer(reconcile interval))
 AwaitChildJob.execute(job)
-    if a report was consumed: record its outcome under job.number; a repeat changes nothing; continue
-    else: reconcile(job.number)               // see the rules below
-          known: record it; continue
-          unknown: goTo(AwaitChildJob, job)   // read again at the next interval
+    if a report was consumed: record its outcome under job.number; a repeat changes nothing
+    else: reconcile(job.number)               // see the rules below; fills what it read
+    every needed field recorded: continue
+    otherwise: goTo(AwaitChildJob, job)       // read again at the next interval
 rpc recordChildOutcome(childFlowId, outcome) -> ChildReports[childFlowId].publish(outcome)
 
 ChildJobFlow:
@@ -110,13 +110,12 @@ ChildJobFlow:
 - The report carries a stable Request ID derived from the child Flow ID and its purpose, such as `report:<child Flow ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
 - Give each business attempt its own child Flow ID. DescribeFlow and the Client Attribute read see only the current or latest run, so a reused Flow ID mixes up attempts.
 - Give every child its own Flow timeout. A closing parent never stops its children.
-- Reconcile every child the parent stops or stops waiting for. StopFlow (cancel, fail, or terminate) runs no more application code in the child, so a stopped child may never report. The `reconcile` step reads the child's stored state instead:
-  1. Run it after StopFlow succeeds or returns not found, not active, or closing, and when the reconcile Timer fires. Read the child with DescribeFlow and a Client Attribute read.
-  2. Closed: record its terminal status, plus its outcome Attribute when one was committed. Keep the two apart: a completed child without an outcome is not a stopped one.
-  3. Running or closing: leave it unknown and read again at the next interval.
-  4. Not found: apply the business policy, for example record "unavailable".
-  5. Any other StopFlow or read error, such as a permission or transport error: return it so the Step retries.
-- A report that arrives after the stop, or from a child that finished after a quorum, fills the same record; a repeat changes nothing. The exact StopFlow and DescribeFlow errors are in the [Client reference](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow).
+- Reconcile every child the parent stops or stops waiting for. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive. Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
+  1. Read DescribeFlow first. RUNNING: read again at the next interval.
+  2. Terminal: record its status, then read its outcome Attribute. An absent Attribute is an absent outcome; keep the observed terminal status even if this read races.
+  3. Only a typed missing-run result goes to the business policy, for example record "unavailable".
+  4. Return any other error so the Step retries.
+- A report that arrives after the stop, or from a child that finished after a quorum, fills the same record; a repeat changes nothing. The errors are in the Client reference: [Stop a Flow](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow) and [Describe a Flow](https://docs.superdurable.io/reference/server/runtime-client#describe-a-flow).
 - When a stopped child must still send its own report, give it a stop RPC that ends it through its own Steps instead of StopFlow.
 
 ## Flow options

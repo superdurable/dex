@@ -138,7 +138,7 @@ Timers, RPCs, retries, provider behavior, or end-to-end behavior.
 
 Dex Web reads FDG JSON, not application source. Produce it with one project command
 that renders every Flow source file through
-`dexcli visualize SOURCE --schema-version 2.0 --json --out DIRECTORY/<flow-name>`
+`dexcli visualize SOURCE --json --out DIRECTORY/<flow-name>`
 and fails when any result is not `valid: true`. Never ship a partial graph
 written next to blocking diagnostics. Regenerate after every Flow change and
 after upgrading `dexcli`, because the rendered type names must match the

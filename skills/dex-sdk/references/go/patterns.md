@@ -22,7 +22,7 @@ idiom matters. Examples live under
 | Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
 | Graceful timeout | [timeout/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/timeout/workflow.go) | Flow implements `HandleTimeout(ctx)` |
 | Internal Channel drain | [drain-channels/internal-drain/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/internal-drain/workflow.go) | Finalize after accepted messages drain |
-| External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty` |
+| External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty`; the controller starts with `IDReusePolicy: dex.IDReuseAllowIfNotRunning` and a per-message `RequestID` |
 | Interruptible work | [interruptible/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/interruptible/workflow.go) | Bounded slices; check the signal between them |
 | Responsive Step completion | [wait-for-step-completion/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/wait-for-step-completion) | `client.WaitForStepCompletion` |
 | Responsive Attribute match | Skeleton in [core patterns](../core/patterns.md#attribute-match) | Revision Attribute under one lock |
@@ -96,10 +96,10 @@ func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecisio
 - A partial join waits `ForBranches(round, n)` or `ForFirstBranch(round)`, and
   the next round's split Step resets with `ForRemainingBranches`; see
   [partial_joins.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go).
-- First-win losers and branches of a cancelling join pass `ctx` to every
-  external call, such as `http.NewRequestWithContext(ctx, ...)`. Dex cancels
-  `ctx` when it cancels the Step, so the call aborts; withdraw a reservation
-  the call already made when `ctx.Err()` is set.
+- First-win losers and branches of a cancelling join pass `ctx` to calls that
+  accept it, such as `http.NewRequestWithContext(ctx, ...)`. Withdraw with a
+  fresh bounded context, not the canceled `ctx`; `ctx.Err()` also follows a
+  method or heartbeat timeout.
 
 ## Polling
 

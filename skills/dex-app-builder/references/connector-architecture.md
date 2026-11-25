@@ -124,10 +124,11 @@ webhook, or claim that a capability exists.
   and record an uncertain result as unknown. An explicit rerun is a new
   business operation identity. Read the released factory's execution options
   instead of assuming its retry defaults fit.
-- Fail a deterministic, non-retryable condition, such as input beyond a
-  stated limit or an empty required result, with the SDK's force-fail
-  decision (`dex.ForceFail("reason")` in Go).
-  A returned error is retried instead.
+- Handle a deterministic, non-retryable condition, such as input beyond a
+  stated limit or an empty required result, in `Execute`: route to the
+  failure Step with an ordinary decision. Use the SDK's force-fail decision
+  (`dex.ForceFail("reason")` in Go) only when the whole Flow must end at
+  once. A returned error is retried instead.
 
 ## Triggers
 

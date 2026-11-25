@@ -566,7 +566,8 @@ impl Step for ShortLiveHandleSubFlow {
 
 - 只有第一个 Step 把启动批次排进队列后，接收才开放。RPC 读取这个开关，在那之前拒绝请求。于是空的启动批次可以直接完成，因为不可能有请求在等待。
 - 修改子 Flow 计数的 Step 锁住开关所在的 Attribute。RPC 不加 lock。
-- 缓冲上限要低于任何硬性容量，因为它是近似的。并发的 RPC 可能读到同一个大小，而且 Channel 大小只计算排队中的请求，不包括已经领取的工作。在启动 Flow 的地方用上限检查启动批次。
+- 缓冲上限是软上限。并发的 RPC 可能读到同一个大小，而且 Channel 大小只计算排队中的请求，不包括已经领取的工作。需要硬上限时，用原子的准入，比如加锁的预留。在启动 Flow 的地方用上限检查启动批次。
+- 调用方必须确认每个请求都已处理时，消费的 Step 在同一次提交里记录请求的业务 ID，调用方读取这份记录；见 [确认消息已处理](/reference/server/runtime-client#confirm-message-handled)（英文）。
 
 ```pseudocode
 AdmitBatch.execute(requests)                     // locks admission
