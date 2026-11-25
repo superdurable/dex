@@ -64,6 +64,13 @@ final class FlowSmokeCatalog {
                         "/patterns/polling/start",
                         Map.of("workflowId", environment.newFlowId("pattern-polling"))),
                 FlowSmokeEntry.get(
+                        "patterns/fail-fast",
+                        "/patterns/fail-fast/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("pattern-fail-fast"),
+                                "amountCents", "12000",
+                                "bankAccount", "12345678")),
+                FlowSmokeEntry.get(
                         "patterns/interruptible",
                         "/patterns/interruptible/start",
                         Map.of("workflowId", environment.newFlowId("interruptible"))),
