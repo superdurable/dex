@@ -1,7 +1,6 @@
 ---
 title: Entity Flow
 sidebar_label: Entity Flow
-displayed_sidebar: docs
 description: "Keep one long-lived Flow for each business entity, such as a customer account. The Flow ID comes from the entity ID, Attributes hold the state, RPCs change it, and the Client reads it."
 ---
 
@@ -19,7 +18,7 @@ The runnable example keeps one `CustomerAccountFlow` per customer account. It st
 
 Use an Entity Flow when one business entity needs durable state that several callers change over time. Each change must be validated against the current state. Typical examples are a customer account, a shopping cart, a device, or a subscription record.
 
-To also query the latest state of many entities with SQL, extend this pattern with [Entity Flow with SQL Projection](/design-patterns/entity-store).
+To also query the latest state of many entities with SQL, extend this pattern with [Entity Flow with Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync).
 
 ## How it works
 
@@ -532,7 +531,7 @@ An entity Flow can also have a Step that waits on something long, such as a Chan
 
 ## Keep the state bounded
 
-Each Attribute holds one value that the Flow rewrites on every change. Keep the entity's current state in plain Attributes. When the entity collects a growing history, such as its orders or audit events, store that history in a [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map).
+Each Attribute holds one value that the Flow rewrites on every change. Keep the entity's current state in plain Attributes. When the entity collects a growing history, such as its orders or audit events, store that history in a [Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map).
 
 ## API endpoints
 
@@ -546,7 +545,7 @@ The [examples playground](https://github.com/superdurable/dex/tree/main/examples
 
 ## Next
 
-- [Entity Flow with SQL Projection](/design-patterns/entity-store)
-- [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+- [Entity Flow with Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync)
+- [Sequentially Chunked AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
 - [Attribute](/concepts/primitives/attribute)
 - [RPC](/concepts/primitives/rpc)

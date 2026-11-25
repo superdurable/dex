@@ -1,7 +1,6 @@
 ---
 title: 实体 Flow
 sidebar_label: 实体 Flow
-displayed_sidebar: docs
 description: "每个业务实体（例如一个客户账户）对应一个长期运行的 Flow。Flow ID 由实体 ID 派生，状态存在 Attribute 里，通过 RPC 修改，用 Client 读取。"
 ---
 
@@ -19,7 +18,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/enti
 
 当一个业务实体需要持久的状态，并且多个调用方会长期修改这个状态时，使用实体 Flow。每次修改都要根据当前状态做校验。典型的例子有客户账户、购物车、设备和订阅记录。
 
-如果还需要用 SQL 查询大量实体的最新状态，在这个模式的基础上使用[带 SQL 投影的实体 Flow](/design-patterns/entity-store)。
+如果还需要用 SQL 查询大量实体的最新状态，在这个模式的基础上使用[带 Attribute 同步的实体 Flow](/design-patterns/data-storage/entity-flow-attribute-sync)。
 
 ## 工作方式 {#how-it-works}
 
@@ -532,7 +531,7 @@ fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecisi
 
 ## 控制状态的大小 {#keep-the-state-bounded}
 
-每个 Attribute 保存一个值，每次修改时 Flow 都会重写整个值。实体的当前状态放在普通 Attribute 里。如果实体会积累不断增长的历史，例如订单或审计事件，把这些历史存进[顺序分块 AttributeMap](/design-patterns/sequentially-chunked-attribute-map)。
+每个 Attribute 保存一个值，每次修改时 Flow 都会重写整个值。实体的当前状态放在普通 Attribute 里。如果实体会积累不断增长的历史，例如订单或审计事件，把这些历史存进[顺序分块 AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)。
 
 ## API endpoints {#api-endpoints}
 
@@ -546,7 +545,7 @@ fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecisi
 
 ## 下一步 {#next}
 
-- [带 SQL 投影的实体 Flow](/design-patterns/entity-store)
-- [顺序分块 AttributeMap](/design-patterns/sequentially-chunked-attribute-map)
+- [带 Attribute 同步的实体 Flow](/design-patterns/data-storage/entity-flow-attribute-sync)
+- [顺序分块 AttributeMap](/design-patterns/data-storage/sequentially-chunked-attribute-map)
 - [Attribute](/concepts/primitives/attribute)
 - [RPC](/concepts/primitives/rpc)
