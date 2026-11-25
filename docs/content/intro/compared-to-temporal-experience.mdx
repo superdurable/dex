@@ -67,6 +67,16 @@ A Channel is a durable first-in, first-out queue inside one Flow run. A Step con
 
 Use a Stream for live progress, such as generated-text chunks. Use a Channel or an Attribute for data that must not be lost. See [Stream](/concepts/primitives/stream).
 
+## Long-running Step and Activity {#long-running-step}
+
+| Temporal | Dex |
+| --- | --- |
+| A long-running Activity sends Heartbeats. A Heartbeat Timeout is the maximum time between them ([Detecting Activity failures](https://docs.temporal.io/encyclopedia/detecting-activity-failures#activity-heartbeat)). | A long-running Step method sends heartbeats. Dex times out an attempt that sends none within `HeartbeatTimeout`. |
+| A Heartbeat can carry details, and a retried Activity reads the details of the last Heartbeat ([Activity Heartbeats](https://docs.temporal.io/develop/python/failure-detection#activity-heartbeats)). | A heartbeat can carry a checkpoint value, and the next attempt receives the latest stored checkpoint. |
+| The Activity code calls the Heartbeat API for each Heartbeat. | A Stream message counts as a heartbeat. A Step that writes its progress to a Stream needs no separate heartbeat call. |
+
+See [Heartbeat](/reference/go/step-options#heartbeat).
+
 ## Next
 
 - [Programming Model](/intro/compared-to-temporal/programming-model): writing and changing the same process in both engines.

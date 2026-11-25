@@ -56,7 +56,7 @@ export default function TemporalArchitectureDiagram({markdownDescription}: {mark
     <ConceptDiagramFrame label={markdownDescription ?? defaultDescription()}>
       <div className={styles.layout}>
         <div className={`${styles.lane} ${styles.temporalLane}`}>
-          <Eyebrow icon={Layers}>TEMPORAL</Eyebrow>
+          <Eyebrow icon={Layers}>Temporal</Eyebrow>
           <Box
             icon={Cpu}
             tone="code"
@@ -102,7 +102,7 @@ export default function TemporalArchitectureDiagram({markdownDescription}: {mark
           />
         </div>
         <div className={`${styles.lane} ${styles.dexLane}`}>
-          <Eyebrow icon={Layers}>DEX</Eyebrow>
+          <Eyebrow icon={Layers}>Dex</Eyebrow>
           <Box
             icon={Cpu}
             tone="code"

@@ -67,6 +67,16 @@ Channel 是一次 Flow 运行内部的持久化先进先出队列。Step 在 `Wa
 
 Stream 适合实时进度，例如生成的文本片段。不能丢失的数据用 Channel 或 Attribute。见 [Stream](/concepts/primitives/stream)。
 
+## 长时间运行的 Step 与 Activity {#long-running-step}
+
+| Temporal | Dex |
+| --- | --- |
+| 长时间运行的 Activity 发送 Heartbeat。Heartbeat Timeout 是两次 Heartbeat 之间允许的最长时间（[Detecting Activity failures](https://docs.temporal.io/encyclopedia/detecting-activity-failures#activity-heartbeat)）。 | 长时间运行的 Step 方法发送 heartbeat。一次尝试在 `HeartbeatTimeout` 内没有发送 heartbeat，Dex 就让它超时。 |
+| Heartbeat 可以带 details，重试的 Activity 能读到上一次 Heartbeat 的 details（[Activity Heartbeats](https://docs.temporal.io/develop/python/failure-detection#activity-heartbeats)）。 | heartbeat 可以带一个 checkpoint 值，下一次尝试会收到最新保存的 checkpoint。 |
+| 每次 Heartbeat 都由 Activity 代码调用 Heartbeat API。 | 一条 Stream 消息也算一次 heartbeat。把进度写进 Stream 的 Step 不需要另外调用 heartbeat。 |
+
+见 [Heartbeat](/reference/go/step-options#heartbeat)（英文）。
+
 ## 下一步 {#next}
 
 - [编程模型](/intro/compared-to-temporal/programming-model)：在两个引擎里编写和修改同一个流程。

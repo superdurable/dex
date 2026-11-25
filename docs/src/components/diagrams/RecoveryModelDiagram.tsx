@@ -28,7 +28,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
   en: {
     crash: 'A Worker stops mid-run',
     temporal: {
-      name: 'TEMPORAL',
+      name: 'Temporal',
       record: 'Event History',
       recordDetail: 'every command and result',
       resume: 'Replay the function',
@@ -36,7 +36,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
       rule: 'Deterministic Workflow code, idempotent Activities',
     },
     dex: {
-      name: 'DEX',
+      name: 'Dex',
       record: 'Step results + Attributes',
       recordDetail: 'saved with each decision',
       resume: 'Run the next Step',
@@ -47,7 +47,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
   'zh-Hans': {
     crash: 'Worker 运行中途停止',
     temporal: {
-      name: 'TEMPORAL',
+      name: 'Temporal',
       record: 'Event History',
       recordDetail: '每条命令和结果',
       resume: '重放函数',
@@ -55,7 +55,7 @@ const copy: Record<'en' | 'zh-Hans', {crash: string; temporal: Lane; dex: Lane}>
       rule: 'Workflow 代码必须确定，Activity 必须幂等',
     },
     dex: {
-      name: 'DEX',
+      name: 'Dex',
       record: 'Step 结果 + Attribute',
       recordDetail: '和每个决定一起保存',
       resume: '运行下一个 Step',

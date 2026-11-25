@@ -267,10 +267,8 @@ html[data-theme='dark'] {
   background: transparent;
   border-bottom: 1.5px solid color-mix(in srgb, var(--docs-heading) 18%, transparent);
   color: var(--docs-subtle);
-  font-size: 0.72rem;
+  font-size: 0.82rem;
   font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 @media (max-width: 720px) {
@@ -842,3 +840,31 @@ html[data-theme='dark'] .exec-node {
   }
 }
 
+
+/* Dex vs. Temporal tables: one color per engine, the same two colors as the comparison diagrams. */
+.theme-doc-markdown table {
+  --engine-temporal: #2563eb;
+  --engine-dex: var(--ifm-color-primary);
+}
+
+html[data-theme='dark'] .theme-doc-markdown table {
+  --engine-temporal: #60a5fa;
+}
+
+.theme-doc-markdown table th[data-engine='temporal'] {
+  border-bottom-color: var(--engine-temporal);
+  color: var(--engine-temporal);
+}
+
+.theme-doc-markdown table th[data-engine='dex'] {
+  border-bottom-color: var(--engine-dex);
+  color: var(--engine-dex);
+}
+
+.theme-doc-markdown table td[data-engine='temporal'] {
+  background: color-mix(in srgb, var(--engine-temporal) 5%, transparent);
+}
+
+.theme-doc-markdown table td[data-engine='dex'] {
+  background: color-mix(in srgb, var(--engine-dex) 7%, transparent);
+}
