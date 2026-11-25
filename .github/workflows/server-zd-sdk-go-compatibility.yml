@@ -110,6 +110,8 @@ jobs:
         env:
           DEX_INTEG_ENGINE: zd
           DEX_SERVER_ZD_BINARY: ${{ runner.temp }}/server-zd/dex-server-zd
+          # Lets the suite skip tests for features newer than this released binary.
+          DEX_INTEG_SERVER_ZD_RELEASE_TAG: ${{ steps.tags.outputs.server_zd_tag }}
         run: ./run-e2e-tests.sh
       - name: Upload service logs
         if: always()

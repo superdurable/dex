@@ -10,6 +10,7 @@ package integ
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -18,10 +19,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const nonRetryableDetail = "go card rejected"
@@ -47,23 +44,24 @@ func hourlyRetry() *dex.RetryPolicy {
 // nonRetryableServerZDRelease is the first server-zd release that honors WorkerErrorResponse.non_retryable.
 var nonRetryableServerZDRelease = [3]int{0, 1, 38}
 
+// serverZDReleaseTagEnv names the released server-zd binary under test, such as
+// server-zd/v0.1.37. The release compatibility workflow sets it; a source build leaves it empty.
+const serverZDReleaseTagEnv = "DEX_INTEG_SERVER_ZD_RELEASE_TAG"
+
 // skipUnlessServerHonorsNonRetryable skips on a released server-zd older than
-// nonRetryableServerZDRelease, as the release compatibility workflow can select. A source
-// build reports the unstamped workspace version 0.1.0 and always runs the test.
+// nonRetryableServerZDRelease. Without a release tag the server is a source build and the
+// test always runs.
 func skipUnlessServerHonorsNonRetryable(t *testing.T) {
 	t.Helper()
-	connection, err := grpc.NewClient(flowServiceAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	serverInfo, err := dexpb.NewFlowServiceClient(connection).GetServerInfo(integrationContext(t), &emptypb.Empty{})
-	require.NoError(t, err)
-	var release [3]int
-	if _, err := fmt.Sscanf(serverInfo.GetServerVersion(), "%d.%d.%d", &release[0], &release[1], &release[2]); err != nil {
+	releaseTag := os.Getenv(serverZDReleaseTagEnv)
+	if releaseTag == "" {
 		return
 	}
-	isUnstampedSourceBuild := release == [3]int{0, 1, 0}
-	if !isUnstampedSourceBuild && slices.Compare(release[:], nonRetryableServerZDRelease[:]) < 0 {
-		t.Skipf("server-zd %s predates non-retryable Worker failures", serverInfo.GetServerVersion())
+	var release [3]int
+	_, err := fmt.Sscanf(releaseTag, "server-zd/v%d.%d.%d", &release[0], &release[1], &release[2])
+	require.NoError(t, err, "%s=%q is not a server-zd release tag", serverZDReleaseTagEnv, releaseTag)
+	if slices.Compare(release[:], nonRetryableServerZDRelease[:]) < 0 {
+		t.Skipf("%s predates non-retryable Worker failures", releaseTag)
 	}
 }
 
