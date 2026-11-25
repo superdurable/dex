@@ -92,7 +92,9 @@ consumer Steps at once. When Attribute Sync writes are pending, or a
 transactional or locking RPC was admitted before the close, the run waits for
 them. During that wait:
 
-- the run still reports **RUNNING**, and no Step runs or starts;
+- the run still reports **RUNNING**. Dex cancels running Steps, starts no new
+  Step, and discards the uncommitted results of cancelled handlers. Running
+  application code can ignore cancellation;
 - an RPC that is neither transactional nor locking is still admitted, and its
   Attribute writes and Channel publications commit. No Step consumes those
   messages;
@@ -101,8 +103,9 @@ them. During that wait:
 
 So a lock on an RPC changes whether it is admitted during the close. It gives
 no guarantee that a Step consumes what the RPC published. The final terminal
-commit rejects new effects. A retry that reuses a recorded request ID can
-still return the earlier result.
+commit rejects new effects. A retry to the same run that reuses a request ID
+the run still retains can return the earlier result; see
+[RPC request IDs](/reference/server/runtime-data#rpc-request-ids).
 
 ### Confirm that a message was handled {#confirm-message-handled}
 
@@ -116,9 +119,10 @@ caller must confirm each message:
 - To deliver a missing message again, keep its business ID and use a new RPC
   request ID. A network retry of the same delivery reuses its request ID; a
   new delivery that reuses it returns the old reply and publishes nothing.
-- When a Flow ID is reused across runs, key the record so it can be read for
-  the run that took the message, or keep it across runs. The latest run's
-  record does not show what an earlier run handled.
+- **GetAttributes** reads the latest run of a Flow ID. When a Flow ID is
+  reused across runs, keep a receipt that must survive the reuse where the
+  caller can read it across runs. The latest run's record does not show what
+  an earlier run handled.
 - When no run accepts the message, report it as unconfirmed.
 
 The Flow reports **RUNNING** until the server records the terminal close.

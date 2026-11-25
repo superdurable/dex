@@ -395,11 +395,11 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 
 ## 测试 failure 路径 {#retry-exhaustion}
 
-Flow 有两条失败路径，测试分别用不同的方式覆盖。
+每个失败测试只验证一件事。
 
-第一条是应用自己选择的业务失败路径。provider 确认是永久性拒绝时，例如输入被拒绝或请求被拒绝，`Execute` 捕获它，自己转到 failure Step。应用判定为可重试的 provider 错误才走 Step 重试。用返回这种拒绝的 fake、在生产配置下测试这条路径。断言 failure Step 运行，而且没有发生重试。
+业务失败路径由应用自己选择。provider 确认是永久性拒绝时，例如输入被拒绝或请求被拒绝，`Execute` 捕获它，自己转到 failure Step。应用判定为可重试的 provider 错误才走 Step 重试。在生产配置下返回这种拒绝的 fake，验证的是应用的失败分支，以及它不会重试。
 
-第二条是重试用尽后的路径。Dex 在真实的重试预算用完后走这条路径。它不需要缩短时长的测试。目标 Step 的逻辑通过业务失败路径测试，或者直接测试。attempt 次数和时长都和生产中一样。见 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy)（英文）。
+直接测试 recovery Step，验证的是它的逻辑。Dex 在真实的重试预算用完后调度 recovery Step。这是 Dex 的行为，所以测试不通过缩短 attempt 次数或时长来重新测试它。见 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy)（英文）。
 
 ## 下一步 {#next}
 

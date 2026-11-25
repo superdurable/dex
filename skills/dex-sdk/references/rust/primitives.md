@@ -168,10 +168,10 @@ fn options(&self) -> StepOptions<Self::Input> {
   (`initial_interval`, `backoff_coefficient`, `maximum_interval`,
   `maximum_attempts`, `total_duration`). Bound retries whenever a recovery
   route must eventually run.
-- The default `heartbeat_timeout` is short. If a call can go a full heartbeat
-  timeout without a heartbeat or Dex Stream write, the attempt times out;
-  raising only `execute_method_timeout` keeps the heartbeat deadline. Such a
-  Step sets `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
+- The default `heartbeat_timeout` is short. If the attempt reaches its
+  heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out
+  the attempt; raising only `execute_method_timeout` keeps that deadline. A
+  Step with a call that can stay silent that long sets `heartbeat_timeout` to at least that call's `execute_method_timeout`, or
   heartbeats from a loop of short calls. It also sets `maximum_attempts(n)` and
   `total_duration(d)` on `execute_retry`, with `d` sized as in
   [step.md](../core/step.md#time-bounds), such as about `n` times
@@ -522,7 +522,7 @@ building blocks:
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `timeout_handler` plus `StartFlowOptions::timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drain_channels` |
-| Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])`; the controller starts with `.id_reuse_policy(IdReusePolicy::AllowIfNotRunning)` and a per-message `.request_id(...)` | `patterns/drain_channels` |
+| Drain external publishing | `force_complete_if_channels_empty(output, fallback, [Q.when_empty()])`; the controller starts with `.id_reuse_policy(IdReusePolicy::AllowIfNotRunning)`, a per-message `.request_id(...)`, and `.ignore_already_started(true)`; publish with `invoke_rpc_with_options` and `RpcInvokeOptions::request_id` where the installed SDK has it | `patterns/drain_channels` |
 | Interruptible | RPC writes an interrupt Attribute or cancels Steps; handlers check it | `patterns/interruptible` |
 | Wait for Step completion | `wait_for_step_completion` after start | `patterns/wait_for_step_completion` |
 | Wait for Attribute match | locked revision Attribute plus `wait_for_attribute_match` | `products/job_post` |

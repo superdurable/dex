@@ -23,6 +23,7 @@ package externalpublishing
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,14 +46,15 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainingExtern
 // startOrPublishAttempts bounds how often a message that lost a start race is published again.
 const startOrPublishAttempts = 3
 
-// patternStartOptions restarts the Flow ID once its run closed, with one start per message.
+// patternStartOptions restarts a closed Flow ID; a retried start of this message returns its run.
 func patternStartOptions(messageID string) sdk.StartFlowOptions {
 	timeout := time.Hour
 	requestID := "start:" + messageID
 	return sdk.StartFlowOptions{
-		Timeout:       &timeout,
-		IDReusePolicy: sdk.IDReuseAllowIfNotRunning,
-		RequestID:     &requestID,
+		Timeout:        &timeout,
+		IDReusePolicy:  sdk.IDReuseAllowIfNotRunning,
+		RequestID:      &requestID,
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
 	}
 }
 
@@ -66,17 +68,19 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		messageID = uuid.NewString()
 	}
 	message := "message " + messageID
+	publishRequestID := "publish:" + messageID
 	for attempt := 0; attempt < startOrPublishAttempts; attempt++ {
 		var output string
-		err := controller.client.InvokeRPC(
+		err := controller.client.InvokeRPCWithOptions(
 			request.Request.Context(),
 			flowID,
 			controller.flow.PublishExternalChannelMessage,
 			message,
 			&output,
+			sdk.RPCInvokeOptions{RequestID: &publishRequestID},
 		)
 		if err == nil {
-			httputil.RespondString(request, "Published to the Flow", nil)
+			httputil.RespondString(request, fmt.Sprintf("Accepted message %s", messageID), nil)
 			return
 		}
 		var inactive *sdk.FlowNotActiveOrNotFoundError
@@ -93,15 +97,18 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		)
 		var alreadyStarted *sdk.FlowAlreadyStartedError
 		if errors.As(startErr, &alreadyStarted) {
-			// Another caller started the run first: publish this message to that run.
+			// Another caller started a run first: publish this message to that run.
 			continue
 		}
 		httputil.RespondString(
 			request,
-			fmt.Sprintf("Started the workflow with runId %s", runID),
+			fmt.Sprintf("Accepted message %s as the start input of runId %s", messageID, runID),
 			startErr,
 		)
 		return
 	}
-	httputil.RespondString(request, "", fmt.Errorf("message %s is unconfirmed: no run accepted it", messageID))
+	request.String(
+		http.StatusConflict,
+		fmt.Sprintf("message %s is unconfirmed; send it again with the same messageId", messageID),
+	)
 }

@@ -418,19 +418,18 @@ fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
 
 ## Test the failure route {#retry-exhaustion}
 
-A Flow has two failure paths, and a test covers each in its own way.
+Each failure test verifies one thing.
 
-The first is a business failure path that the application chooses. When the
-provider confirms a permanent rejection, such as rejected input or a refused
-request, `Execute` catches it and routes to the failure Step itself. Provider
-errors that the application treats as retryable go through Step retry. Test
-this path with a fake that returns the rejection, under the production
-configuration. Assert that the failure Step runs and that no retry happens.
+The application chooses a business failure path. When the provider confirms a
+permanent rejection, such as rejected input or a refused request, `Execute`
+catches it and routes to the failure Step itself. Provider errors that the
+application treats as retryable go through Step retry. A fake that returns
+the rejection, under the production configuration, verifies the
+application's failure branch and that it does not retry.
 
-The second is the retry-exhausted route. Dex takes it after the real retry
-budget is spent. It needs no shortened test. Test the target Step's logic
-through the business failure path, or directly. Keep the attempts and
-durations as they are in production. See
+A direct test of the recovery Step verifies its logic. Dex schedules the
+recovery Step after the real retry budget is spent. That is Dex behavior, so
+a test does not re-test it by shortening attempts or durations. See
 [Execute failure policy](/reference/go/failure-and-retries#execute-failure-policy).
 
 ## Next

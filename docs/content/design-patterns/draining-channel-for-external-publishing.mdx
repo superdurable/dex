@@ -393,7 +393,7 @@ impl Step for DrainChannel {
 
 Each entity has one stable Flow ID and at most one active run. The run handles messages in the order their publications commit.
 
-The controller first calls the publishing RPC on the running Flow. If Dex reports that the Flow is not running, the controller starts a new Flow run with the same Flow ID and the message as its start input. The start allows reuse of a Flow ID whose run closed, and its request ID is fixed per message, so a retried start does not start a second run. When another caller starts the run first, the start reports that the Flow already started, and the controller publishes the message to that run. After a few attempts, it reports the message as unconfirmed. It returns any other error to its caller.
+The controller first calls the publishing RPC on the running Flow, with a request ID derived from the message ID, where the SDK offers RPC request IDs. If Dex reports that the Flow is not running, the controller starts a new Flow run with the same Flow ID and the message as its start input. The start allows reuse of a Flow ID whose run closed. Its request ID is fixed per message, and it ignores the already-started error for that request ID, so a retried start returns the original run. When another caller starts a run first, the start reports that the Flow already started, and the controller publishes the message to that run. A success response means the run accepted the message, not that a Step handled it. After a few attempts, the controller returns HTTP 409 with the message ID: the outcome is unknown, and the caller sends the message again with the same ID. It returns any other error to its caller.
 
 When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit, and the caller reads that record; see [Confirm that a message was handled](/reference/server/runtime-client#confirm-message-handled).
 
@@ -402,27 +402,30 @@ When the caller must confirm each message was handled, the consuming Step record
 
 ```python
 def pattern_start_options(message_id: str) -> StartFlowOptions:
-    """Restarts the Flow ID once its run closed, with one start per message."""
+    """Restarts a closed Flow ID; a retried start of this message returns its run."""
     return replace(
         start_options(),
         id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING,
         request_id=f"start:{message_id}",
+        ignore_already_started=True,
     )
 
 
 @blueprint.get("/start-or-publish")
-async def start_or_publish_draining_channel() -> str:
+async def start_or_publish_draining_channel() -> tuple[str, int]:
     flow_id = required_query("workflowId")
     message_id = optional_query("messageId", "") or str(uuid.uuid4())
     message = f"message {message_id}"
+    publish_options = RPCInvokeOptions(request_id=f"publish:{message_id}")
     for _ in range(START_OR_PUBLISH_ATTEMPTS):
         try:
             await app_state.client.invoke_rpc(
                 app_state.drain_external.publish_external_channel_message,
                 flow_id,
                 message,
+                options=publish_options,
             )
-            return "Published to the Flow"
+            return f"Accepted message {message_id}", 200
         except FlowNotActiveOrNotFoundError:
             pass
         try:
@@ -432,25 +435,32 @@ async def start_or_publish_draining_channel() -> str:
                 message,
                 pattern_start_options(message_id),
             )
-            return f"Started the workflow with runId {run_id}"
+            return (
+                f"Accepted message {message_id} as the start input of runId {run_id}",
+                200,
+            )
         except FlowAlreadyStartedError:
-            # Another caller started the run first: publish this message to that run.
+            # Another caller started a run first: publish this message to that run.
             continue
-    raise RuntimeError(f"message {message_id} is unconfirmed: no run accepted it")
+    return (
+        f"message {message_id} is unconfirmed; send it again with the same messageId",
+        409,
+    )
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-// patternStartOptions restarts the Flow ID once its run closed, with one start per message.
+// patternStartOptions restarts a closed Flow ID; a retried start of this message returns its run.
 func patternStartOptions(messageID string) sdk.StartFlowOptions {
 	timeout := time.Hour
 	requestID := "start:" + messageID
 	return sdk.StartFlowOptions{
-		Timeout:       &timeout,
-		IDReusePolicy: sdk.IDReuseAllowIfNotRunning,
-		RequestID:     &requestID,
+		Timeout:        &timeout,
+		IDReusePolicy:  sdk.IDReuseAllowIfNotRunning,
+		RequestID:      &requestID,
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
 	}
 }
 
@@ -464,17 +474,19 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		messageID = uuid.NewString()
 	}
 	message := "message " + messageID
+	publishRequestID := "publish:" + messageID
 	for attempt := 0; attempt < startOrPublishAttempts; attempt++ {
 		var output string
-		err := controller.client.InvokeRPC(
+		err := controller.client.InvokeRPCWithOptions(
 			request.Request.Context(),
 			flowID,
 			controller.flow.PublishExternalChannelMessage,
 			message,
 			&output,
+			sdk.RPCInvokeOptions{RequestID: &publishRequestID},
 		)
 		if err == nil {
-			httputil.RespondString(request, "Published to the Flow", nil)
+			httputil.RespondString(request, fmt.Sprintf("Accepted message %s", messageID), nil)
 			return
 		}
 		var inactive *sdk.FlowNotActiveOrNotFoundError
@@ -491,17 +503,20 @@ func (controller *controller) startOrPublish(request *gin.Context) {
 		)
 		var alreadyStarted *sdk.FlowAlreadyStartedError
 		if errors.As(startErr, &alreadyStarted) {
-			// Another caller started the run first: publish this message to that run.
+			// Another caller started a run first: publish this message to that run.
 			continue
 		}
 		httputil.RespondString(
 			request,
-			fmt.Sprintf("Started the workflow with runId %s", runID),
+			fmt.Sprintf("Accepted message %s as the start input of runId %s", messageID, runID),
 			startErr,
 		)
 		return
 	}
-	httputil.RespondString(request, "", fmt.Errorf("message %s is unconfirmed: no run accepted it", messageID))
+	request.String(
+		http.StatusConflict,
+		fmt.Sprintf("message %s is unconfirmed; send it again with the same messageId", messageID),
+	)
 }
 ```
 
@@ -522,7 +537,7 @@ ResponseEntity<String> startDrainingChannel(
     for (int attempt = 0; attempt < START_OR_PUBLISH_ATTEMPTS; attempt++) {
         try {
             client.invokeRPC(stub::publishExternalChannelMessage, message);
-            return ResponseEntity.ok("Published to the Flow");
+            return ResponseEntity.ok("Accepted message " + stableMessageId);
         } catch (final FlowNotActiveOrNotFoundException inactive) {
             // No run is active: start one with this message as its input.
         }
@@ -532,21 +547,23 @@ ResponseEntity<String> startDrainingChannel(
                     workflowId,
                     message,
                     externalPublishingStartOptions(stableMessageId));
-            return ResponseEntity.ok("Started the workflow with runId " + runId);
+            return ResponseEntity.ok(
+                    "Accepted message " + stableMessageId + " as the start input of runId " + runId);
         } catch (final FlowAlreadyStartedException alreadyStarted) {
-            // Another caller started the run first: publish this message to that run.
+            // Another caller started a run first: publish this message to that run.
         }
     }
-    throw new IllegalStateException(
-            "message " + stableMessageId + " is unconfirmed: no run accepted it");
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(
+            "message " + stableMessageId + " is unconfirmed; send it again with the same messageId");
 }
 
-/** Restarts the Flow ID once its run closed, with one start per message. */
+/** Restarts a closed Flow ID; a retried start of this message returns its run. */
 private static StartFlowOptions externalPublishingStartOptions(final String messageId) {
     return StartFlowOptions.newBuilder()
             .timeout(Duration.ofHours(1))
             .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
             .requestId("start:" + messageId)
+            .ignoreAlreadyStarted(true)
             .build();
 }
 ```
@@ -555,11 +572,12 @@ private static StartFlowOptions externalPublishingStartOptions(final String mess
 <SdkSnippet lang="typescript">
 
 ```typescript
-/** Restarts the Flow ID once its run closed, with one start per message. */
+/** Restarts a closed Flow ID; a retried start of this message returns its run. */
 function externalPublishingStartOptions(messageId: string): StartFlowOptions {
   return startOptions({
     idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING,
     requestId: `start:${messageId}`,
+    ignoreAlreadyStarted: true,
   });
 }
 
@@ -569,12 +587,13 @@ router.get("/start-or-publish", async (request, response) => {
   const message = `message ${messageId}`;
   for (let attempt = 0; attempt < START_OR_PUBLISH_ATTEMPTS; attempt++) {
     try {
-      await client.invokeRPC(
+      await client.invokeRPCWithOptions(
         drainingExternalChannelFlow.publishExternalChannelMessage,
         workflowId,
         message,
+        { requestId: `publish:${messageId}` },
       );
-      response.send("Published to the Flow");
+      response.send(`Accepted message ${messageId}`);
       return;
     } catch (error) {
       if (!isFlowMissingOrInactive(error)) {
@@ -588,16 +607,22 @@ router.get("/start-or-publish", async (request, response) => {
         message,
         externalPublishingStartOptions(messageId),
       );
-      response.send(`Started the workflow with runId ${runId}`);
+      response.send(
+        `Accepted message ${messageId} as the start input of runId ${runId}`,
+      );
       return;
     } catch (error) {
-      // Another caller started the run first: publish this message to that run.
+      // Another caller started a run first: publish this message to that run.
       if (!isFlowAlreadyStarted(error)) {
         throw error;
       }
     }
   }
-  throw new Error(`message ${messageId} is unconfirmed: no run accepted it`);
+  response
+    .status(409)
+    .send(
+      `message ${messageId} is unconfirmed; send it again with the same messageId`,
+    );
 });
 ```
 
@@ -605,12 +630,13 @@ router.get("/start-or-publish", async (request, response) => {
 <SdkSnippet lang="rust">
 
 ```rust
-/// Restarts the Flow ID once its run closed, with one start per message.
+/// Restarts a closed Flow ID; a retried start of this message returns its run.
 fn external_publishing_start_options(message_id: &str) -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(60 * 60))
         .id_reuse_policy(IdReusePolicy::AllowIfNotRunning)
         .request_id(format!("start:{message_id}"))
+        .ignore_already_started(true)
 }
 
 match run_blocking(move || {
@@ -618,7 +644,7 @@ match run_blocking(move || {
     let message = format!("message {message_id}");
     for _ in 0..START_OR_PUBLISH_ATTEMPTS {
         match client.invoke_rpc(&flow_id, PUBLISH_EXTERNAL_CHANNEL_MESSAGE, message.clone()) {
-            Ok(_) => return Ok(Ok("Published to the Flow".to_string())),
+            Ok(_) => return Ok(Ok(format!("Accepted message {message_id}"))),
             Err(error) if is_missing_or_inactive(&error) => {}
             Err(error) => return Err(error),
         }
@@ -628,14 +654,18 @@ match run_blocking(move || {
             message.clone(),
             external_publishing_start_options(&message_id),
         ) {
-            Ok(run_id) => return Ok(Ok(format!("Started the workflow with runId {run_id}"))),
-            // Another caller started the run first: publish this message to that run.
+            Ok(run_id) => {
+                return Ok(Ok(format!(
+                    "Accepted message {message_id} as the start input of runId {run_id}"
+                )));
+            }
+            // Another caller started a run first: publish this message to that run.
             Err(error) if is_already_started(&error) => {}
             Err(error) => return Err(error),
         }
     }
     Ok(Err(format!(
-        "message {message_id} is unconfirmed: no run accepted it"
+        "message {message_id} is unconfirmed; send it again with the same messageId"
     )))
 }) {
     Ok(Ok(message)) => ok_text(message),

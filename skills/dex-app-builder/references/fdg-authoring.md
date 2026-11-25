@@ -81,8 +81,8 @@ in a form the analyzer can read. These rules hold in every language:
 
 - **Return analyzer-visible decisions from Execute.** A helper may compute
   the input or record state. The decision itself is returned by Execute.
-- **Return an analyzer-visible Wait from WaitFor.** Every return path of
-  WaitFor resolves, for the analyzer, to a Wait factory. Prefer it inline,
+- **Return an analyzer-visible Wait from WaitFor.** Every successful Wait
+  return of WaitFor resolves, for the analyzer, to a Wait factory. Prefer it inline,
   such as `return dex.AnyOf(...)` in Go, `return Wait.anyOf(...)` in Java,
   or `Ok(Wait::any_of([...]))` in Rust. A local variable the analyzer can
   trace is fine. Do not hide the factory in a helper the analyzer cannot

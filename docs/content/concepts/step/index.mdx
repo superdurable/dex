@@ -322,9 +322,10 @@ defaults are the same in every SDK; see
 [StepOptions defaults](/reference/python/step-options#defaults).
 
 The defaults fit short calls, and the default heartbeat timeout is short. If
-a call can go a full heartbeat timeout without a heartbeat or Dex Stream
-write, the attempt times out. Raising only the method timeout keeps the
-heartbeat deadline. A Step with such a call sets two options itself:
+the attempt reaches its heartbeat deadline without a heartbeat or a Dex
+Stream write, Dex times out the attempt. Raising only the method timeout
+keeps that deadline. A Step with a call that can stay silent that long sets
+two options itself:
 
 - a heartbeat timeout of at least that call's method timeout. A loop of short
   calls that heartbeats between them keeps its longest silent interval below

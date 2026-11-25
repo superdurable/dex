@@ -162,7 +162,7 @@ FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
-- Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. The language reference names the signal.
+- Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. A reservation that must be released uses an expiring lease or a durable compensation branch keyed by the business ID. The language reference names the signal.
 
 ## Parallel SubFlows
 
@@ -511,15 +511,19 @@ rpc publishExternalMessage -> Queue.publish(message)
 
 Controller(entityId, message):                   // flowId = entityId; message has a stable ID
     repeat a few times:
-        try invokeRPC(flowId, publishExternalMessage, message); return accepted
+        try invokeRPC(flowId, publishExternalMessage, message,
+                      requestId = "publish:" + message.id); return accepted
         on missing-or-inactive:
             try startFlow(flowId, input = message, reuse = allow if not running,
-                          requestId = "start:" + message.id); return accepted
+                          requestId = "start:" + message.id,
+                          ignore already started)  // a retry returns the original run
+                return accepted
             on already started: continue        // another caller won; publish to its run
         other errors: return them
-    return unconfirmed
+    return unconfirmed with message.id          // outcome unknown; the caller sends it again
 ```
 
+- "Accepted" means the run accepted the message, not that a Step handled it.
 - One stable Flow ID per entity, one active run at a time, messages handled in the order their publications commit. An external business order needs its own ordering mechanism.
 - The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. The consuming Step owns all state, so concurrent RPCs never hit a lock conflict.
 - The decision checks the Channel atomically. A message already consumed by a Step that is still in Execute counts as not empty.

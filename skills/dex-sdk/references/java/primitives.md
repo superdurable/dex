@@ -164,10 +164,10 @@ public StepOptions getStepOptions() {
   (`initialInterval`, `backoffCoefficient`, `maximumInterval`,
   `maximumAttempts`, `totalDuration`). Bound retries whenever a recovery route
   must eventually run.
-- The default `heartbeatTimeout` is short. If a call can go a full heartbeat
-  timeout without a heartbeat or Dex Stream write, the attempt times out;
-  raising only `executeMethodTimeout` keeps the heartbeat deadline. Such a
-  Step sets `heartbeatTimeout` to at least that call's `executeMethodTimeout`, or
+- The default `heartbeatTimeout` is short. If the attempt reaches its
+  heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out
+  the attempt; raising only `executeMethodTimeout` keeps that deadline. A Step
+  with a call that can stay silent that long sets `heartbeatTimeout` to at least that call's `executeMethodTimeout`, or
   heartbeats from a loop of short calls. It also sets `maximumAttempts(n)` and
   `totalDuration(d)` on `executeRetry`, with `d` sized as in
   [step.md](../core/step.md#time-bounds), such as about `n` times
@@ -503,7 +503,7 @@ building blocks:
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
 | Graceful timeout | `handleTimeout` plus `StartFlowOptions.timeout` | `patterns/timeout` |
 | Drain internal Channel | side Step loops until a final marker | `patterns/drainchannels` |
-| Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts with `.idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)` and a per-message `.requestId(...)` | `patterns/drainchannels` |
+| Drain external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)`; the controller starts with `.idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)`, a per-message `.requestId(...)`, and `.ignoreAlreadyStarted(true)`; publish with `RPCInvokeOptions` and a per-message request ID where the installed SDK has it | `patterns/drainchannels` |
 | Interruptible | RPC cancels running Steps; handlers check cancellation | `patterns/interruptible` |
 | Wait for Step completion | `client.waitForStepCompletion` after start | `patterns/waitforstepcompletion` |
 | Wait for Attribute match | locked revision Attribute plus `waitForAttributeMatch` | `products/jobpost` |

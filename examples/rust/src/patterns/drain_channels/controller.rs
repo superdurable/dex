@@ -43,12 +43,18 @@ struct StartQuery {
     message_id: String,
 }
 
-/// Restarts the Flow ID once its run closed, with one start per message.
+/// Restarts a closed Flow ID; a retried start of this message returns its run.
 fn external_publishing_start_options(message_id: &str) -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(60 * 60))
         .id_reuse_policy(IdReusePolicy::AllowIfNotRunning)
         .request_id(format!("start:{message_id}"))
+        .ignore_already_started(true)
+}
+
+/// Returns a random 128-bit message ID for a caller that sent none.
+fn new_message_id() -> String {
+    format!("{:032x}", fastrand::u128(..))
 }
 
 pub fn mount(client: SharedClient) -> Router {
@@ -92,7 +98,7 @@ async fn start_or_publish(
         query.workflow_id
     };
     let message_id = if query.message_id.is_empty() {
-        new_flow_id("message")
+        new_message_id()
     } else {
         query.message_id
     };
@@ -101,7 +107,7 @@ async fn start_or_publish(
         let message = format!("message {message_id}");
         for _ in 0..START_OR_PUBLISH_ATTEMPTS {
             match client.invoke_rpc(&flow_id, PUBLISH_EXTERNAL_CHANNEL_MESSAGE, message.clone()) {
-                Ok(_) => return Ok(Ok("Published to the Flow".to_string())),
+                Ok(_) => return Ok(Ok(format!("Accepted message {message_id}"))),
                 Err(error) if is_missing_or_inactive(&error) => {}
                 Err(error) => return Err(error),
             }
@@ -111,14 +117,18 @@ async fn start_or_publish(
                 message.clone(),
                 external_publishing_start_options(&message_id),
             ) {
-                Ok(run_id) => return Ok(Ok(format!("Started the workflow with runId {run_id}"))),
-                // Another caller started the run first: publish this message to that run.
+                Ok(run_id) => {
+                    return Ok(Ok(format!(
+                        "Accepted message {message_id} as the start input of runId {run_id}"
+                    )));
+                }
+                // Another caller started a run first: publish this message to that run.
                 Err(error) if is_already_started(&error) => {}
                 Err(error) => return Err(error),
             }
         }
         Ok(Err(format!(
-            "message {message_id} is unconfirmed: no run accepted it"
+            "message {message_id} is unconfirmed; send it again with the same messageId"
         )))
     }) {
         Ok(Ok(message)) => ok_text(message),

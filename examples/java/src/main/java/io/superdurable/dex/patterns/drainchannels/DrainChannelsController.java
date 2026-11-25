@@ -24,6 +24,7 @@ import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.patterns.drainchannels.internal.DrainInternalChannelFlow;
 import io.superdurable.dex.patterns.drainchannels.externalpublishing.DrainingExternalChannelFlow;
 import io.superdurable.dex.shared.ExampleFlows;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -75,7 +76,7 @@ public class DrainChannelsController {
         for (int attempt = 0; attempt < START_OR_PUBLISH_ATTEMPTS; attempt++) {
             try {
                 client.invokeRPC(stub::publishExternalChannelMessage, message);
-                return ResponseEntity.ok("Published to the Flow");
+                return ResponseEntity.ok("Accepted message " + stableMessageId);
             } catch (final FlowNotActiveOrNotFoundException inactive) {
                 // No run is active: start one with this message as its input.
             }
@@ -85,21 +86,23 @@ public class DrainChannelsController {
                         workflowId,
                         message,
                         externalPublishingStartOptions(stableMessageId));
-                return ResponseEntity.ok("Started the workflow with runId " + runId);
+                return ResponseEntity.ok(
+                        "Accepted message " + stableMessageId + " as the start input of runId " + runId);
             } catch (final FlowAlreadyStartedException alreadyStarted) {
-                // Another caller started the run first: publish this message to that run.
+                // Another caller started a run first: publish this message to that run.
             }
         }
-        throw new IllegalStateException(
-                "message " + stableMessageId + " is unconfirmed: no run accepted it");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                "message " + stableMessageId + " is unconfirmed; send it again with the same messageId");
     }
 
-    /** Restarts the Flow ID once its run closed, with one start per message. */
+    /** Restarts a closed Flow ID; a retried start of this message returns its run. */
     private static StartFlowOptions externalPublishingStartOptions(final String messageId) {
         return StartFlowOptions.newBuilder()
                 .timeout(Duration.ofHours(1))
                 .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
                 .requestId("start:" + messageId)
+                .ignoreAlreadyStarted(true)
                 .build();
     }
 }
