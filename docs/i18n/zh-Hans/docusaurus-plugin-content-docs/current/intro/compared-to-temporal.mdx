@@ -17,16 +17,16 @@ Dex 和 Temporal 都能让流程在崩溃、重启和长时间等待之后继续
 
 ## 区别一览 {#differences-at-a-glance}
 
-每个主题都链接到 [Dex 与 Temporal 深入对比](/intro/compared-to-temporal-deep-dive)里对应的完整章节。关于 Temporal 的事实来自 [Temporal 文档](https://docs.temporal.io)。实测数字来自演示仓库。
+每个主题都链接到 [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)里对应的完整章节。关于 Temporal 的事实来自 [Temporal 文档](https://docs.temporal.io)。实测数字来自演示仓库。
 
 | 主题 | Temporal | Dex |
 | --- | --- | --- |
-| [写代码](/intro/compared-to-temporal-deep-dive#natural-temporal-code) | workflow 代码以 workflow task 的方式运行，每个 task 向 server 发送 command。哪些语句会变成 command，代码里看不出来。在演示里，空闲计时器的一种直接写法在第 30 秒而不是第 50 秒发出提醒，没有任何报错。它的 Timer 按原定时间触发，代码没有重新设置 Timer。 | 每个 Step 写明它等什么、接下来去哪。演示里的 Flow 在第 50.4 秒发出提醒。 |
-| [改代码](/intro/compared-to-temporal-deep-dive#change-code) | 如果一次部署改变了未结束的运行产生的 command，这次运行的 Workflow Task 会因非确定性错误而失败，并不断重试。运行本身保持打开。Patching 让新代码兼容旧的 history。Pinned 的 Worker Versioning 让每次运行留在它开始时的 Worker 版本上。 | 每个 Step 运行接手它的 Worker 上的代码。已经登记的等待保留原来的条件。演示加了一个 Step，未结束的会话走进了它。 |
-| [长时间运行的流程](/intro/compared-to-temporal-deep-dive#history-limit) | 一个 Workflow Execution 的 history 最多 51,200 个事件或 50 MB。这些上限在 Temporal Cloud 上是固定的，在自托管的 server 上是默认值。在演示里，server 在 4,266 条消息之后、第 51,201 个事件时终止了 workflow。把会话内容传给每次回复的 activity 时，它在 50 MB 的上限处被终止，这时接收了 408 条消息，回复了 407 条。Continue-As-New 要你自己写。 | Dex 保留每次运行最新的一段事件，并清理更早的事件。演示里的 Flow 在 30 分钟内回复了 14,138 条消息，仍在运行，聊天记录存在 Attribute 里。 |
-| [数据大小](/intro/compared-to-temporal-deep-dive#data-size) | 一个 payload 最多 2 MB。自托管的 server 默认在 512 KB 时警告。 | 默认情况下，一个值最多 16 MiB，一次 Flow 运行最多 64 MiB 的活跃状态。见 [Limits](/reference/server/configuration#limits)（英文）。 |
-| [看清流程](/intro/compared-to-temporal-deep-dive#complete-code) | 流程的形状就是 workflow 代码。 | `dexcli visualize` 从源码画出 Flow design。Dex Web 显示一次运行在等哪个 Step。 |
-| [运行服务器](/intro/compared-to-temporal-deep-dive#run-the-server) | Frontend、History、Matching 和 Worker 服务，运行在数据库上。 | 一个二进制，运行在对象存储或 db9 上。 |
+| [写代码](/intro/compared-to-temporal/programming-model#natural-temporal-code) | workflow 代码以 workflow task 的方式运行，每个 task 向 server 发送 command。哪些语句会变成 command，代码里看不出来。在演示里，空闲计时器的一种直接写法在第 30 秒而不是第 50 秒发出提醒，没有任何报错。它的 Timer 按原定时间触发，代码没有重新设置 Timer。 | 每个 Step 写明它等什么、接下来去哪。演示里的 Flow 在第 50.4 秒发出提醒。 |
+| [改代码](/intro/compared-to-temporal/programming-model#change-code) | 如果一次部署改变了未结束的运行产生的 command，这次运行的 Workflow Task 会因非确定性错误而失败，并不断重试。运行本身保持打开。Patching 让新代码兼容旧的 history。Pinned 的 Worker Versioning 让每次运行留在它开始时的 Worker 版本上。 | 每个 Step 运行接手它的 Worker 上的代码。已经登记的等待保留原来的条件。演示加了一个 Step，未结束的会话走进了它。 |
+| [长时间运行的流程](/intro/compared-to-temporal/programming-model#history-limit) | 一个 Workflow Execution 的 history 最多 51,200 个事件或 50 MB。这些上限在 Temporal Cloud 上是固定的，在自托管的 server 上是默认值。在演示里，server 在 4,266 条消息之后、第 51,201 个事件时终止了 workflow。把会话内容传给每次回复的 activity 时，它在 50 MB 的上限处被终止，这时接收了 408 条消息，回复了 407 条。Continue-As-New 要你自己写。 | Dex 保留每次运行最新的一段事件，并清理更早的事件。演示里的 Flow 在 30 分钟内回复了 14,138 条消息，仍在运行，聊天记录存在 Attribute 里。 |
+| [数据大小](/intro/compared-to-temporal/programming-model#data-size) | 一个 payload 最多 2 MB。自托管的 server 默认在 512 KB 时警告。 | 默认情况下，一个值最多 16 MiB，一次 Flow 运行最多 64 MiB 的活跃状态。见 [Limits](/reference/server/configuration#limits)（英文）。 |
+| [看清流程](/intro/compared-to-temporal/programming-model#complete-code) | 流程的形状就是 workflow 代码。 | `dexcli visualize` 从源码画出 Flow design。Dex Web 显示一次运行在等哪个 Step。 |
+| [运行服务器](/intro/compared-to-temporal/programming-model#run-the-server) | Frontend、History、Matching 和 Worker 服务，运行在数据库上。 | 一个二进制，运行在对象存储或 db9 上。 |
 
 ## 重放与保存的 Step 结果 {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
@@ -73,8 +73,8 @@ Worker 停止之后，两个引擎用不同的方式重建一次运行。
 | Workflow ID 冲突策略，用于仍打开的 Workflow ID。Workflow ID 复用策略，用于已关闭的 Workflow ID。 | ID 复用策略，同时用于打开和已关闭的 Flow ID。启动 request ID。 | 启动 request ID 让 Dex 识别重试的启动请求。见 [StartFlowOptions](/reference/python/start-flow-options)（英文）。 |
 | 取消 | RPC 按 Step 类型取消 Step。`StopFlow` 停止 Flow。 | 两者都由 Worker 代码以协作的方式停止外部工作。被取消的 attempt 之后返回的任何结果，Dex 都会丢弃。见[取消运行中的 Step](/reference/server/runtime-data#cancel-running-steps)。 |
 | Reset | [Time Travel](/components/operate-and-debug#time-travel) | Time Travel 保留 Run ID。 |
-| Continue-As-New，用于控制 history 大小 | 不需要为 history 大小开始新的运行 | Dex 会裁剪旧的历史事件。见 [history 上限](/intro/compared-to-temporal-deep-dive#history-limit)。 |
-| Patching、Worker Versioning | 保留旧的 Step 类型，以增量方式修改数据 | 见[改代码](/intro/compared-to-temporal-deep-dive#change-code)。 |
+| Continue-As-New，用于控制 history 大小 | 不需要为 history 大小开始新的运行 | Dex 会裁剪旧的历史事件。见 [history 上限](/intro/compared-to-temporal/programming-model#history-limit)。 |
+| Patching、Worker Versioning | 保留旧的 Step 类型，以增量方式修改数据 | 见[改代码](/intro/compared-to-temporal/programming-model#change-code)。 |
 | Schedule | 在 Timer 上循环的 Flow | 见 [Cron 定时](/design-patterns/durable-timer/cron)。 |
 | Nexus | 没有直接对应 | 其他团队的服务通过 FlowService API 启动 Flow 或调用 RPC。 |
 | Temporal Web UI | [Dex Web](/components/web) | |
@@ -85,13 +85,13 @@ Dex 由 iWF 演进而来。iWF 的 State 对应 Dex 的 Step，`WaitUntil` 对�
 
 这个视频系列每集比较一个主题。每一集都有文字版。
 
-- **第 1 集：一个空闲计时器，三个线上问题。** 写代码、改代码，以及一个一直聊下去的会话。[在 YouTube 上观看](https://youtu.be/fzl88JWt734)（英文），或者阅读 [Dex 与 Temporal 深入对比](/intro/compared-to-temporal-deep-dive)。
+- **第 1 集：一个空闲计时器，三个线上问题。** 写代码、改代码，以及一个一直聊下去的会话。[在 YouTube 上观看](https://youtu.be/fzl88JWt734)（英文），或者阅读 [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)。
 
 新的一集发布后会列在这里。
 
 ## 下一步 {#next}
 
-- [Dex 与 Temporal 深入对比](/intro/compared-to-temporal-deep-dive)：第 1 集的文字版，列出每个实测数字。
+- [Dex 与 Temporal 深入对比](/intro/compared-to-temporal/programming-model)：第 1 集的文字版，列出每个实测数字。
 - [Dex 与其他引擎对比](/intro/compared-to-other-engines)：Restate、DBOS、Step Functions 和 Agent 框架的 checkpoint。
 - [部署代码变更](/concepts/change-flow-code)：未结束的 Flow 怎样遇到新代码。
 - [性能](/intro/performance)和[限制](/intro/limits)。

@@ -707,7 +707,7 @@ for (const localeRoot of ['', 'zh-Hans/']) {
   for (const language of [undefined, ...sdkOrder]) {
     const suffix = language ? `.${language}.md` : '.md';
     const oldPath = `${localeRoot}intro/compared-to-durable-execution${suffix}`;
-    const successor = `${siteOrigin}/${localeRoot}intro/${language ? 'compared-to-temporal-deep-dive' : 'compared-to-temporal'}${suffix}`;
+    const successor = `${siteOrigin}/${localeRoot}intro/${language ? 'compared-to-temporal/programming-model' : 'compared-to-temporal'}${suffix}`;
     const text = await readFile(join(root, oldPath), 'utf8');
     assert.ok(text.includes(`](${successor})`), `${oldPath} must link ${successor}`);
     assert.ok(outputFilePaths.has(new URL(successor).pathname.slice(1)), `${oldPath} links missing ${successor}`);

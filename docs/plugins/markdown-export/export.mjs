@@ -127,7 +127,7 @@ const fullLanguages = ['go', 'java', 'typescript', 'rust'];
 // `to` receives the old .md file, and `languagesTo` receives each old .<language>.md file. Routes omit the locale.
 export const movedMarkdownPages = [
   {from: '/intro/compared-to-durable-execution/', to: '/intro/compared-to-temporal/',
-    languagesTo: '/intro/compared-to-temporal-deep-dive/'},
+    languagesTo: '/intro/compared-to-temporal/programming-model/'},
 ];
 // Must match the content types rendered by DexSkillHostTabs.tsx.
 const hostContainerTypes = new Set(['p', 'ol', 'ul', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
