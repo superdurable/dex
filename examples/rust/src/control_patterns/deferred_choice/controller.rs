@@ -21,7 +21,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use dex_sdk::{Client, Rpc, SdkError, SdkResult};
+use dex_sdk::{Client, FlowStatus, Rpc, SdkError, SdkResult};
 use serde::Deserialize;
 
 use crate::control_patterns::deferred_choice::flow::{
@@ -112,12 +112,40 @@ fn send_customer_response(
             "workflowId and note are required".to_owned(),
         );
     }
-    match run_blocking(move || invoke_response_rpc(&client, &query.workflow_id, rpc, query.note)) {
-        Ok(outcome) if outcome == OFFER_RESPONSE_WINDOW_CLOSED => {
+    match run_blocking(move || {
+        send_and_classify_response(&client, &query.workflow_id, rpc, query.note)
+    }) {
+        Ok(ResponseOutcome::Recorded) => ok_text("offer response recorded"),
+        Ok(ResponseOutcome::WindowClosed) => {
             (StatusCode::CONFLICT, "offer response window closed").into_response()
         }
-        Ok(_) => ok_text("offer response recorded"),
         Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+enum ResponseOutcome {
+    Recorded,
+    WindowClosed,
+}
+
+/// Treats a response to a Flow that already closed as a closed window.
+/// Returns the original error when the Flow never existed or is still running.
+fn send_and_classify_response(
+    client: &Client,
+    flow_id: &str,
+    rpc: Rpc<String, String>,
+    note: String,
+) -> SdkResult<ResponseOutcome> {
+    match invoke_response_rpc(client, flow_id, rpc, note) {
+        Ok(outcome) if outcome == OFFER_RESPONSE_WINDOW_CLOSED => Ok(ResponseOutcome::WindowClosed),
+        Ok(_) => Ok(ResponseOutcome::Recorded),
+        Err(error @ (SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. })) => {
+            match client.describe_flow(flow_id) {
+                Ok(info) if info.status != FlowStatus::Running => Ok(ResponseOutcome::WindowClosed),
+                _ => Err(error),
+            }
+        }
+        Err(error) => Err(error),
     }
 }
 

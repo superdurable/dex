@@ -960,16 +960,7 @@ fn deferred_choice_controller_records_an_acceptance() {
         ]),
     );
     assert_eq!(started.flow_id, flow_id);
-    let response = reqwest::blocking::Client::new()
-        .get(format!(
-            "{}/patterns/deferred-choice/accept",
-            http_client.base_url
-        ))
-        .query(&[("workflowId", flow_id.as_str()), ("note", "looks good")])
-        .send()
-        .expect("GET /patterns/deferred-choice/accept");
-    let status = response.status().as_u16();
-    let body = response.text().expect("read the acceptance response");
+    let (status, body) = accept_offer_over_http(&http_client.base_url, &flow_id);
     assert_eq!(status, 200, "{body}");
     assert_eq!(body, "offer response recorded");
     let result = environment
@@ -984,6 +975,27 @@ fn deferred_choice_controller_records_an_acceptance() {
         .map(|completion| completion.decode::<String>().expect("decode FulfillOffer"))
         .collect::<Vec<_>>();
     assert_eq!(fulfilled, ["fulfilled offer-smoke"]);
+
+    // A response after the Flow closed is a closed window, not a server error.
+    let (status, body) = accept_offer_over_http(&http_client.base_url, &flow_id);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body, "offer response window closed");
+    let never_started = http_client.new_flow_id("deferred-choice-missing");
+    let (status, body) = accept_offer_over_http(&http_client.base_url, &never_started);
+    assert_ne!(status, 409, "{body}");
+    assert_ne!(status, 200, "{body}");
+}
+
+/// Accepts the offer through the HTTP route. Returns the status and the body.
+fn accept_offer_over_http(base_url: &str, flow_id: &str) -> (u16, String) {
+    let response = reqwest::blocking::Client::new()
+        .get(format!("{base_url}/patterns/deferred-choice/accept"))
+        .query(&[("workflowId", flow_id), ("note", "looks good")])
+        .send()
+        .expect("GET /patterns/deferred-choice/accept");
+    let status = response.status().as_u16();
+    let body = response.text().expect("read the acceptance response");
+    (status, body)
 }
 
 #[test]

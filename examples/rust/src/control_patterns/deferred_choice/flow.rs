@@ -16,16 +16,22 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
-    Step, StepDecision, StepList, StepOptions, Timer, Wait,
+    Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, RetryPolicy, Rpc, RpcList,
+    RpcResult, Step, StepDecision, StepList, StepOptions, Timer, Wait,
 };
 
 /// How long the customer has to respond.
 pub const OFFER_EXPIRY: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 
-/// The response window is open until `AwaitOfferResponse` decides. Unset reads as open.
+/// The response window is open until the first reply or `AwaitOfferResponse` closes it. Unset reads as open.
 pub const RESPONSE_WINDOW_OPEN: &str = "open";
 pub const RESPONSE_WINDOW_CLOSED: &str = "closed";
+
+/// The retry budget of the locked `AwaitOfferResponse` Execute.
+pub const DECIDE_RETRY_INITIAL_INTERVAL: Duration = Duration::from_secs(1);
+pub const DECIDE_RETRY_MAXIMUM_ATTEMPTS: u32 = 3;
+pub const DECIDE_RETRY_TOTAL_DURATION: Duration = Duration::from_secs(60);
+pub const DECIDE_EXECUTE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The outcomes of a customer response RPC.
 pub const OFFER_RESPONSE_RECORDED: &str = "recorded";
@@ -55,7 +61,7 @@ pub struct OfferResponseFlow {
 
 impl OfferResponseFlow {
     /// Records that the customer accepted the offer.
-    /// Returns `OFFER_RESPONSE_WINDOW_CLOSED` once the offer has decided.
+    /// Returns `OFFER_RESPONSE_WINDOW_CLOSED` once the window is closed.
     pub fn accept_customer_offer(
         &self,
         context: &mut Context,
@@ -65,7 +71,7 @@ impl OfferResponseFlow {
     }
 
     /// Records that the customer rejected the offer.
-    /// Returns `OFFER_RESPONSE_WINDOW_CLOSED` once the offer has decided.
+    /// Returns `OFFER_RESPONSE_WINDOW_CLOSED` once the window is closed.
     pub fn reject_customer_offer(
         &self,
         context: &mut Context,
@@ -75,8 +81,8 @@ impl OfferResponseFlow {
     }
 }
 
-/// Publishes the response unless the window is closed.
-/// The publish commits together with this check, because the RPC holds the window lock.
+/// Publishes the first response and closes the window; later responses get the closed result.
+/// The check, the publish, and the close commit together, because the RPC holds the window lock.
 fn publish_while_window_open(
     context: &mut Context,
     response: &Channel<String>,
@@ -87,6 +93,8 @@ fn publish_while_window_open(
         return Ok(RpcResult::new(OFFER_RESPONSE_WINDOW_CLOSED.to_string()));
     }
     response.publish(context, note)?;
+    // The first reply closes the window, so AnyOf never leaves a second reply unconsumed.
+    OFFER_RESPONSE_WINDOW.set(context, RESPONSE_WINDOW_CLOSED.to_string())?;
     Ok(RpcResult::new(OFFER_RESPONSE_RECORDED.to_string()))
 }
 
@@ -130,8 +138,17 @@ impl Step for AwaitOfferResponse {
     type Input = String;
 
     /// Locks the response window in Execute, the same lock as the response RPCs.
+    /// A short retry budget bounds how long a failing Execute blocks responses.
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_lock(OFFER_RESPONSE_WINDOW.lock())
+        StepOptions::new()
+            .execute_lock(OFFER_RESPONSE_WINDOW.lock())
+            .execute_retry(
+                RetryPolicy::new()
+                    .initial_interval(DECIDE_RETRY_INITIAL_INTERVAL)
+                    .maximum_attempts(DECIDE_RETRY_MAXIMUM_ATTEMPTS)
+                    .total_duration(DECIDE_RETRY_TOTAL_DURATION),
+            )
+            .execute_method_timeout(DECIDE_EXECUTE_TIMEOUT)
     }
 
     fn wait_for(&self, _context: &mut Context, _offer_id: Self::Input) -> HandlerResult<Wait> {

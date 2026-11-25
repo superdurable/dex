@@ -16,7 +16,7 @@
 //! open after the decision and late responses reach the window check.
 
 use std::sync::{Condvar, LazyLock, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dex_examples_rust::control_patterns::deferred_choice::{
     AwaitOfferResponse, CloseRejectedOffer, ExpireOffer, FulfillOffer, OFFER_ACCEPTED,
@@ -79,6 +79,59 @@ impl HeldResponseGate {
         state.released = true;
         self.changed.notify_all();
     }
+}
+
+/// Releases the held RPC when dropped, so a failed assertion never leaves the Worker blocked.
+pub(crate) struct HeldResponseReleaseGuard;
+
+impl Drop for HeldResponseReleaseGuard {
+    fn drop(&mut self) {
+        HELD_RESPONSE_GATE.release();
+    }
+}
+
+const STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS: u64 = 3;
+
+/// Polls the Dex Web API until the Execute of `step_type` waits for its locks.
+/// Returns whether it did before the timeout.
+pub(crate) fn wait_until_execute_waits_for_locks(
+    flow_id: &str,
+    run_id: &str,
+    step_type: &str,
+    timeout: Duration,
+) -> bool {
+    let web_address =
+        std::env::var("DEX_WEB_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8802".to_string());
+    let url = format!("http://{web_address}/api/flows/state");
+    let http = reqwest::blocking::Client::new();
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let state = http
+            .get(&url)
+            .query(&[("flowId", flow_id), ("runId", run_id)])
+            .send()
+            .and_then(|response| response.error_for_status())
+            .and_then(|response| response.json::<serde_json::Value>());
+        if let Ok(state) = state
+            && execute_waits_for_locks(&state, step_type)
+        {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
+fn execute_waits_for_locks(state: &serde_json::Value, step_type: &str) -> bool {
+    state["activeStepExecutions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|step| step["stepType"] == step_type)
+        .any(|step| {
+            step["executeInvocation"]["pendingReason"].as_u64()
+                == Some(STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS)
+        })
 }
 
 pub(crate) fn register_offer_response_window_probe(registry: Registry) -> SdkResult<Registry> {

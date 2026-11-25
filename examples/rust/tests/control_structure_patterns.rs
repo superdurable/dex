@@ -69,8 +69,9 @@ use dex_sdk::{
 };
 use offer_response_window_probe::{
     ACCEPT_WINDOW_PROBE_OFFER, ACCEPT_WINDOW_PROBE_OFFER_WHEN_RELEASED, HELD_RESPONSE_GATE,
-    OPEN_WINDOW_PROBE_GATE, OfferResponseWindowProbeFlow, REJECT_WINDOW_PROBE_OFFER,
-    register_offer_response_window_probe,
+    HeldResponseReleaseGuard, OPEN_WINDOW_PROBE_GATE, OfferResponseWindowProbeFlow,
+    REJECT_WINDOW_PROBE_OFFER, register_offer_response_window_probe,
+    wait_until_execute_waits_for_locks,
 };
 use tempfile::TempDir;
 use worker_harness::{await_pull_registration, new_temporary_refund_flow};
@@ -418,6 +419,38 @@ fn deferred_choice_response_after_the_decision_gets_window_closed() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
+fn deferred_choice_second_reply_gets_window_closed_before_the_decision() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &OfferResponseWindowProbeFlow::default(),
+        "deferred-choice-double",
+        "offer-5".to_string(),
+    );
+    // Both replies race the wait; the first one closes the window either way.
+    let first = environment.invoke_retrying_lock_conflicts(
+        &flow_id,
+        ACCEPT_WINDOW_PROBE_OFFER,
+        "yes".to_string(),
+    );
+    let second = environment.invoke_retrying_lock_conflicts(
+        &flow_id,
+        REJECT_WINDOW_PROBE_OFFER,
+        "no".to_string(),
+    );
+    assert_eq!(first, OFFER_RESPONSE_RECORDED);
+    assert_eq!(second, OFFER_RESPONSE_WINDOW_CLOSED);
+
+    environment.invoke(&flow_id, OPEN_WINDOW_PROBE_GATE, ());
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        outputs_of::<String>(&result, "FulfillOffer"),
+        ["fulfilled offer-5"]
+    );
+    assert!(outputs_of::<String>(&result, "CloseRejectedOffer").is_empty());
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
 fn deferred_choice_response_committed_after_the_timer_won_is_taken() {
     let environment = ControlPatternsEnvironment::start();
     let flow_id = environment.start_flow(
@@ -425,6 +458,7 @@ fn deferred_choice_response_committed_after_the_timer_won_is_taken() {
         "deferred-choice-late",
         "offer-4".to_string(),
     );
+    let _release_on_failure = HeldResponseReleaseGuard;
     // The Worker runs on its own thread, so the held RPC does not block this test.
     let held_response = {
         let client = Arc::clone(&environment.client);
@@ -443,6 +477,15 @@ fn deferred_choice_response_committed_after_the_timer_won_is_taken() {
     );
     // The Timer wins while the RPC holds the window lock, so Execute waits for the RPC.
     environment.skip_offer_expiry(&flow_id);
+    let run_id = environment
+        .client
+        .describe_flow(&flow_id)
+        .unwrap_or_else(|error| panic!("describe {flow_id}: {error}"))
+        .run_id;
+    assert!(
+        wait_until_execute_waits_for_locks(&flow_id, &run_id, "AwaitOfferResponse", WAIT_TIMEOUT),
+        "{flow_id}: AwaitOfferResponse Execute never waited for the window lock"
+    );
     HELD_RESPONSE_GATE.release();
     let outcome = held_response
         .join()
