@@ -1,32 +1,32 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-25T06:09:18Z",
+  "generatedAt": "2026-11-25T06:43:20Z",
   "valid": true,
   "source": {
     "language": "python",
-    "path": "examples/python/dex_examples/patterns/child-flows-business-identity/shipment_flow.py"
+    "path": "examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py"
   },
   "flow": {
     "name": "ShipmentFlow",
     "startStepId": "step:DeliverShipment",
     "span": {
-      "startLine": 138,
+      "startLine": 402,
       "startColumn": 1,
-      "endLine": 161,
+      "endLine": 425,
       "endColumn": 54
     }
   },
   "nodes": [
     {
-      "id": "decision:step:DeliverShipment:97:16",
+      "id": "decision:step:DeliverShipment:357:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:DeliverShipment",
       "phase": "execute",
       "span": {
-        "startLine": 97,
+        "startLine": 357,
         "startColumn": 16,
-        "endLine": 105,
+        "endLine": 365,
         "endColumn": 10
       },
       "decision": {
@@ -34,15 +34,15 @@
       }
     },
     {
-      "id": "decision:step:ReportShipmentOutcome:135:16",
+      "id": "decision:step:ReportShipmentOutcome:399:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ReportShipmentOutcome",
       "phase": "execute",
       "span": {
-        "startLine": 135,
+        "startLine": 399,
         "startColumn": 16,
-        "endLine": 135,
+        "endLine": 399,
         "endColumn": 57
       },
       "decision": {
@@ -54,9 +54,9 @@
       "kind": "attribute",
       "name": "shipmentOutcome",
       "span": {
-        "startLine": 80,
+        "startLine": 133,
         "startColumn": 1,
-        "endLine": 80,
+        "endLine": 133,
         "endColumn": 53
       },
       "resource": {
@@ -70,9 +70,9 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 156,
+        "startLine": 420,
         "startColumn": 36,
-        "endLine": 156,
+        "endLine": 420,
         "endColumn": 57
       },
       "metadata": {
@@ -85,9 +85,9 @@
       "name": "ReportShipmentOutcome",
       "phase": "execute",
       "span": {
-        "startLine": 157,
+        "startLine": 421,
         "startColumn": 13,
-        "endLine": 157,
+        "endLine": 421,
         "endColumn": 41
       },
       "metadata": {
@@ -95,15 +95,15 @@
       }
     },
     {
-      "id": "wait:DeliverShipment:89:16:0",
+      "id": "wait:DeliverShipment:350:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:DeliverShipment",
       "phase": "wait_for",
       "span": {
-        "startLine": 89,
+        "startLine": 350,
         "startColumn": 16,
-        "endLine": 91,
+        "endLine": 352,
         "endColumn": 10
       },
       "wait": {
@@ -114,9 +114,9 @@
             "label": "timedelta(seconds=request.shipment.delivery_delay_seconds) timer",
             "expression": "timedelta(seconds=request.shipment.delivery_delay_seconds)",
             "span": {
-              "startLine": 90,
+              "startLine": 351,
               "startColumn": 13,
-              "endLine": 90,
+              "endLine": 351,
               "endColumn": 90
             }
           }
@@ -128,13 +128,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:DeliverShipment:97:16",
+      "from": "decision:step:DeliverShipment:357:16",
       "to": "step:ReportShipmentOutcome",
       "label": "go_to",
       "span": {
-        "startLine": 97,
+        "startLine": 357,
         "startColumn": 16,
-        "endLine": 105,
+        "endLine": 365,
         "endColumn": 10
       }
     },
@@ -145,9 +145,9 @@
       "to": "resource:attribute:SHIPMENT_OUTCOME",
       "label": "set",
       "span": {
-        "startLine": 96,
+        "startLine": 356,
         "startColumn": 9,
-        "endLine": 96,
+        "endLine": 356,
         "endColumn": 47
       },
       "metadata": {

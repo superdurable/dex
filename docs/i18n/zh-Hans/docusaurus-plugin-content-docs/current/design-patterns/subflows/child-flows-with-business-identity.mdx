@@ -1,7 +1,6 @@
 ---
 title: 有业务标识的子 Flow
 sidebar_label: 有业务标识的子 Flow
-displayed_sidebar: docs
 ---
 
 import orderFlowDefinition from '@site/src/data/flow-definitions/design-patterns/child-flows-business-identity-order.json';
@@ -21,25 +20,48 @@ import shipmentFlowDefinition from '@site/src/data/flow-definitions/design-patte
 
 ## 工作方式 {#how-it-works}
 
-1. `StartShipments` 为订单中的每个发货单启动一个分支。
-2. `StartShipment` 通过 Client 启动一个 `ShipmentFlow`。它的 Flow ID 是发货单号。它的 request ID 由订单和发货单得出，所以重试的 Step 重复的是同一次启动。发货单有自己的 Flow timeout。
-3. `AwaitShipment` 等待发货单的报告，或者等待对账 Timer。
-4. 发货单送达。`DeliverShipment` 把结果存进 `shipmentOutcome` Attribute。
-5. `ReportShipmentOutcome` 调用订单的 `recordShipmentOutcome` RPC。这个 RPC 把结果发布到该发货单的 Channel 实例。
-6. 报告到达时，`AwaitShipment` 以发货单号为键记录结果。
-7. Timer 先触发时，`AwaitShipment` 读取发货单：先读状态，再读结果。已关闭的发货单会被记录，仍在运行的发货单会继续等待。
+1. `StartShipments` 先检查订单里的每个发货单号都不重复，再为每个发货单启动一个分支。订单里出现重复单号时，订单在启动任何发货单之前失败。
+2. `StartShipment` 通过 Client 启动一个 `ShipmentFlow`。它的 Flow ID 是发货单号。它的 request ID 是完整启动请求的摘要，所以重试的 Step 重复的是同一次启动。发货单有自己的 Flow timeout。
+3. 发货单送达。`DeliverShipment` 把结果存进 `shipmentOutcome` Attribute。
+4. `ReportShipmentOutcome` 调用订单的 `recordShipmentOutcome` RPC。这个 RPC 把结果填进该发货单的记录。
+5. `AwaitShipment` 每隔一段时间读取一次发货单。仍在运行的发货单稍后再读。发货单关闭后，它记录终止状态；如果报告还没有填入结果，它也记录已存储的结果。
 
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py',
     go: 'examples/go/patterns/child-flows-business-identity/order_fulfillment_flow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflows/OrderFulfillmentFlow.java',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity/OrderFulfillmentFlow.java',
     typescript: 'examples/typescript/src/patterns/child-flows-business-identity/order-fulfillment-flow.ts',
     rust: 'examples/rust/src/control_patterns/child_flows_business_identity/order_fulfillment_flow.rs',
   }}>
 <SdkSnippet lang="python">
 
 ```python
+def shipment_start_request_id(order_flow_id: str, shipment: Shipment) -> str:
+    """Derives the start request ID from the complete start request.
+
+    A retried Execute sends the same ID, so it repeats the same start. Any
+    other request for the same shipment number sends another ID, so Dex
+    rejects it as already started.
+
+    Returns:
+        ``start:`` followed by the hex SHA-256 digest of the encoded request.
+    """
+    request = json.dumps(
+        [
+            SHIPMENT_FLOW_TYPE,
+            shipment.shipment_number,
+            order_flow_id,
+            shipment.destination,
+            shipment.delivery_delay_seconds,
+            int(SHIPMENT_TIMEOUT.total_seconds()),
+            "disallow",
+        ],
+        separators=(",", ":"),
+    )
+    return "start:" + hashlib.sha256(request.encode("utf-8")).hexdigest()
+
+
 # dex:group group-id:start group-label:"Start shipments"
 # dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 class StartShipment(Step[TrackedShipment]):
@@ -65,8 +87,7 @@ class StartShipment(Step[TrackedShipment]):
                 StartFlowOptions(
                     timeout=SHIPMENT_TIMEOUT,
                     id_reuse_policy=IdReusePolicy.DISALLOW,
-                    # Derived from this order and shipment, so a retried Execute repeats the same start.
-                    request_id=f"start:{context.flow_id}:{number}",
+                    request_id=shipment_start_request_id(context.flow_id, tracked.shipment),
                     ignore_already_started=True,
                 ),
             )
@@ -78,36 +99,54 @@ class StartShipment(Step[TrackedShipment]):
 
 
 # dex:group group-id:track group-label:"Track shipment"
-# dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+# dex:explanation text:"Reads the shipment at each interval and records how it ended."
 class AwaitShipment(Step[TrackedShipment]):
-    """Waits for the shipment's report, or reconciles after the interval."""
+    """Reads the shipment at each interval until it ends, then records it."""
 
     def __init__(self, client_provider: Callable[[], AsyncClient]) -> None:
         self.client_provider = client_provider
 
+    def get_step_options(self) -> StepOptions:
+        """Takes the same lock as the report RPC and loads the records."""
+        return StepOptions(
+            execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
+            execute_load_attribute_maps=(SHIPMENT_RECORDS,),
+        )
+
     def wait_for(self, context: Context, tracked: TrackedShipment) -> Wait:
-        return Wait.any_of(
-            SHIPMENT_REPORTS.for_one(tracked.shipment.shipment_number),
-            Timer.by_duration(timedelta(seconds=tracked.reconcile_interval_seconds)),
+        return Wait.until(
+            Timer.by_duration(timedelta(seconds=tracked.reconcile_interval_seconds))
         )
 
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, tracked: TrackedShipment
     ) -> StepDecision:
         number = tracked.shipment.shipment_number
-        outcomes = SHIPMENT_REPORTS.results(context, number)
-        if outcomes:
-            record = ShipmentRecord(outcome=outcomes[0])
-        else:
-            record = await reconcile_shipment(self.client_provider(), number)
-            if record.status == FlowStatus.RUNNING.value:
-                return go_to(AwaitShipment, tracked)
-        SHIPMENT_RECORDS.set(context, number, record)
+        reading = await reconcile_shipment(self.client_provider(), number)
+        if reading.status == FlowStatus.RUNNING.value:
+            return go_to(AwaitShipment, tracked)
+        # Merge with the record, which may already hold the reported outcome.
+        record = load_shipment_record(context, number)
+        SHIPMENT_RECORDS.set(
+            context,
+            number,
+            ShipmentRecord(
+                status=reading.status,
+                outcome=record.outcome or reading.outcome,
+            ),
+        )
         return graceful_complete()
 
 
+def load_shipment_record(context: Context, number: str) -> ShipmentRecord:
+    """Returns the loaded record of a shipment, or an empty record when it has none."""
+    # A missing instance reads as None.
+    record: ShipmentRecord | None = SHIPMENT_RECORDS.get(context, number)
+    return record if record is not None else ShipmentRecord()
+
+
 async def reconcile_shipment(client: AsyncClient, number: str) -> ShipmentRecord:
-    """Reads a shipment that has not reported: its status first, then its outcome.
+    """Reads a shipment: its status first, then its outcome.
 
     Returns a "running" record while the shipment runs and an "unavailable"
     record when the shipment does not exist. Any other failure raises, so the
@@ -133,6 +172,22 @@ async def reconcile_shipment(client: AsyncClient, number: str) -> ShipmentRecord
 <SdkSnippet lang="go">
 
 ```go
+// ShipmentStartRequestID derives the start request ID from the complete start request.
+// A retried Execute sends the same ID, so it repeats the same start. Any other request for
+// the same shipment number sends another ID, so Dex rejects it as already started.
+// It returns an error only when the request cannot be encoded.
+func ShipmentStartRequestID(orderFlowID string, shipment Shipment) (string, error) {
+	request, err := json.Marshal([]any{
+		shipmentFlowType, shipment.ShipmentNumber, orderFlowID, shipment.Destination,
+		shipment.DeliveryDelaySeconds, int64(ShipmentTimeout / time.Second), "disallow",
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(request)
+	return "start:" + hex.EncodeToString(digest[:]), nil
+}
+
 // dex:group group-id:start group-label:"Start shipments"
 // dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 type StartShipment struct {
@@ -147,10 +202,12 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 		return nil, errClientUnavailable
 	}
 	number := tracked.Shipment.ShipmentNumber
-	// Derived from this order and shipment, so a retried Execute repeats the same start.
-	requestID := "start:" + ctx.FlowID() + ":" + number
+	requestID, err := ShipmentStartRequestID(ctx.FlowID(), tracked.Shipment)
+	if err != nil {
+		return nil, err
+	}
 	timeout := ShipmentTimeout
-	_, err := client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
+	_, err = client.StartFlow(ctx, step.shipmentFlow, number, ShipmentRequest{
 		OrderFlowID: ctx.FlowID(),
 		Shipment:    tracked.Shipment,
 	}, dex.StartFlowOptions{
@@ -174,41 +231,45 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+// dex:explanation text:"Reads the shipment at each interval and records how it ended."
 type AwaitShipment struct {
 	dex.StepDefaults
 	getClient func() *dex.Client
 }
 
+// GetStepOptions takes the same lock as the report RPC and loads the records.
+func (AwaitShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+		ExecuteLoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+	}
+}
+
 func (AwaitShipment) WaitFor(_ dex.Context, tracked TrackedShipment) (*dex.Wait, error) {
-	interval := time.Duration(tracked.ReconcileIntervalSeconds) * time.Second
-	return dex.AnyOf(
-		ShipmentReports.ForOne(tracked.Shipment.ShipmentNumber),
-		dex.Timer(interval),
-	), nil
+	return dex.Until(dex.Timer(time.Duration(tracked.ReconcileIntervalSeconds) * time.Second)), nil
 }
 
 func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*dex.StepDecision, error) {
+	client := step.getClient()
+	if client == nil {
+		return nil, errClientUnavailable
+	}
 	number := tracked.Shipment.ShipmentNumber
-	outcomes, err := ShipmentReports.GetConditionResults(ctx, number)
+	reading, err := reconcileShipment(ctx, client, number)
 	if err != nil {
 		return nil, err
 	}
-	record := ShipmentRecord{}
-	if len(outcomes) > 0 {
-		record.Outcome = outcomes[0]
-	} else {
-		client := step.getClient()
-		if client == nil {
-			return nil, errClientUnavailable
-		}
-		record, err = reconcileShipment(ctx, client, number)
-		if err != nil {
-			return nil, err
-		}
-		if record.Status == dex.FlowRunning.String() {
-			return dex.GoTo(AwaitShipment{}, tracked), nil
-		}
+	if reading.Status == dex.FlowRunning.String() {
+		return dex.GoTo(AwaitShipment{}, tracked), nil
+	}
+	// Merge with the record, which may already hold the reported outcome.
+	record, err := loadShipmentRecord(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	record.Status = reading.Status
+	if record.Outcome == "" {
+		record.Outcome = reading.Outcome
 	}
 	if err := ShipmentRecords.Set(ctx, number, record); err != nil {
 		return nil, err
@@ -216,7 +277,18 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	return dex.GracefulComplete(nil), nil
 }
 
-// reconcileShipment reads a shipment that has not reported: its status first, then its outcome.
+// loadShipmentRecord returns the loaded record of a shipment, or an empty record when it has none.
+// It returns an error when the record cannot be read.
+func loadShipmentRecord(ctx dex.Context, number string) (ShipmentRecord, error) {
+	record, err := ShipmentRecords.Get(ctx, number)
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		return ShipmentRecord{}, nil
+	}
+	return record, err
+}
+
+// reconcileShipment reads a shipment: its status first, then its outcome.
 // It returns a "running" record while the shipment runs, an "unavailable" record when the
 // shipment does not exist, and an error for any other failure so the Step retries.
 func reconcileShipment(ctx context.Context, client *dex.Client, number string) (ShipmentRecord, error) {
@@ -245,6 +317,46 @@ func reconcileShipment(ctx context.Context, client *dex.Client, number string) (
 <SdkSnippet lang="java">
 
 ```java
+/**
+ * Derives the start request ID from the complete start request. A retried Execute sends the
+ * same ID, so it repeats the same start. Any other request for the same shipment number sends
+ * another ID, so Dex rejects it as already started.
+ *
+ * @param orderFlowId the Flow ID of the order that starts the shipment
+ * @param shipment the shipment to start
+ * @return "start:" followed by the lowercase hex SHA-256 of the encoded start request
+ */
+public static String shipmentStartRequestId(final String orderFlowId, final Shipment shipment) {
+    final List<Object> request = List.of(
+            SHIPMENT_FLOW_TYPE,
+            shipment.shipmentNumber(),
+            orderFlowId,
+            shipment.destination(),
+            shipment.deliveryDelaySeconds(),
+            SHIPMENT_TIMEOUT.toSeconds(),
+            "disallow");
+    try {
+        final byte[] encoded = START_REQUEST_MAPPER.writeValueAsString(request)
+                .getBytes(StandardCharsets.UTF_8);
+        return "start:" + HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(encoded));
+    } catch (final JsonProcessingException | NoSuchAlgorithmException failure) {
+        throw new IllegalStateException("cannot derive the shipment start request ID", failure);
+    }
+}
+
+/**
+ * Returns the loaded record of a shipment, or an empty record when it has none.
+ *
+ * @param context a context that loaded the shipmentRecords AttributeMap
+ * @param number the shipment number
+ * @return the shipment's record, or a record with no status and no outcome
+ */
+private static ShipmentRecord loadShipmentRecord(final Context context, final String number) {
+    final ShipmentRecord record = shipmentRecords.get(context, number);
+    return record == null ? new ShipmentRecord(null, null) : record;
+}
+
 // dex:group group-id:start group-label:"Start shipments"
 // dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 static final class StartShipment implements Step<TrackedShipment> {
@@ -265,8 +377,7 @@ static final class StartShipment implements Step<TrackedShipment> {
     public StepDecision execute(final Context context, final TrackedShipment tracked) {
         final Client client = clientProvider.getObject();
         final String number = tracked.shipment().shipmentNumber();
-        // Derived from this order and shipment, so a retried Execute repeats the same start.
-        final String requestId = "start:" + context.getFlowId() + ":" + number;
+        final String requestId = shipmentStartRequestId(context.getFlowId(), tracked.shipment());
         try {
             client.startFlow(
                     shipmentFlow,
@@ -288,7 +399,7 @@ static final class StartShipment implements Step<TrackedShipment> {
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+// dex:explanation text:"Reads the shipment at each interval and records how it ended."
 static final class AwaitShipment implements Step<TrackedShipment> {
     private final ObjectProvider<Client> clientProvider;
 
@@ -301,32 +412,37 @@ static final class AwaitShipment implements Step<TrackedShipment> {
         return TrackedShipment.class;
     }
 
+    /** Takes the same lock as the report RPC and loads the records. */
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .addExecuteLock(AttributeLock.of(shipmentRecordsLock))
+                .addExecuteLoadAttributeMap(shipmentRecords)
+                .build();
+    }
+
     @Override
     public Wait waitFor(final Context context, final TrackedShipment tracked) {
-        return Wait.anyOf(
-                shipmentReports.forOne(tracked.shipment().shipmentNumber()),
+        return Wait.until(
                 Timer.byDuration(Duration.ofSeconds(tracked.reconcileIntervalSeconds())));
     }
 
     @Override
     public StepDecision execute(final Context context, final TrackedShipment tracked) {
         final String number = tracked.shipment().shipmentNumber();
-        final List<String> outcomes = shipmentReports.getConditionResults(context, number);
-        final ShipmentRecord record;
-        if (!outcomes.isEmpty()) {
-            record = new ShipmentRecord(null, outcomes.get(0));
-        } else {
-            record = reconcileShipment(clientProvider.getObject(), number);
-            if (statusName(FlowStatus.RUNNING).equals(record.status())) {
-                return StepDecision.goTo(AwaitShipment.class, tracked);
-            }
+        final ShipmentRecord reading = reconcileShipment(clientProvider.getObject(), number);
+        if (statusName(FlowStatus.RUNNING).equals(reading.status())) {
+            return StepDecision.goTo(AwaitShipment.class, tracked);
         }
-        shipmentRecords.set(context, number, record);
+        // Merge with the record, which may already hold the reported outcome.
+        final ShipmentRecord stored = loadShipmentRecord(context, number);
+        final String outcome = stored.outcome() != null ? stored.outcome() : reading.outcome();
+        shipmentRecords.set(context, number, new ShipmentRecord(reading.status(), outcome));
         return StepDecision.gracefulComplete();
     }
 
     /**
-     * Reads a shipment that has not reported: its status first, then its outcome.
+     * Reads a shipment: its status first, then its outcome.
      *
      * @return a "running" record while the shipment runs, an "unavailable" record when the
      *     shipment does not exist, or the terminal status with the stored outcome; any other
@@ -360,6 +476,28 @@ static final class AwaitShipment implements Step<TrackedShipment> {
 <SdkSnippet lang="typescript">
 
 ```typescript
+/**
+ * Derives the start request ID from the complete start request.
+ *
+ * A retried Execute sends the same ID, so it repeats the same start. Any other
+ * request for the same shipment number sends another ID, so Dex rejects it as
+ * already started.
+ *
+ * @returns `start:` followed by the hex SHA-256 of the encoded start request.
+ */
+export function shipmentStartRequestId(orderFlowId: string, shipment: Shipment): string {
+  const request = JSON.stringify([
+    SHIPMENT_FLOW_TYPE,
+    shipment.shipmentNumber,
+    orderFlowId,
+    shipment.destination,
+    shipment.deliveryDelaySeconds,
+    SHIPMENT_TIMEOUT_MS / 1000,
+    "disallow",
+  ]);
+  return `start:${createHash("sha256").update(request).digest("hex")}`;
+}
+
 // dex:group group-id:start group-label:"Start shipments"
 // dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 class StartShipment implements Step<TrackedShipment> {
@@ -376,8 +514,7 @@ class StartShipment implements Step<TrackedShipment> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
     const number = tracked.shipment.shipmentNumber;
-    // Derived from this order and shipment, so a retried Execute repeats the same start.
-    const requestId = `start:${context.flowId}:${number}`;
+    const requestId = shipmentStartRequestId(context.flowId, tracked.shipment);
     try {
       await getClient().startFlow(
         this.shipmentFlow,
@@ -403,7 +540,7 @@ class StartShipment implements Step<TrackedShipment> {
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+// dex:explanation text:"Reads the shipment at each interval and records how it ended."
 class AwaitShipment implements Step<TrackedShipment> {
   public constructor(private readonly getClient: () => Client) {}
 
@@ -411,34 +548,47 @@ class AwaitShipment implements Step<TrackedShipment> {
     return "AwaitShipment";
   }
 
+  /** Takes the same lock as the report RPC and loads the records. */
+  public getStepOptions(): StepOptions {
+    return {
+      executeLockAttributes: [shipmentRecordsLock.lock()],
+      executeLoadAttributeMaps: [shipmentRecords],
+    };
+  }
+
   public waitFor(_context: Context, tracked: TrackedShipment): Wait {
-    return Wait.anyOf(
-      shipmentReports.forOne(tracked.shipment.shipmentNumber),
-      Timer.byDuration(tracked.reconcileIntervalSeconds * 1000),
-    );
+    return Wait.until(Timer.byDuration(tracked.reconcileIntervalSeconds * 1000));
   }
 
   public async execute(context: Context, tracked: TrackedShipment): Promise<StepDecision> {
+    // Calling a field through this would hide the Step class from the Flow visualizer.
+    const getClient = this.getClient;
     const number = tracked.shipment.shipmentNumber;
-    const outcomes = shipmentReports.results(context, number);
-    let record: ShipmentRecord;
-    if (outcomes.length > 0) {
-      record = { outcome: outcomes[0] };
-    } else {
-      // Calling a field through this would hide the Step class from the Flow visualizer.
-      const getClient = this.getClient;
-      record = await reconcileShipment(getClient(), number);
-      if (record.status === "running") {
-        return goTo(AwaitShipment, tracked);
-      }
+    const reading = await reconcileShipment(getClient(), number);
+    if (reading.status === "running") {
+      return goTo(AwaitShipment, tracked);
     }
-    shipmentRecords.set(context, number, record);
+    // Merge with the record, which may already hold the reported outcome.
+    const record = loadShipmentRecord(context, number);
+    shipmentRecords.set(context, number, {
+      status: reading.status,
+      outcome: record.outcome ?? reading.outcome,
+    });
     return gracefulComplete();
   }
 }
 
 /**
- * Reads a shipment that has not reported: its status first, then its outcome.
+ * Returns the loaded record of a shipment, or an empty record when it has none.
+ *
+ * @returns The stored record, or `{}` when the shipment has no record yet.
+ */
+function loadShipmentRecord(context: Context, number: string): ShipmentRecord {
+  return (shipmentRecords.get(context, number) as ShipmentRecord | undefined) ?? {};
+}
+
+/**
+ * Reads a shipment: its status first, then its outcome.
  *
  * @returns A "running" record while the shipment runs, an "unavailable" record
  * when the shipment does not exist, or the terminal status with the stored
@@ -475,6 +625,25 @@ async function reconcileShipment(client: Client, number: string): Promise<Shipme
 <SdkSnippet lang="rust">
 
 ```rust
+/// Derives the start request ID from the complete start request.
+///
+/// A retried Execute sends the same ID, so it repeats the same start. Any other
+/// request for the same shipment number sends another ID, so Dex rejects it as
+/// already started.
+pub fn shipment_start_request_id(order_flow_id: &str, shipment: &Shipment) -> String {
+    let request = serde_json::to_vec(&(
+        ShipmentFlow::default().flow_type(),
+        &shipment.shipment_number,
+        order_flow_id,
+        &shipment.destination,
+        shipment.delivery_delay_seconds,
+        SHIPMENT_TIMEOUT.as_secs(),
+        "disallow",
+    ))
+    .expect("a tuple of strings and integers always encodes as JSON");
+    format!("start:{:x}", Sha256::digest(&request))
+}
+
 // dex:group group-id:start group-label:"Start shipments"
 // dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 #[derive(Default)]
@@ -489,8 +658,7 @@ impl Step for StartShipment {
         let client = require_client(self.client.as_ref())?;
         let order_flow_id = context.flow_id().to_string();
         let number = tracked.shipment.shipment_number.clone();
-        // Derived from this order and shipment, so a retried Execute repeats the same start.
-        let request_id = format!("start:{order_flow_id}:{number}");
+        let request_id = shipment_start_request_id(&order_flow_id, &tracked.shipment);
         let request = ShipmentRequest {
             order_flow_id,
             shipment: tracked.shipment.clone(),
@@ -517,7 +685,7 @@ impl Step for StartShipment {
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Records the shipment's report, or reads the shipment when no report arrives in time."
+// dex:explanation text:"Reads the shipment at each interval and records how it ended."
 #[derive(Default)]
 struct AwaitShipment {
     client: Option<Arc<Client>>,
@@ -526,34 +694,44 @@ struct AwaitShipment {
 impl Step for AwaitShipment {
     type Input = TrackedShipment;
 
+    /// Takes the same lock as the report RPC and loads the records.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .execute_lock(SHIPMENT_RECORDS_LOCK.lock())
+            .execute_load_attribute_map(&SHIPMENT_RECORDS)
+    }
+
     fn wait_for(&self, _context: &mut Context, tracked: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([
-            SHIPMENT_REPORTS.for_one(&tracked.shipment.shipment_number),
-            Timer::by_duration(Duration::from_secs(tracked.reconcile_interval_seconds)),
-        ]))
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+            tracked.reconcile_interval_seconds,
+        ))))
     }
 
     fn execute(&self, context: &mut Context, tracked: Self::Input) -> HandlerResult<StepDecision> {
+        let client = require_client(self.client.as_ref())?;
         let number = tracked.shipment.shipment_number.clone();
-        let reported = SHIPMENT_REPORTS
-            .condition_results(context, &number)?
-            .into_iter()
-            .next();
-        let record = match reported {
-            Some(outcome) => ShipmentRecord {
-                status: None,
-                outcome: Some(outcome),
-            },
-            None => match reconcile_shipment(require_client(self.client.as_ref())?, &number)? {
-                ShipmentReading::Running => {
-                    return Ok(StepDecision::go_to(&AwaitShipment::default(), tracked));
-                }
-                ShipmentReading::Closed(record) => record,
-            },
+        let reading = match reconcile_shipment(client, &number)? {
+            ShipmentReading::Running => {
+                return Ok(StepDecision::go_to(&AwaitShipment::default(), tracked));
+            }
+            ShipmentReading::Closed(reading) => reading,
         };
+        // Merge with the record, which may already hold the reported outcome.
+        let mut record = load_shipment_record(context, &number)?;
+        record.status = reading.status;
+        if record.outcome.is_none() {
+            record.outcome = reading.outcome;
+        }
         SHIPMENT_RECORDS.set(context, &number, record)?;
         Ok(StepDecision::graceful_complete(()))
     }
+}
+
+/// Returns the loaded record of a shipment, or an empty record when it has none.
+///
+/// Returns an error when the record cannot be read.
+fn load_shipment_record(context: &Context, number: &str) -> HandlerResult<ShipmentRecord> {
+    Ok(SHIPMENT_RECORDS.get(context, number)?.unwrap_or_default())
 }
 
 /// What a reconcile read found.
@@ -562,7 +740,7 @@ enum ShipmentReading {
     Closed(ShipmentRecord),
 }
 
-/// Reads a shipment that has not reported: its status first, then its outcome.
+/// Reads a shipment: its status first, then its outcome.
 ///
 /// Returns `Running` while the shipment runs, an "unavailable" record when the
 /// shipment does not exist, and an error for any other failure so the Step retries.
@@ -598,17 +776,17 @@ fn reconcile_shipment(client: &Client, number: &str) -> HandlerResult<ShipmentRe
 
 ## 结果提交后再报告 {#report-after-the-outcome-commits}
 
-发货单在一个 Step 里提交结果，在下一个 Step 里报告。两个 Step 都保持默认的 SYNC durability，所以报告 Step 只会在结果存好之后开始。
+发货单在一个 Step 里提交结果，在下一个 Step 里报告。两个 Step 都为 `Execute` 显式声明 SYNC durability。这样即使 Flow 默认是 ASYNC，报告 Step 也只会在结果存好之后开始。
 
-订单为每个发货单只消费一份报告，所以重复的报告不会改变什么。Client 支持 RPC request ID 时，报告还带有稳定的 request ID：`report:` 加上发货单号。这样重试的报告只会改变订单一次。
+报告 RPC 只保留收到的第一个结果，所以重复的报告不会改变什么。Client 支持 RPC request ID 时，报告还带有稳定的 request ID：`report:` 加上发货单号。
 
 订单已经关闭时，报告会返回带类型的错误。发货单到此结束尝试。它的结果仍然可以通过 Client 读取。
 
 <SdkTabs
   examples={{
-    python: 'examples/python/dex_examples/patterns/child-flows-business-identity/shipment_flow.py',
+    python: 'examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py',
     go: 'examples/go/patterns/child-flows-business-identity/shipment_flow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflows/ShipmentFlow.java',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity/ShipmentFlow.java',
     typescript: 'examples/typescript/src/patterns/child-flows-business-identity/shipment-flow.ts',
     rust: 'examples/rust/src/control_patterns/child_flows_business_identity/shipment_flow.rs',
   }}>
@@ -620,12 +798,15 @@ fn reconcile_shipment(client: &Client, number: &str) -> HandlerResult<ShipmentRe
 class DeliverShipment(Step[ShipmentRequest]):
     """Waits for the simulated carrier, then stores the outcome."""
 
+    def get_step_options(self) -> StepOptions:
+        """Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC."""
+        return StepOptions(execute_durability=StepDurability.SYNC)
+
     def wait_for(self, context: Context, request: ShipmentRequest) -> Wait:
         return Wait.until(
             Timer.by_duration(timedelta(seconds=request.shipment.delivery_delay_seconds))
         )
 
-    # Keeps the default SYNC durability, so the outcome is stored before the report Step starts.
     def execute(self, context: Context, request: ShipmentRequest) -> StepDecision:
         outcome = "delivered to " + request.shipment.destination
         SHIPMENT_OUTCOME.set(context, outcome)
@@ -653,11 +834,15 @@ class ReportShipmentOutcome(Step[PendingReport]):
         self.client_provider = client_provider
         self.order_flow_provider = order_flow_provider
 
+    def get_step_options(self) -> StepOptions:
+        """Keeps the report SYNC, like the Step that stores the outcome."""
+        return StepOptions(execute_durability=StepDurability.SYNC)
+
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, pending: PendingReport
     ) -> StepDecision:
-        # This SDK pin has no RPC request ID. The order consumes one report
-        # per shipment, so a repeat changes nothing.
+        # This SDK pin has no RPC request ID. The locked RPC keeps the first
+        # outcome, so a repeat changes nothing.
         try:
             await self.client_provider().invoke_rpc(
                 self.order_flow_provider().record_shipment_outcome,
@@ -665,7 +850,7 @@ class ReportShipmentOutcome(Step[PendingReport]):
                 pending.report,
             )
         except (FlowNotFoundError, FlowNotActiveOrNotFoundError):
-            # A closed order ends the attempts; it reads the shipment's outcome instead.
+            # A closed order ends the attempts; the outcome stays readable through the Client.
             pass
         return graceful_complete(pending.report.outcome)
 ```
@@ -678,11 +863,15 @@ class ReportShipmentOutcome(Step[PendingReport]):
 // dex:explanation text:"Waits for the carrier, then commits the delivered outcome."
 type DeliverShipment struct{ dex.StepDefaults }
 
+// GetStepOptions stores the outcome before the report Step starts, even when the Flow defaults to ASYNC.
+func (DeliverShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
 func (DeliverShipment) WaitFor(_ dex.Context, request ShipmentRequest) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(time.Duration(request.Shipment.DeliveryDelaySeconds) * time.Second)), nil
 }
 
-// Execute keeps the default SYNC durability, so the outcome is stored before the report Step starts.
 func (DeliverShipment) Execute(ctx dex.Context, request ShipmentRequest) (*dex.StepDecision, error) {
 	outcome := "delivered to " + request.Shipment.Destination
 	if err := ShipmentOutcome.Set(ctx, outcome); err != nil {
@@ -707,6 +896,11 @@ type ReportShipmentOutcome struct {
 	getClient func() *dex.Client
 }
 
+// GetStepOptions keeps the report SYNC, like the Step that stores the outcome.
+func (ReportShipmentOutcome) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
 func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport) (*dex.StepDecision, error) {
 	client := step.getClient()
 	if client == nil {
@@ -716,7 +910,7 @@ func (step ReportShipmentOutcome) Execute(ctx dex.Context, pending PendingReport
 	requestID := "report:" + ctx.FlowID()
 	err := client.InvokeRPCWithOptions(ctx, pending.OrderFlowID, (&OrderFulfillmentFlow{}).RecordShipmentOutcome,
 		pending.Report, nil, dex.RPCInvokeOptions{RequestID: &requestID})
-	// A closed order ends the attempts; it reads the shipment's outcome instead.
+	// A closed order ends the attempts; the outcome stays readable through the Client.
 	var notFound *dex.FlowNotFoundError
 	var notActive *dex.FlowNotActiveOrNotFoundError
 	if err != nil && !errors.As(err, &notFound) && !errors.As(err, &notActive) {
@@ -738,16 +932,20 @@ static final class DeliverShipment implements Step<ShipmentRequest> {
         return ShipmentRequest.class;
     }
 
+    /**
+     * Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC.
+     */
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder().executeDurability(StepDurability.SYNC).build();
+    }
+
     @Override
     public Wait waitFor(final Context context, final ShipmentRequest request) {
         return Wait.until(Timer.byDuration(
                 Duration.ofSeconds(request.shipment().deliveryDelaySeconds())));
     }
 
-    /**
-     * Keeps the default SYNC durability, so the outcome is stored before the report Step
-     * starts.
-     */
     @Override
     public StepDecision execute(final Context context, final ShipmentRequest request) {
         final String outcome = "delivered to " + request.shipment().destination();
@@ -772,18 +970,24 @@ static final class ReportShipmentOutcome implements Step<PendingReport> {
         return PendingReport.class;
     }
 
+    /** Keeps the report SYNC, like the Step that stores the outcome. */
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder().executeDurability(StepDurability.SYNC).build();
+    }
+
     @Override
     public StepDecision execute(final Context context, final PendingReport pending) {
         final Client client = clientProvider.getObject();
-        // This SDK pin has no RPC request ID. The order consumes one report
-        // per shipment, so a repeat changes nothing.
+        // This SDK pin has no RPC request ID. The locked RPC keeps the first outcome,
+        // so a repeat changes nothing.
         try {
             client.invokeRPC(
                     client.newRpcStub(OrderFulfillmentFlow.class, pending.orderFlowId())
                             ::recordShipmentOutcome,
                     pending.report());
         } catch (final FlowNotFoundException | FlowNotActiveOrNotFoundException closed) {
-            // A closed order ends the attempts; it reads the shipment's outcome instead.
+            // A closed order ends the attempts; the outcome stays readable through the Client.
         }
         return StepDecision.gracefulComplete(pending.report().outcome());
     }
@@ -801,11 +1005,15 @@ class DeliverShipment implements Step<ShipmentRequest> {
     return "DeliverShipment";
   }
 
+  /** Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC. */
+  public getStepOptions(): StepOptions {
+    return { executeDurability: "sync" };
+  }
+
   public waitFor(_context: Context, request: ShipmentRequest): Wait {
     return Wait.until(Timer.byDuration(request.shipment.deliveryDelaySeconds * 1000));
   }
 
-  /** Keeps the default sync durability, so the outcome is stored before the report Step starts. */
   public execute(context: Context, request: ShipmentRequest): StepDecision {
     const outcome = `delivered to ${request.shipment.destination}`;
     shipmentOutcome.set(context, outcome);
@@ -826,6 +1034,11 @@ class ReportShipmentOutcome implements Step<PendingReport> {
     return "ReportShipmentOutcome";
   }
 
+  /** Keeps the report SYNC, like the Step that stores the outcome. */
+  public getStepOptions(): StepOptions {
+    return { executeDurability: "sync" };
+  }
+
   public async execute(context: Context, pending: PendingReport): Promise<StepDecision> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
@@ -839,7 +1052,7 @@ class ReportShipmentOutcome implements Step<PendingReport> {
         { requestId },
       );
     } catch (error) {
-      // A closed order ends the attempts; it reads the shipment's outcome instead.
+      // A closed order ends the attempts; the outcome stays readable through the Client.
       if (!(error instanceof FlowNotFoundError) && !(error instanceof FlowNotActiveOrNotFoundError)) {
         throw error;
       }
@@ -861,13 +1074,17 @@ struct DeliverShipment;
 impl Step for DeliverShipment {
     type Input = ShipmentRequest;
 
+    /// Stores the outcome before the report Step starts, even when the Flow defaults to ASYNC.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_durability(StepDurability::Sync)
+    }
+
     fn wait_for(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(Timer::by_duration(Duration::from_secs(
             request.shipment.delivery_delay_seconds,
         ))))
     }
 
-    /// Keeps the default SYNC durability, so the outcome is stored before the report Step starts.
     fn execute(&self, context: &mut Context, request: Self::Input) -> HandlerResult<StepDecision> {
         let outcome = format!("delivered to {}", request.shipment.destination);
         SHIPMENT_OUTCOME.set(context, outcome.clone())?;
@@ -894,17 +1111,22 @@ struct ReportShipmentOutcome {
 impl Step for ReportShipmentOutcome {
     type Input = PendingReport;
 
+    /// Keeps the report SYNC, like the Step that stores the outcome.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_durability(StepDurability::Sync)
+    }
+
     fn execute(&self, _context: &mut Context, pending: Self::Input) -> HandlerResult<StepDecision> {
         let client = require_client(self.client.as_ref())?;
         let outcome = pending.report.outcome.clone();
-        // This SDK pin has no RPC request ID. The order consumes one report
-        // per shipment, so a repeat changes nothing.
+        // This SDK pin has no RPC request ID. The locked RPC keeps the first
+        // outcome, so a repeat changes nothing.
         match client.invoke_rpc(
             &pending.order_flow_id,
             RECORD_SHIPMENT_OUTCOME,
             pending.report,
         ) {
-            // A closed order ends the attempts; it reads the shipment's outcome instead.
+            // A closed order ends the attempts; the outcome stays readable through the Client.
             Ok(())
             | Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActiveOrNotFound { .. }) => {
                 Ok(StepDecision::graceful_complete(outcome))
@@ -920,41 +1142,190 @@ impl Step for ReportShipmentOutcome {
 
 ## 每个发货单一条记录 {#records}
 
-订单在 `shipmentRecords` AttributeMap 里为每个发货单保存一条记录，以发货单号为键。记录把结果和终止状态分成两个字段。报告填入结果。对账读取填入状态，发货单存过结果时也填入结果。
+订单在 `shipmentRecords` AttributeMap 里为每个发货单保存一条记录，以发货单号为键。记录把结果和终止状态分成两个字段。报告 RPC 填入结果。`AwaitShipment` 填入状态；记录里还没有结果时，它也填入结果。
 
-发货单一直没有报告时，订单按这个顺序对账：
+两个写入方都锁住单例 Attribute `shipmentRecordsLock` 并加载这些记录，所以报告和对账写入不会互相覆盖。这个锁 Attribute 不存任何值，只用来让两个写入方依次执行。报告遇到锁时会返回锁冲突错误，发货单会重试它。
 
-1. 描述发货单。仍在运行的发货单在下一个间隔再读。
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/child-flows-business-identity/order_fulfillment_flow.py',
+    go: 'examples/go/patterns/child-flows-business-identity/order_fulfillment_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity/OrderFulfillmentFlow.java',
+    typescript: 'examples/typescript/src/patterns/child-flows-business-identity/order-fulfillment-flow.ts',
+    rust: 'examples/rust/src/control_patterns/child_flows_business_identity/order_fulfillment_flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(
+    lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
+    load_attribute_maps=(SHIPMENT_RECORDS,),
+)
+def record_shipment_outcome(self, context: Context, report: ShipmentReport) -> None:
+    """Fills the outcome of a shipment's record.
+
+    The first report wins; a repeated or late report changes nothing.
+    """
+    record = load_shipment_record(context, report.shipment_number)
+    if record.outcome:
+        return
+    SHIPMENT_RECORDS.set(
+        context,
+        report.shipment_number,
+        ShipmentRecord(status=record.status, outcome=report.outcome),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.RecordShipmentOutcome, &dex.RPCOptions{
+		LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+		LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+	})}
+}
+
+func (*OrderFulfillmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{ShipmentRecords, ShipmentRecordsLock},
+	}
+}
+
+// RecordShipmentOutcome fills the outcome of a shipment's record. The first report
+// wins; a repeated or late report changes nothing.
+func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report ShipmentReport) (*dex.RPCResult[dex.None], error) {
+	record, err := loadShipmentRecord(ctx, report.ShipmentNumber)
+	if err != nil {
+		return nil, err
+	}
+	if record.Outcome != "" {
+		return &dex.RPCResult[dex.None]{}, nil
+	}
+	record.Outcome = report.Outcome
+	if err := ShipmentRecords.Set(ctx, report.ShipmentNumber, record); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+/**
+ * Fills the outcome of a shipment's record. The first report wins; a repeated or late report
+ * changes nothing.
+ *
+ * @param context the RPC context
+ * @param report the shipment's report
+ */
+@RPC(lockAttributes = {"shipmentRecordsLock"}, loadAttributeMaps = {"shipmentRecords"})
+public void recordShipmentOutcome(final Context context, final ShipmentReport report) {
+    final ShipmentRecord record = loadShipmentRecord(context, report.shipmentNumber());
+    if (record.outcome() != null) {
+        return;
+    }
+    shipmentRecords.set(context, report.shipmentNumber(),
+            new ShipmentRecord(record.status(), report.outcome()));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+/**
+ * Fills the outcome of a shipment's record. The first report wins; a
+ * repeated or late report changes nothing.
+ */
+@rpc({ lockAttributes: [shipmentRecordsLock.lock()], loadAttributeMaps: [shipmentRecords] })
+public recordShipmentOutcome(context: Context, report: ShipmentReport): void {
+  const record = loadShipmentRecord(context, report.shipmentNumber);
+  if (record.outcome !== undefined) {
+    return;
+  }
+  shipmentRecords.set(context, report.shipmentNumber, { ...record, outcome: report.outcome });
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+/// Fills the outcome of a shipment's record. The first report wins; a
+/// repeated or late report changes nothing.
+fn record_shipment_outcome(
+    &self,
+    context: &mut Context,
+    report: ShipmentReport,
+) -> HandlerResult<()> {
+    let mut record = load_shipment_record(context, &report.shipment_number)?;
+    if record.outcome.is_some() {
+        return Ok(());
+    }
+    record.outcome = Some(report.outcome);
+    SHIPMENT_RECORDS.set(context, &report.shipment_number, record)
+}
+
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new().procedure(
+        RECORD_SHIPMENT_OUTCOME
+            .lock(SHIPMENT_RECORDS_LOCK.lock())
+            .load_attribute_map(&SHIPMENT_RECORDS),
+        Self::record_shipment_outcome,
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+`AwaitShipment` 按这个顺序读取发货单：
+
+1. 描述发货单。仍在运行的发货单在下一个间隔再读，即使它的报告已经到达。
 2. 已关闭的发货单：先记录状态，再读它的结果 Attribute。Attribute 未设置表示发货单结束时没有结果。
 3. 找不到的发货单按业务策略记录为 `unavailable`。
 4. 其他错误让 Step 失败，Dex 会重试它。
 
-被客服团队取消的发货单不会报告。订单仍会在下一次对账读取时记录它：状态为 `canceled`，没有结果。
+客服团队可以按单号取消发货单。在结果提交之前被取消的发货单没有结果，订单把它记录为 `canceled`。在结果提交之后、或在报告发出之后被取消的发货单仍可能有结果，订单会保留它。
 
-一个发货单号只属于一个订单。另一个订单的启动已经用过这个单号时，启动会返回带类型的 already-started 错误。示例把这个发货单记录为 `rejected`，不再跟踪它。每次业务尝试都使用自己的发货单号。
+一个发货单号只属于一个订单。另一个请求已经用过这个单号时，启动会返回带类型的 already-started 错误。示例把这个发货单记录为 `rejected`，不再跟踪它。每次业务尝试都使用自己的发货单号。
 
 ## 按单号查找发货单 {#lookup}
 
-任何调用方都可以按单号找到发货单，不需要知道订单。示例的 HTTP 路由描述发货单并读取它的结果。
+任何调用方都可以按单号找到发货单，不需要知道订单。示例的 HTTP 路由先描述这个 ID 对应的 Flow。它不是 `ShipmentFlow` 时返回 404，所以订单 ID 不能被当作发货单读取或取消。
 
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/child-flows-business-identity/controller.py',
     go: 'examples/go/patterns/child-flows-business-identity/controller.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflows/ChildFlowsController.java',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/childflowsbusinessidentity/ChildFlowsController.java',
     typescript: 'examples/typescript/src/patterns/child-flows-business-identity/controller.ts',
     rust: 'examples/rust/src/control_patterns/child_flows_business_identity/controller.rs',
   }}>
 <SdkSnippet lang="python">
 
 ```python
+async def describe_shipment(number: str) -> FlowInfo | None:
+    """Describes the Flow named by a shipment number.
+
+    Returns None when no ShipmentFlow has that Flow ID. Any other failure raises.
+    """
+    try:
+        info = await app_state.client.describe_flow(number)
+    except FlowNotFoundError:
+        return None
+    return info if info.flow_type == SHIPMENT_FLOW_TYPE else None
+
 @blueprint.get("/shipment")
 async def get_shipment() -> tuple[dict[str, str], int]:
     """Looks a shipment up by its shipment number, which is its Flow ID."""
     number = required_query("shipmentNumber")
-    try:
-        info = await app_state.client.describe_flow(number)
-    except FlowNotFoundError:
+    info = await describe_shipment(number)
+    if info is None:
         return {"error": f"shipment {number} not found"}, 404
     values = await app_state.client.get_attributes(number, SHIPMENT_OUTCOME)
     return {
@@ -962,6 +1333,18 @@ async def get_shipment() -> tuple[dict[str, str], int]:
         "status": info.status.value,
         "outcome": values.get(SHIPMENT_OUTCOME, ""),
     }, 200
+
+@blueprint.get("/cancel-shipment")
+async def cancel_shipment() -> tuple[str | dict[str, str], int]:
+    """Stops a shipment by its number. Its order records it at the next reconcile read."""
+    number = required_query("shipmentNumber")
+    if await describe_shipment(number) is None:
+        return {"error": f"shipment {number} not found"}, 404
+    await app_state.client.stop_flow(
+        number,
+        StopFlowOptions(type=StopType.CANCEL, reason="shipment canceled"),
+    )
+    return "canceled", 200
 ```
 
 </SdkSnippet>
@@ -970,28 +1353,51 @@ async def get_shipment() -> tuple[dict[str, str], int]:
 ```go
 // getShipment looks a shipment up by its shipment number, which is its Flow ID.
 func (controller *controller) getShipment(request *gin.Context) {
-	number, found := httputil.RequiredQuery(request, "shipmentNumber")
+	number, info, found := controller.describeShipment(request)
 	if !found {
 		return
 	}
-	ctx := request.Request.Context()
-	info, err := controller.client.DescribeFlow(ctx, number)
-	var notFound *dex.FlowNotFoundError
-	if errors.As(err, &notFound) {
-		request.JSON(http.StatusNotFound, gin.H{"error": "shipment " + number + " not found"})
-		return
-	}
-	if err != nil {
-		httputil.Respond(request, nil, err)
-		return
-	}
 	var outcome string
-	_, err = controller.client.GetAttributes(ctx, number, dex.ReadAttribute(ShipmentOutcome, &outcome))
+	_, err := controller.client.GetAttributes(request.Request.Context(), number,
+		dex.ReadAttribute(ShipmentOutcome, &outcome))
 	httputil.Respond(request, gin.H{
 		"shipmentNumber": number,
 		"status":         info.Status.String(),
 		"outcome":        outcome,
 	}, err)
+}
+
+// cancelShipment stops a shipment by its number. Its order records it at the next reconcile read.
+func (controller *controller) cancelShipment(request *gin.Context) {
+	number, _, found := controller.describeShipment(request)
+	if !found {
+		return
+	}
+	err := controller.client.StopFlow(request.Request.Context(), number, dex.StopOptions{
+		Type:   dex.CancelFlow,
+		Reason: "shipment canceled",
+	})
+	httputil.RespondString(request, "canceled", err)
+}
+
+// describeShipment describes the Flow named by the shipmentNumber query.
+// It returns found as false after it responded: 404 when no ShipmentFlow has that Flow ID.
+func (controller *controller) describeShipment(request *gin.Context) (string, dex.FlowInfo, bool) {
+	number, found := httputil.RequiredQuery(request, "shipmentNumber")
+	if !found {
+		return "", dex.FlowInfo{}, false
+	}
+	info, err := controller.client.DescribeFlow(request.Request.Context(), number)
+	var notFound *dex.FlowNotFoundError
+	if errors.As(err, &notFound) || (err == nil && info.FlowType != shipmentFlowType) {
+		request.JSON(http.StatusNotFound, gin.H{"error": "shipment " + number + " not found"})
+		return "", dex.FlowInfo{}, false
+	}
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return "", dex.FlowInfo{}, false
+	}
+	return number, info, true
 }
 ```
 
@@ -1001,14 +1407,12 @@ func (controller *controller) getShipment(request *gin.Context) {
 ```java
 /** Looks a shipment up by its shipment number, which is its Flow ID. */
 @GetMapping("/shipment")
-ResponseEntity<Map<String, String>> getShipment(@RequestParam final String shipmentNumber) {
-    final FlowInfo info;
-    try {
-        info = client.describeFlow(shipmentNumber);
-    } catch (final FlowNotFoundException notFound) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("error", "shipment " + shipmentNumber + " not found"));
+ResponseEntity<?> getShipment(@RequestParam final String shipmentNumber) {
+    final Optional<FlowInfo> found = describeShipment(shipmentNumber);
+    if (found.isEmpty()) {
+        return shipmentNotFound(shipmentNumber);
     }
+    final FlowInfo info = found.get();
     final String outcome = client.getAttributes(shipmentNumber, ShipmentFlow.shipmentOutcome)
             .get(ShipmentFlow.shipmentOutcome)
             .orElse("");
@@ -1018,6 +1422,39 @@ ResponseEntity<Map<String, String>> getShipment(@RequestParam final String shipm
     response.put("outcome", outcome);
     return ResponseEntity.ok(response);
 }
+
+/** Stops a shipment by its number. Its order records it at the next reconcile read. */
+@GetMapping("/cancel-shipment")
+ResponseEntity<?> cancelShipment(@RequestParam final String shipmentNumber) {
+    if (describeShipment(shipmentNumber).isEmpty()) {
+        return shipmentNotFound(shipmentNumber);
+    }
+    client.stopFlow(shipmentNumber, new StopFlowOptions(StopType.CANCEL, "shipment canceled"));
+    return ResponseEntity.ok("canceled");
+}
+
+/**
+ * Describes the Flow named by a shipment number.
+ *
+ * @param shipmentNumber the shipment number, which is the shipment's Flow ID
+ * @return the shipment's Flow info, or empty when no ShipmentFlow has that Flow ID
+ */
+private Optional<FlowInfo> describeShipment(final String shipmentNumber) {
+    try {
+        final FlowInfo info = client.describeFlow(shipmentNumber);
+        if (!OrderFulfillmentFlow.SHIPMENT_FLOW_TYPE.equals(info.getFlowType())) {
+            return Optional.empty();
+        }
+        return Optional.of(info);
+    } catch (final FlowNotFoundException notFound) {
+        return Optional.empty();
+    }
+}
+
+private static ResponseEntity<Map<String, String>> shipmentNotFound(final String shipmentNumber) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(Map.of("error", "shipment " + shipmentNumber + " not found"));
+}
 ```
 
 </SdkSnippet>
@@ -1026,27 +1463,57 @@ ResponseEntity<Map<String, String>> getShipment(@RequestParam final String shipm
 ```typescript
 // Looks a shipment up by its shipment number, which is its Flow ID.
 router.get("/shipment", async (request, response) => {
-  const number = requiredQuery(request, response, "shipmentNumber");
-  if (number === undefined) {
+  const shipment = await describeShipment(client, request, response);
+  if (shipment === undefined) {
     return;
   }
-  let status;
-  try {
-    status = (await client.describeFlow(number)).status;
-  } catch (error) {
-    if (error instanceof FlowNotFoundError) {
-      response.status(404).json({ error: `shipment ${number} not found` });
-      return;
-    }
-    throw error;
-  }
-  const [outcome] = await client.getAttributes(number, shipmentOutcome);
+  const [outcome] = await client.getAttributes(shipment.flowId, shipmentOutcome);
   response.json({
-    shipmentNumber: number,
-    status: shipmentStatusOf(status),
+    shipmentNumber: shipment.flowId,
+    status: shipmentStatusOf(shipment.status),
     outcome: outcome ?? "",
   });
 });
+
+// Stops a shipment by its number. Its order records it at the next reconcile read.
+router.get("/cancel-shipment", async (request, response) => {
+  const shipment = await describeShipment(client, request, response);
+  if (shipment === undefined) {
+    return;
+  }
+  await client.stopFlow(shipment.flowId, { type: StopType.CANCEL, reason: "shipment canceled" });
+  response.send("canceled");
+});
+
+/**
+ * Describes the Flow named by the shipmentNumber query.
+ *
+ * @returns The shipment's FlowInfo, or undefined after it responded: 404 when
+ * no ShipmentFlow has that Flow ID.
+ */
+async function describeShipment(
+  client: Client,
+  request: Request,
+  response: Response,
+): Promise<FlowInfo | undefined> {
+  const number = requiredQuery(request, response, "shipmentNumber");
+  if (number === undefined) {
+    return undefined;
+  }
+  let info: FlowInfo | undefined;
+  try {
+    info = await client.describeFlow(number);
+  } catch (error) {
+    if (!(error instanceof FlowNotFoundError)) {
+      throw error;
+    }
+  }
+  if (info === undefined || info.flowType !== SHIPMENT_FLOW_TYPE) {
+    response.status(404).json({ error: `shipment ${number} not found` });
+    return undefined;
+  }
+  return info;
+}
 ```
 
 </SdkSnippet>
@@ -1058,27 +1525,66 @@ async fn get_shipment(
     State(client): State<SharedClient>,
     Query(query): Query<ShipmentQuery>,
 ) -> Response {
-    let number = query.shipment_number;
-    if number.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "shipmentNumber is required");
-    }
+    let (number, info) = match describe_shipment(&client, query).await {
+        Ok(described) => described,
+        Err(response) => return response,
+    };
     let lookup_number = number.clone();
-    let lookup = run_blocking(move || {
-        let info = client.describe_flow(&lookup_number)?;
-        let (outcome,) = client.get_attributes(&lookup_number, (&*SHIPMENT_OUTCOME,))?;
-        Ok((info.status, outcome))
-    });
+    let lookup = run_blocking(move || client.get_attributes(&lookup_number, (&*SHIPMENT_OUTCOME,)));
     match lookup {
-        Ok((status, outcome)) => ok_json(ShipmentView {
+        Ok((outcome,)) => ok_json(ShipmentView {
             shipment_number: number,
-            status: flow_status_name(status).to_string(),
+            status: flow_status_name(info.status).to_string(),
             outcome: outcome.unwrap_or_default(),
         }),
-        Err(SdkError::FlowNotFound { .. }) => error_response(
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+/// Stops a shipment by its number. Its order records it at the next reconcile read.
+async fn cancel_shipment(
+    State(client): State<SharedClient>,
+    Query(query): Query<ShipmentQuery>,
+) -> Response {
+    let (number, _info) = match describe_shipment(&client, query).await {
+        Ok(described) => described,
+        Err(response) => return response,
+    };
+    match run_blocking(move || {
+        client.stop_flow(
+            &number,
+            StopFlowOptions::cancel().reason("shipment canceled"),
+        )
+    }) {
+        Ok(()) => ok_text("canceled"),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+/// Describes the Flow named by the `shipmentNumber` query.
+///
+/// Returns the shipment number and its Flow info, or the error response to send:
+/// 404 when no `ShipmentFlow` has that Flow ID.
+async fn describe_shipment(
+    client: &SharedClient,
+    query: ShipmentQuery,
+) -> Result<(String, FlowInfo), Response> {
+    let number = query.shipment_number;
+    if number.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "shipmentNumber is required",
+        ));
+    }
+    let lookup_client = Arc::clone(client);
+    let lookup_number = number.clone();
+    match run_blocking(move || lookup_client.describe_flow(&lookup_number)) {
+        Ok(info) if info.flow_type == ShipmentFlow::default().flow_type() => Ok((number, info)),
+        Ok(_) | Err(SdkError::FlowNotFound { .. }) => Err(error_response(
             StatusCode::NOT_FOUND,
             &format!("shipment {number} not found"),
-        ),
-        Err(error) => map_sdk_error(error).into_response(),
+        )),
+        Err(error) => Err(map_sdk_error(error).into_response()),
     }
 }
 ```
@@ -1086,7 +1592,7 @@ async fn get_shipment(
 </SdkSnippet>
 </SdkTabs>
 
-示例也可以按单号取消发货单。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里试用这些路由。
+可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里试用这些路由。发货单字段默认是当前订单的第二个发货单。
 
 ## 选择这个模式还是 SubFlow {#choose}
 
@@ -1098,7 +1604,7 @@ async fn get_shipment(
 - 父 Flow 之外的调用方也可以启动它。
 - 它可以比父 Flow 活得更久，有自己的 Flow timeout。
 
-代价是更多代码。父 Flow 要启动子 Flow、接收它的报告，并对它对账。
+代价是更多代码。父 Flow 要启动子 Flow、接收它的报告，并一直读取它，直到它结束。
 
 ## 下一步 {#next}
 
