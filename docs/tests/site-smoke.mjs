@@ -349,7 +349,7 @@ for (const source of dexSkillSources) {
 
 const dexSkillsText = htmlText(dexSkills);
 assert.match(dexSkillsText, /\$dex-app-builder Design and build an event-registration application\./);
-assert.match(dexSkillsText, /\$dex-sdk Diagnose why this Flow retries after the payment Step completes\./);
+assert.match(dexSkillsText, /\$dex-app-builder Diagnose why this Flow retries after the payment Step completes\./);
 assert.match(dexSkillsText, /\$dex-connector-contributor Add <XYZ> to Dex official connector library/);
 assert.match(dexSkillsText, /\/superdurable-dex:dex-connector-contributor Add <XYZ>/);
 assert.doesNotMatch(dexSkillsText, /Add this Trigger to the official Slack Connector/);
@@ -376,9 +376,11 @@ assert.match(dexSkills, /dex-developer-skill\/dex-connector-contributor/);
 assert.match(dexAppBuilder, /primary skill/i);
 assert.match(dexAppBuilder, /Choose the application surface/);
 assert.match(dexAppBuilder, /call external providers only from <code>Execute<\/code>/);
-assert.match(dexSdk, /Version and source authority/);
-assert.match(dexSdk, /Python, Go, Java, TypeScript, and Rust/);
-assert.match(dexSdk, /the skill only reads by default/);
+// Dex SDK merged into Dex App Builder; its page explains the transition.
+assert.match(dexAppBuilder, /Version and source authority/);
+assert.match(dexAppBuilder, /Python, Go, Java, TypeScript, and Rust/);
+assert.match(dexAppBuilder, /the skill only reads by default/);
+assert.match(dexSdk, /now part of/);
 assert.match(dexConnectorContributor, /Repository and fork workflow/);
 assert.match(dexConnectorContributor, /Update <code>connector.yaml<\/code> before writing provider code/);
 assert.match(dexConnectorContributor, /not ready for production until the Connector is released/);
@@ -391,8 +393,9 @@ assert.match(zhDexAppBuilder, /写入 repository 或项目目录/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
 assert.match(zhDexAppBuilder, /主要 Skill/);
 assert.match(zhDexAppBuilder, /选择应用界面/);
-assert.match(zhDexSdk, /版本与来源/);
-assert.match(zhDexSdk, /Skill 默认只读/);
+assert.match(zhDexAppBuilder, /版本与来源/);
+assert.match(zhDexAppBuilder, /Skill 默认只读/);
+assert.match(zhDexSdk, /Dex App Builder 的一部分/);
 assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
 assert.match(zhDexConnectorContributor, /在 Connector 以确切版本\s*发布之前，应用不能进入生产/);
 assert.match(zhDexConnectorContributor, /必须有 Go 实现/);

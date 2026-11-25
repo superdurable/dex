@@ -24,17 +24,17 @@ at your own code with [Add Dex to Existing Code](/intro/add-to-existing-code).
 
 ## What is included {#whats-included}
 
-Dex Skills is one plugin with a main skill and two sub-skills. Describe the
-task, and your coding agent loads the skill that fits it: Dex App Builder for an
-application, Dex SDK for standalone SDK work, and Dex Connector Contributor for
-Connector work. Dex App Builder also loads the other two when its work needs
-them.
+Dex Skills is one plugin with a main skill and a Connector sub-skill. Describe
+the task, and your coding agent loads the skill that fits it: Dex App Builder
+for an application or for SDK work, and Dex Connector Contributor for Connector
+work. Dex App Builder also loads Dex Connector Contributor when its work needs
+it.
 
 | Skill | Role | Covers |
 | --- | --- | --- |
-| [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) | Main skill | Product, application, and business-process requests, from the process design to a tested, committed Go application |
-| [Dex SDK](./dex-developer-skill/dex-sdk.mdx) | Sub-skill | SDK work in Python, Go, Java, TypeScript, or Rust, such as debugging a Flow or adding a Step |
+| [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) | Main skill | Product, application, and business-process requests, from the process design to a tested, committed application, and SDK work in Python, Go, Java, TypeScript, or Rust, such as debugging a Flow or adding a Step |
 | [Dex Connector Contributor](./dex-developer-skill/dex-connector-contributor.mdx) | Sub-skill | A new or fixed official Connector, operation, Trigger, or configuration UI unit |
+| [Dex SDK](./dex-developer-skill/dex-sdk.mdx) | Former name | Merged into Dex App Builder. Invoking `dex-sdk` by name still works and loads Dex App Builder |
 
 <a id="what-app-builder-does"></a>
 <a id="before-implementation"></a>
