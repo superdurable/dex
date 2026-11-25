@@ -9,14 +9,14 @@ a second workflow engine.
 
 App Builder integrates Connectors from the application's own language. Use
 the Connector packages that the catalog lists for that language, through the
-Dex SDK and the Connector SDK of that language. The `dex-sdk` reference for
+Dex SDK and the Connector SDK of that language. The SDK reference for
 the language covers its Connector wiring. React components serve the
 optional Connector UI and the application frontend. Keep the Dex SDK version
 the application pins unless the user approves an upgrade.
 
 API names on this page, such as `ConnectionName`, `MapToOperationInput`, and
 `NewDexFlowTriggerTarget`, are the Go spellings. The Connector SDK of each
-language has the same concepts in its own naming style. The `dex-sdk`
+language has the same concepts in its own naming style. The SDK
 reference for the language and the Connector package at its tag give the
 exact names.
 
@@ -277,7 +277,7 @@ Source-available Dex provides no deployed Connector configuration, OAuth, or
 credential store. A deployed application calls the Connector SDK's project
 configuration loader once at startup, before it constructs business clients,
 Workers, HTTP servers, or background tasks. In Go that is
-`projectconfig.LoadFromEnvironment` in `main`. The `dex-sdk` reference for
+`projectconfig.LoadFromEnvironment` in `main`. The SDK reference for
 the language names its loader. An operator or hosting platform
 supplies the project configuration that call reads. The application never
 writes it. Settle with the user who writes that configuration and where it is

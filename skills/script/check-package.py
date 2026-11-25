@@ -21,6 +21,8 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_NAMES = ("dex-app-builder", "dex-sdk", "dex-connector-contributor")
+# A former skill name that answers explicit invocation only and defers to dex-app-builder.
+TRANSITION_SKILL_NAMES = ("dex-sdk",)
 MANIFESTS = {
     "codex": Path(".codex-plugin/plugin.json"),
     "claude": Path(".claude-plugin/plugin.json"),
@@ -171,8 +173,8 @@ def main() -> None:
 
 def check_versions(version: str) -> None:
     version_tuple(version)
-    if (ROOT / "dex-sdk" / "VERSION").read_text().strip() != version:
-        fail("dex-sdk/VERSION must match the root VERSION")
+    if (ROOT / "dex-app-builder" / "VERSION").read_text().strip() != version:
+        fail("dex-app-builder/VERSION must match the root VERSION")
     headings = {match.group("version") for match in CHANGELOG_HEADING.finditer((ROOT / "CHANGELOG.md").read_text())}
     if version not in headings:
         fail(f"CHANGELOG.md must have a '## {version} - YYYY-MM-DD' section")
@@ -280,8 +282,9 @@ def check_skill_layout() -> list[Path]:
         if front_matter.get("disable-model-invocation") == "true":
             fail(f"{skill.name}/SKILL.md must allow model invocation")
         agent = skill / "agents" / "openai.yaml"
-        if not agent.is_file() or "allow_implicit_invocation: true" not in agent.read_text():
-            fail(f"{skill.name}/agents/openai.yaml must allow implicit invocation")
+        expected_policy = "false" if skill.name in TRANSITION_SKILL_NAMES else "true"
+        if not agent.is_file() or f"allow_implicit_invocation: {expected_policy}" not in agent.read_text():
+            fail(f"{skill.name}/agents/openai.yaml must set allow_implicit_invocation: {expected_policy}")
     if (ROOT / "dex-connector-contributor" / "references").exists():
         fail("dex-connector-contributor must defer to the target repository, not ship references")
     return skills

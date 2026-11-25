@@ -21,7 +21,7 @@ The modeling rules on this page hold for every application language.
 The directive grammar is the same in every language. Each directive is a
 line comment in the language's own comment syntax, placed above the
 declaration that the reference names. The code blocks below show the Go
-shape. The `dex-sdk` reference for the language and its runnable examples
+shape. The SDK reference for the language and its runnable examples
 show the registration and type shapes there.
 
 ## File and registration boundaries

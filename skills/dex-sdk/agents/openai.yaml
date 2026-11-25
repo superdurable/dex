@@ -1,6 +1,6 @@
 interface:
-  display_name: "Dex SDK"
-  short_description: "Build and operate durable applications with Dex"
-  default_prompt: "Use $dex-sdk to build a reliable Dex Flow for this application."
+  display_name: "Dex SDK (merged into Dex App Builder)"
+  short_description: "Transition name; loads Dex App Builder"
+  default_prompt: "Use $dex-sdk to diagnose this Dex Flow."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

@@ -19,7 +19,7 @@ backend language in this order:
 3. Otherwise, use TypeScript. Say once, in the first implementation update,
    that the application uses TypeScript and that another language is fine.
 
-Every later stage is the same for each language. Load the `dex-sdk`
+Every later stage is the same for each language. Load the SDK
 reference for that language, and copy API shapes from that language's
 runnable examples. For Dex Web metadata, use only the `dex:` directives and
 options that the
@@ -45,15 +45,15 @@ source-available Dex:
    Homebrew, on macOS or Linux, that is
    `brew install superdurable/tap/dexcli`. Run `dexcli version`.
 2. Create the project with the language's own package manager. Add the Dex
-   SDK for that language at an exact released version. The `dex-sdk`
+   SDK for that language at an exact released version. The SDK
    language reference and the SDK's Developer reference name the package.
    Choose the newest stable SDK release that pairs with the installed
    `dexcli` and the target Server. The
    [Developer reference](https://docs.superdurable.io/reference/) has the
    compatibility matrix. Never copy versions from a neighboring project, and
    never resolve a branch, pseudo-version, or commit.
-3. Load the [Dex SDK skill](../../dex-sdk/SKILL.md) and follow its Core and
-   language routing for the Registry, Worker, Client, and first vertical
+3. Follow the [SDK reference routing](../SKILL.md#load-references) for Core and
+   language references for the Registry, Worker, Client, and first vertical
    slice. Copy API shapes from the runnable examples for that language:
    [Go](https://github.com/superdurable/dex/tree/main/examples/go),
    [Python](https://github.com/superdurable/dex/tree/main/examples/python),
