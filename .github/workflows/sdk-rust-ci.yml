@@ -8,6 +8,7 @@ on:
       - "cli/cmd/**"
       - "cli/internal/command/**"
       - "cli/internal/dev/**"
+      - "cli/internal/flowdefinitiondiff/**"
       - "cli/internal/flowviz/**"
       - "cli/internal/payloadcodec/**"
       - "cli/internal/pointervalue/**"
