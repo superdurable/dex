@@ -19,7 +19,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use dex_sdk::StartFlowOptions;
+use dex_sdk::{IdReusePolicy, StartFlowOptions};
 use serde::{Deserialize, Serialize};
 
 use crate::data_storage::entity_flow::flow::{
@@ -87,6 +87,7 @@ pub fn mount(client: SharedClient) -> Router {
 
 pub fn open_account_options(contact: ContactDetails) -> StartFlowOptions {
     StartFlowOptions::new()
+        .id_reuse_policy(IdReusePolicy::Disallow)
         .initial_attribute(&DISPLAY_NAME, contact.display_name)
         .initial_attribute(&EMAIL, contact.email)
         .initial_attribute(&CREDIT_BALANCE, 0_i64)

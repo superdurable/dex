@@ -16,8 +16,18 @@
 
 pub mod entity_flow;
 
+use std::sync::Arc;
+
 use dex_sdk::{Registry, SdkResult};
 
 pub fn register(registry: Registry) -> SdkResult<Registry> {
     registry.register(entity_flow::CustomerAccountFlow::default())
+}
+
+/// Registers the Flows for a Worker, whose account Flow archives closed accounts in `archive`.
+pub fn register_worker(
+    registry: Registry,
+    archive: Arc<entity_flow::FakeAccountArchive>,
+) -> SdkResult<Registry> {
+    registry.register(entity_flow::CustomerAccountFlow::new(archive))
 }

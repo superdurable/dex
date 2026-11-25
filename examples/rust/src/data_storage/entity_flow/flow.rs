@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc, RpcList,
-    RpcResult, Step, StepDecision, StepList, StepMovement,
+    Attribute, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, RetryPolicy, Rpc,
+    RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, StepOptions,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::data_storage::entity_flow::account_archive::FakeAccountArchive;
 
 pub const UPDATE_CONTACT_DETAILS: Rpc<ContactDetails, ()> = Rpc::new("UpdateContactDetails");
 pub const ADJUST_CREDIT_BALANCE: Rpc<CreditAdjustment, i64> = Rpc::new("AdjustCreditBalance");
@@ -66,11 +69,18 @@ pub struct CustomerAccountFlow {
 }
 
 impl CustomerAccountFlow {
+    pub fn new(archive: Arc<FakeAccountArchive>) -> Self {
+        Self {
+            close_account: CloseAccountStep { archive },
+        }
+    }
+
     fn update_contact_details(
         &self,
         context: &mut Context,
         contact: ContactDetails,
     ) -> HandlerResult<()> {
+        require_open_account(context)?;
         contact.validate()?;
         DISPLAY_NAME.set(context, contact.display_name)?;
         EMAIL.set(context, contact.email)
@@ -81,13 +91,14 @@ impl CustomerAccountFlow {
         context: &mut Context,
         adjustment: CreditAdjustment,
     ) -> HandlerResult<RpcResult<i64>> {
-        if RETIRED.get(context)?.unwrap_or(false) {
-            return Err(account_error("account is retired"));
-        }
+        require_open_account(context)?;
         if adjustment.amount == 0 {
             return Err(account_error("amount must not be zero"));
         }
-        let balance = CREDIT_BALANCE.get_required(context)? + adjustment.amount;
+        let balance = CREDIT_BALANCE
+            .get_required(context)?
+            .checked_add(adjustment.amount)
+            .ok_or_else(|| account_error("credit balance is out of range"))?;
         if balance < 0 {
             return Err(account_error("credit balance cannot go below zero"));
         }
@@ -96,13 +107,16 @@ impl CustomerAccountFlow {
     }
 
     fn retire_account(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> {
+        if RETIRED.get(context)?.unwrap_or(false) {
+            return Ok(RpcResult::new(()));
+        }
         if CREDIT_BALANCE.get_required(context)? != 0 {
             return Err(account_error(
                 "spend or refund the credit balance before retiring",
             ));
         }
         RETIRED.set(context, true)?;
-        Ok(RpcResult::new(()).then(StepMovement::to(&CloseAccountStep, ())))
+        Ok(RpcResult::new(()).then(StepMovement::to(&self.close_account, ())))
     }
 }
 
@@ -123,7 +137,10 @@ impl Flow for CustomerAccountFlow {
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
-            .procedure(UPDATE_CONTACT_DETAILS, Self::update_contact_details)
+            .procedure(
+                UPDATE_CONTACT_DETAILS.lock(CREDIT_BALANCE.lock()),
+                Self::update_contact_details,
+            )
             .function(
                 ADJUST_CREDIT_BALANCE.lock(CREDIT_BALANCE.lock()),
                 Self::adjust_credit_balance,
@@ -136,16 +153,36 @@ impl Flow for CustomerAccountFlow {
 }
 
 // dex:group group-id:account-retirement group-label:"Account retirement"
-// dex:explanation text:"Complete the account Flow after the retire request passes its checks."
+// dex:explanation text:"Archive the retired account, then complete its Flow."
 #[derive(Default)]
-pub struct CloseAccountStep;
+pub struct CloseAccountStep {
+    archive: Arc<FakeAccountArchive>,
+}
 
 impl Step for CloseAccountStep {
     type Input = ();
 
-    fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                .initial_interval(Duration::from_secs(1))
+                .maximum_interval(Duration::from_secs(1)),
+        )
+    }
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        self.archive
+            .archive_account(context.flow_id())
+            .map_err(|message| account_error(&message))?;
         Ok(StepDecision::graceful_complete(()))
     }
+}
+
+fn require_open_account(context: &Context) -> HandlerResult<()> {
+    if RETIRED.get(context)?.unwrap_or(false) {
+        return Err(account_error("account is retired"));
+    }
+    Ok(())
 }
 
 fn account_error(message: &str) -> HandlerError {

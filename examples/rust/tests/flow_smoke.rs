@@ -25,10 +25,11 @@ use common::{
     FlowSmokeEntry, FlowSmokeFlags, FlowSmokeHttpClient, assert_flow_smoke_no_unexpected_failures,
     assert_flow_smoke_start_step, query, query_with,
 };
+use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
 use dex_examples_rust::data_storage::entity_flow::controller::open_account_options;
 use dex_examples_rust::data_storage::entity_flow::flow::{
     ADJUST_CREDIT_BALANCE, CREDIT_BALANCE, ContactDetails, CreditAdjustment, CustomerAccountFlow,
-    DISPLAY_NAME, EMAIL, RETIRE_ACCOUNT, UPDATE_CONTACT_DETAILS, customer_account_flow_id,
+    DISPLAY_NAME, EMAIL, RETIRE_ACCOUNT, RETIRED, UPDATE_CONTACT_DETAILS, customer_account_flow_id,
 };
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::primitives::attribute::flow::AttributeFlow;
@@ -55,6 +56,7 @@ struct FlowSmokeEnvironment {
     _cache_directory: TempDir,
     refund_billing: FakeBillingService,
     _refund_ledger_directory: TempDir,
+    account_archive: Arc<FakeAccountArchive>,
 }
 
 impl FlowSmokeEnvironment {
@@ -70,6 +72,7 @@ impl FlowSmokeEnvironment {
             .expect("open Rust flow smoke cache"),
         );
         let polling_jobs = Arc::new(FakeJobService::default());
+        let account_archive = Arc::new(FakeAccountArchive::default());
         let refund_ledger_directory =
             tempfile::tempdir().expect("create Rust flow smoke refund ledger directory");
         let (customer_refund_flow, refund_billing) =
@@ -92,6 +95,7 @@ impl FlowSmokeEnvironment {
                     Arc::clone(&client),
                     Arc::clone(&polling_jobs),
                     customer_refund_flow.clone(),
+                    Arc::clone(&account_archive),
                 )
                 .expect("register Rust Worker examples"),
                 Arc::clone(&cache),
@@ -135,6 +139,7 @@ impl FlowSmokeEnvironment {
             _cache_directory: cache_directory,
             refund_billing,
             _refund_ledger_directory: refund_ledger_directory,
+            account_archive,
         }
     }
 }
@@ -632,20 +637,72 @@ fn entity_flow_keeps_one_customer_account_until_retired() {
             },
         )
         .expect("spend the remaining credits");
+    let archive = Arc::clone(&environment.account_archive);
+    archive.make_unavailable(&flow_id);
     client
         .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
         .expect("retire account");
-    client
+    assert_entity_flow_running(&client, &flow_id);
+    let retired_adjustment = client
         .invoke_rpc(
             &flow_id,
             ADJUST_CREDIT_BALANCE,
             CreditAdjustment { amount: 10 },
         )
         .expect_err("a retired account rejects credit adjustments");
+    assert!(
+        retired_adjustment
+            .to_string()
+            .contains("account is retired")
+    );
+    let retired_contact = client
+        .invoke_rpc(
+            &flow_id,
+            UPDATE_CONTACT_DETAILS,
+            ContactDetails {
+                display_name: "Ada Byron".to_owned(),
+                email: "ada@byron.example".to_owned(),
+            },
+        )
+        .expect_err("a retired account rejects contact updates");
+    assert!(retired_contact.to_string().contains("account is retired"));
+    client
+        .invoke_rpc_without_input(&flow_id, RETIRE_ACCOUNT)
+        .expect("a repeated retire is a no-op");
+    assert_entity_flow_running(&client, &flow_id);
+
+    archive.make_available(&flow_id);
     let result = client
-        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
         .expect("wait for retired account");
     assert_eq!(result.status(), FlowStatus::Completed);
+    assert_eq!(archive.archive_count(&flow_id), 1);
+    let (closed_balance, closed_retired) = client
+        .get_attributes(&flow_id, (&CREDIT_BALANCE, &RETIRED))
+        .expect("read closed account");
+    assert_eq!(closed_balance, Some(0));
+    assert_eq!(closed_retired, Some(true));
+
+    let reopen = client.start_flow_with_options(
+        &CustomerAccountFlow::default(),
+        &flow_id,
+        (),
+        open_account_options(ContactDetails {
+            display_name: "Ada".to_owned(),
+            email: "ada@example.com".to_owned(),
+        }),
+    );
+    assert!(matches!(reopen, Err(SdkError::FlowAlreadyStarted { .. })));
+}
+
+fn assert_entity_flow_running(client: &Client, flow_id: &str) {
+    assert_eq!(
+        client
+            .describe_flow(flow_id)
+            .expect("describe account")
+            .status,
+        FlowStatus::Running
+    );
 }
 
 fn deposit_credits_with_retry(client: &Client, flow_id: &str, amount: i64) {

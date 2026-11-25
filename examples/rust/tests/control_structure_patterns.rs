@@ -38,6 +38,7 @@ use dex_examples_rust::control_patterns::critical_section::{
 use dex_examples_rust::control_patterns::deferred_choice::{
     ACCEPT_CUSTOMER_OFFER, AwaitOfferResponse, OfferResponseFlow, REJECT_CUSTOMER_OFFER,
 };
+use dex_examples_rust::data_storage::entity_flow::FakeAccountArchive;
 use dex_examples_rust::patterns::polling::FakeJobService;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_examples_rust::{create_example_registry, create_worker_registry};
@@ -88,10 +89,14 @@ impl ControlPatternsEnvironment {
             )
             .expect("create control patterns Client"),
         );
-        let worker_registry =
-            create_worker_registry(Arc::clone(&client), polling_jobs, customer_refund_flow)
-                .and_then(register_condition_order_probes)
-                .expect("register Rust example Worker");
+        let worker_registry = create_worker_registry(
+            Arc::clone(&client),
+            polling_jobs,
+            customer_refund_flow,
+            Arc::new(FakeAccountArchive::default()),
+        )
+        .and_then(register_condition_order_probes)
+        .expect("register Rust example Worker");
         let worker_options = WorkerOptions::new()
             .server_address(&server_address)
             .pull(example_pull_worker_options());

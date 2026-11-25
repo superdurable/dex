@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
+use crate::data_storage::entity_flow::FakeAccountArchive;
 use crate::patterns::polling::FakeJobService;
 use crate::products::customer_refund::refund_flow::CustomerRefundFlow;
 
@@ -136,11 +137,12 @@ pub fn create_worker_registry(
     client: Arc<Client>,
     polling_jobs: Arc<FakeJobService>,
     customer_refund_flow: CustomerRefundFlow,
+    account_archive: Arc<FakeAccountArchive>,
 ) -> SdkResult<Registry> {
     products::register(Registry::new(), customer_refund_flow)
         .and_then(|registry| patterns::register_worker(registry, Arc::clone(&client), polling_jobs))
         .and_then(|registry| control_patterns::register_worker(registry, Arc::clone(&client)))
-        .and_then(data_storage::register)
+        .and_then(|registry| data_storage::register_worker(registry, account_archive))
         .and_then(primitives::register)
         .and_then(|registry| workflow_patterns::register_worker(registry, client))
 }

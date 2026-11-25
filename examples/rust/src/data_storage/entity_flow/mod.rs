@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod account_archive;
 pub mod controller;
 pub mod flow;
 
+pub use account_archive::FakeAccountArchive;
 pub use flow::CustomerAccountFlow;
