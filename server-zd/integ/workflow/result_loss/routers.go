@@ -21,11 +21,13 @@ import (
 
 // Execute and RPC handlers call a counting fake service; S1 -> S2 -> S3 completes, Hold stays open.
 const (
-	FlowType     = "result_loss"
-	Step1        = "S1"
-	Step2        = "S2"
-	Step3        = "S3"
-	StepHold     = "Hold"
+	FlowType = "result_loss"
+	Step1    = "S1"
+	Step2    = "S2"
+	Step3    = "S3"
+	StepHold = "Hold"
+	// StepInvalid's Execute returns a Result without a Step decision, which the server rejects.
+	StepInvalid  = "Invalid"
 	RPCCharge    = "charge"
 	HoldChannel  = "never-published"
 	LogChannel   = "result-log"
@@ -42,13 +44,16 @@ type resultLossWorker struct {
 	attemptsSeen []string
 	// attemptStarts records when each attempt in attemptsSeen arrived.
 	attemptStarts map[string]time.Time
+	// attemptReturns records when each attempt in attemptsSeen returned its result.
+	attemptReturns map[string]time.Time
 }
 
 func NewResultLossWorker(onRetry func(handlerName string, attempt int32)) *resultLossWorker {
 	return &resultLossWorker{
-		onRetry:       onRetry,
-		externalCalls: make(map[string]int64),
-		attemptStarts: make(map[string]time.Time),
+		onRetry:        onRetry,
+		externalCalls:  make(map[string]int64),
+		attemptStarts:  make(map[string]time.Time),
+		attemptReturns: make(map[string]time.Time),
 	}
 }
 
@@ -70,6 +75,7 @@ func (worker *resultLossWorker) InvokeWaitForMethod(
 	handlerName := request.GetStepType() + "_waitFor"
 	attempt := request.GetContext().GetAttempt()
 	worker.startAttempt(handlerName, attempt)
+	defer worker.returnAttempt(handlerName, attempt)
 	return &dexpb.InvokeWaitForMethodResponse{
 		UpsertAttributes: []*dexpb.AttributeWrite{attemptAttribute(handlerName, attempt)},
 		PublishToChannel: []*dexpb.ChannelMessage{attemptMessage(handlerName, attempt)},
@@ -86,6 +92,10 @@ func (worker *resultLossWorker) InvokeExecuteMethod(
 	handlerName := request.GetStepType() + "_execute"
 	attempt := request.GetContext().GetAttempt()
 	worker.startAttempt(handlerName, attempt)
+	defer worker.returnAttempt(handlerName, attempt)
+	if request.GetStepType() == StepInvalid {
+		return &dexpb.InvokeExecuteMethodResponse{}, nil
+	}
 	worker.chargeExternalService(handlerName)
 	output := &dexpb.Value{Kind: &dexpb.Value_StringValue{
 		StringValue: request.GetStepInput().GetStringValue() + "/" + request.GetStepType(),
@@ -154,6 +164,14 @@ func (worker *resultLossWorker) AttemptStart(attemptName string) (time.Time, boo
 	return start, hasStarted
 }
 
+// AttemptReturn returns when the attempt named like "S1_execute#2" returned, and whether it returned.
+func (worker *resultLossWorker) AttemptReturn(attemptName string) (time.Time, bool) {
+	worker.mutex.Lock()
+	defer worker.mutex.Unlock()
+	returned, hasReturned := worker.attemptReturns[attemptName]
+	return returned, hasReturned
+}
+
 func (worker *resultLossWorker) startAttempt(handlerName string, attempt int32) {
 	worker.mutex.Lock()
 	attemptName := AttemptName(handlerName, attempt)
@@ -163,6 +181,12 @@ func (worker *resultLossWorker) startAttempt(handlerName string, attempt int32) 
 	if attempt > 1 && worker.onRetry != nil {
 		worker.onRetry(handlerName, attempt)
 	}
+}
+
+func (worker *resultLossWorker) returnAttempt(handlerName string, attempt int32) {
+	worker.mutex.Lock()
+	defer worker.mutex.Unlock()
+	worker.attemptReturns[AttemptName(handlerName, attempt)] = time.Now()
 }
 
 // chargeExternalService stands for a non-idempotent external call, such as charging a card.

@@ -31,8 +31,10 @@ import (
 )
 
 type integRuntime struct {
-	FlowClient        dexpb.FlowServiceClient
-	PublicAddress     string
+	FlowClient    dexpb.FlowServiceClient
+	PublicAddress string
+	// MetricsAddress is the plain HTTP metrics address, empty unless serverZDTestConfig.IsMetricsEnabled.
+	MetricsAddress    string
 	defaultFlowConfig *dexpb.FlowConfig
 }
 

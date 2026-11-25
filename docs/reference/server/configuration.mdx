@@ -449,9 +449,11 @@ policy runs, as after a real crash.
 Nothing the dropped result carried takes effect: its Attribute writes,
 Channel publications, and Step decision are discarded. Stream writes and
 heartbeat checkpoints that the Worker sent before the result still take
-effect, as in a real crash. Only a well-formed WaitFor or Execute result is
-dropped. A Worker error, such as an exception in the handler, and a
-malformed result reach the server unchanged.
+effect, as in a real crash. Only a WaitFor or Execute result that passes the
+server's checks is dropped. A Worker error, such as an exception in the
+handler, and a result that fails the checks, such as an Execute result
+without a Step decision or with a value over the size limit, keep their own
+failure.
 
 A dropped RPC result answers the RPC caller with **UNAVAILABLE**, and
 nothing commits. A transactional RPC retried with the same request ID runs

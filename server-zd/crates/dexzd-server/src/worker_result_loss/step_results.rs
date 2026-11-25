@@ -14,20 +14,14 @@ use dexzd_engine::{
 };
 use dexzd_keyspace::PartitionId;
 use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
-use dexzd_protocol::dex::{
-    PollWorkerTaskFrame, invoke_execute_method_output, invoke_wait_for_method_output,
-    poll_worker_task_frame,
-};
-use dexzd_protocol::dexzd::v1::StepMethod;
 use dexzd_worker_dispatch::{
-    ClaimReply, DispatchOutcome, HeadsScanToken, QueuedTaskRef, ScannedQueueHead, StepTaskEvent,
-    StepTaskSendFailure,
+    ClaimReply, HeadsScanToken, QueuedTaskRef, ScannedQueueHead, StepTaskEvent, StepTaskSendFailure,
 };
 use futures::future::BoxFuture;
 
 use super::ResultLossDecisions;
 
-/// Wraps Worker matching so that a dropped Step method result arrives as a Worker disconnect.
+/// Wraps Worker matching so that the engine fails a dropped, valid Step result as a disconnect.
 pub(super) struct ResultLossMethodDispatcher {
     inner: Arc<dyn MethodDispatcher>,
     decisions: ResultLossDecisions,
@@ -165,191 +159,57 @@ impl ReservedMethodStream for ResultLossStream {
         self: Box<Self>,
         task: MethodTask,
     ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
-        let dropped_attempt = DroppedAttempt::decide(&task.request, self.decisions);
+        let dropped_result_detail = dropped_result_detail(&task.request, self.decisions);
         let session = self.inner.send_task(task)?;
-        Ok(match dropped_attempt {
-            Some(dropped_attempt) => Box::new(ResultLossSession {
+        Ok(match dropped_result_detail {
+            Some(detail) => Box::new(ResultLossSession {
                 inner: session,
-                dropped_attempt,
+                detail,
             }),
             None => session,
         })
     }
 }
 
-/// The attempt whose result is dropped, kept for the drop's log line and disconnect detail.
-struct DroppedAttempt {
-    flow_id: String,
-    step_execution_id: String,
-    method: StepMethod,
-    attempt: i32,
-    detail: String,
+/// Returns the disconnect detail when the result of `request` is dropped.
+///
+/// The identity leaves out the server-minted run ID, so every new run drops the same attempts.
+fn dropped_result_detail(
+    request: &MethodRequest,
+    decisions: ResultLossDecisions,
+) -> Option<String> {
+    let (method_name, context) = match request {
+        MethodRequest::WaitFor(request) => ("waitFor", request.context.as_ref()),
+        MethodRequest::Execute(request) => ("execute", request.context.as_ref()),
+    };
+    let context = context.expect("engine-built Step method requests carry an invocation context");
+    let is_dropped = decisions.is_dropped(&[
+        b"step",
+        context.flow_id.as_bytes(),
+        context.step_execution_id.as_bytes(),
+        method_name.as_bytes(),
+        &context.run_attempt.to_le_bytes(),
+        &context.attempt.to_le_bytes(),
+    ]);
+    is_dropped.then(|| decisions.dropped_result_detail("--inject-step-result-loss"))
 }
 
-impl DroppedAttempt {
-    /// Returns the attempt of `request` when its result is dropped.
-    ///
-    /// The identity leaves out the server-minted run ID, so every new run drops the same attempts.
-    fn decide(request: &MethodRequest, decisions: ResultLossDecisions) -> Option<Self> {
-        let (method, method_name, context) = match request {
-            MethodRequest::WaitFor(request) => {
-                (StepMethod::WaitFor, "waitFor", request.context.as_ref())
-            }
-            MethodRequest::Execute(request) => {
-                (StepMethod::Execute, "execute", request.context.as_ref())
-            }
-        };
-        let context =
-            context.expect("engine-built Step method requests carry an invocation context");
-        let is_dropped = decisions.is_dropped(&[
-            b"step",
-            context.flow_id.as_bytes(),
-            context.step_execution_id.as_bytes(),
-            method_name.as_bytes(),
-            &context.run_attempt.to_le_bytes(),
-            &context.attempt.to_le_bytes(),
-        ]);
-        is_dropped.then(|| Self {
-            flow_id: context.flow_id.clone(),
-            step_execution_id: context.step_execution_id.clone(),
-            method,
-            attempt: context.attempt,
-            detail: decisions.dropped_result_detail("--inject-step-result-loss"),
-        })
-    }
-
-    /// Returns true when `frame` carries this attempt's method result; other frames keep their
-    /// engine validation.
-    fn is_method_result(&self, frame: &PollWorkerTaskFrame) -> bool {
-        match (self.method, frame.output.as_ref()) {
-            (StepMethod::WaitFor, Some(poll_worker_task_frame::Output::WaitFor(output))) => {
-                matches!(
-                    output.output,
-                    Some(invoke_wait_for_method_output::Output::Result(_))
-                )
-            }
-            (StepMethod::Execute, Some(poll_worker_task_frame::Output::Execute(output))) => {
-                matches!(
-                    output.output,
-                    Some(invoke_execute_method_output::Output::Result(_))
-                )
-            }
-            _ => false,
-        }
-    }
-}
-
-/// A sent task whose final Worker result becomes a Worker disconnect.
+/// A sent task whose valid result the engine fails as a Worker disconnect.
 struct ResultLossSession {
     inner: Box<dyn MethodDispatchSession>,
-    dropped_attempt: DroppedAttempt,
+    detail: String,
 }
 
 impl MethodDispatchSession for ResultLossSession {
     fn next_event(&mut self) -> BoxFuture<'_, Option<StepTaskEvent>> {
-        Box::pin(async move {
-            let event = self.inner.next_event().await?;
-            let dropped = &self.dropped_attempt;
-            let StepTaskEvent::Completed(DispatchOutcome::WorkerResult { frame, .. }) = &event
-            else {
-                return Some(event);
-            };
-            if !dropped.is_method_result(frame) {
-                return Some(event);
-            }
-            tracing::info!(
-                flow_id = %dropped.flow_id,
-                step_execution_id = %dropped.step_execution_id,
-                method = dropped.method.as_str_name(),
-                attempt = dropped.attempt,
-                "development fault injection dropped a Step method result"
-            );
-            Some(StepTaskEvent::Disconnected {
-                detail: dropped.detail.clone(),
-            })
-        })
+        self.inner.next_event()
     }
 
     fn cancel(&self) {
         self.inner.cancel();
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use dexzd_protocol::dex::{
-        InvokeExecuteMethodOutput, InvokeExecuteMethodResponse, InvokeWaitForMethodOutput,
-        InvokeWaitForMethodResponse, InvokeWorkerRpcResponse, PollWorkerTaskFrame,
-        StepMethodHeartbeat, invoke_execute_method_output, invoke_wait_for_method_output,
-        poll_worker_task_frame,
-    };
-    use dexzd_protocol::dexzd::v1::StepMethod;
-
-    use super::DroppedAttempt;
-
-    fn dropped_attempt(method: StepMethod) -> DroppedAttempt {
-        DroppedAttempt {
-            flow_id: "flow".to_owned(),
-            step_execution_id: "S1-1".to_owned(),
-            method,
-            attempt: 1,
-            detail: String::new(),
-        }
-    }
-
-    fn frame(output: Option<poll_worker_task_frame::Output>) -> PollWorkerTaskFrame {
-        PollWorkerTaskFrame {
-            output,
-            ..PollWorkerTaskFrame::default()
-        }
-    }
-
-    #[test]
-    fn only_a_result_of_the_dispatched_method_is_dropped() {
-        let wait_for_result = frame(Some(poll_worker_task_frame::Output::WaitFor(
-            InvokeWaitForMethodOutput {
-                output: Some(invoke_wait_for_method_output::Output::Result(
-                    InvokeWaitForMethodResponse::default(),
-                )),
-            },
-        )));
-        let execute_result = frame(Some(poll_worker_task_frame::Output::Execute(
-            InvokeExecuteMethodOutput {
-                output: Some(invoke_execute_method_output::Output::Result(
-                    InvokeExecuteMethodResponse::default(),
-                )),
-            },
-        )));
-        let execute_heartbeat = frame(Some(poll_worker_task_frame::Output::Execute(
-            InvokeExecuteMethodOutput {
-                output: Some(invoke_execute_method_output::Output::Heartbeat(
-                    StepMethodHeartbeat::default(),
-                )),
-            },
-        )));
-        let execute_without_output = frame(Some(poll_worker_task_frame::Output::Execute(
-            InvokeExecuteMethodOutput { output: None },
-        )));
-        let rpc_result = frame(Some(poll_worker_task_frame::Output::Rpc(
-            InvokeWorkerRpcResponse::default(),
-        )));
-        let wait_for = dropped_attempt(StepMethod::WaitFor);
-        let execute = dropped_attempt(StepMethod::Execute);
-
-        assert!(wait_for.is_method_result(&wait_for_result));
-        assert!(execute.is_method_result(&execute_result));
-        for (attempt, invalid_frame) in [
-            (&wait_for, &execute_result),
-            (&execute, &wait_for_result),
-            (&execute, &execute_heartbeat),
-            (&execute, &execute_without_output),
-            (&execute, &rpc_result),
-            (&execute, &frame(None)),
-        ] {
-            assert!(
-                !attempt.is_method_result(invalid_frame),
-                "{invalid_frame:?} must reach engine validation unchanged"
-            );
-        }
+    fn injected_result_loss(&self) -> Option<&str> {
+        Some(&self.detail)
     }
 }

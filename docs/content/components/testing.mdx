@@ -469,9 +469,11 @@ A Step whose retry policy allows one attempt runs its failure policy here, as
 it would after a real crash.
 
 The seed decides which results are dropped, together with each result's Flow
-ID, Step execution ID, and attempt. To reproduce a failing run, run the
-failing test again with the same seed and the Flow ID it used. Its Steps then
-get the same Step execution IDs and attempts.
+ID, Step execution ID, method, run attempt, and attempt. A run reproduces when
+it uses the same seed and its results have the same Flow ID, Step execution
+ID, method, run attempt, and attempt. Keep the failing test's Flow ID; the
+Step execution IDs match when the Flow schedules the same Steps in the same
+order.
 
 **-inject-rpc-result-loss** drops RPC results the same way. The RPC caller
 gets **UNAVAILABLE** and decides whether to retry. Here the same seed drops

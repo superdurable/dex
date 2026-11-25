@@ -41,7 +41,17 @@ const (
 	workerDisconnectedText = "DISPATCH_TASK_ERROR_REASON_WORKER_DISCONNECTED Worker disconnected during pull dispatch"
 	// minimumRetryGap is the one-second retry interval, less a margin for timer granularity.
 	minimumRetryGap = 950 * time.Millisecond
+	// metricsScrapeTimeout bounds one metrics request, so a stalled listener cannot hang the poll.
+	metricsScrapeTimeout    = 2 * time.Second
+	resultLossInvalidFlowID = "result-loss-invalid"
 )
+
+// seed7StepAttempts is the attempt sequence that seed 7 and a 0.5 Step loss give the pipeline Flow.
+var seed7StepAttempts = []string{
+	"S1_waitFor#1", "S1_waitFor#2", "S1_execute#1",
+	"S2_waitFor#1", "S2_execute#1", "S2_execute#2", "S2_execute#3",
+	"S3_waitFor#1", "S3_waitFor#2", "S3_waitFor#3", "S3_execute#1",
+}
 
 // resultLossDispatchPath selects how the first Step attempt reaches the Worker.
 type resultLossDispatchPath string
@@ -61,6 +71,8 @@ type pipelineRunOutcome struct {
 	failureTexts map[string]string
 	// attributeKeys lists the Flow's Attribute keys after it completed, sorted.
 	attributeKeys []string
+	// logMessages lists the values published to the log Channel after the Flow completed, sorted.
+	logMessages []string
 }
 
 func TestStepResultLossInjectionRetriesAndReproduces(t *testing.T) {
@@ -79,6 +91,7 @@ func TestStepResultLossInjectionRetriesAndReproduces(t *testing.T) {
 			require.Equal(t, baseline.output, injected.output, "dropped results must not change the Flow result")
 			require.Greater(t, sumCalls(injected.externalCalls), sumCalls(baseline.externalCalls),
 				"the fake external service must see repeated calls: %v", injected.externalCalls)
+			require.Equal(t, seed7StepAttempts, injected.attemptsSeen, "seed 7 must drop its known attempts")
 			require.Equal(t, injected.attemptsSeen, repeated.attemptsSeen, "the same seed must drop the same attempts")
 			require.Equal(t, injected.externalCalls, repeated.externalCalls)
 			require.Equal(t, injected.failureTexts, repeated.failureTexts)
@@ -89,6 +102,9 @@ func TestStepResultLossInjectionRetriesAndReproduces(t *testing.T) {
 			}
 			require.Equal(t, successfulAttemptKeys(t, injected.attemptsSeen), injected.attributeKeys,
 				"only the results that arrived write Attributes")
+			require.Equal(t, successfulAttemptNames(t, injected.attemptsSeen), injected.logMessages,
+				"only the results that arrived publish Channel messages")
+			require.Equal(t, successfulAttemptNames(t, baseline.attemptsSeen), baseline.logMessages)
 			injectedAttempts[dispatchPath] = injected.attemptsSeen
 		})
 	}
@@ -120,12 +136,7 @@ func runResultLossPipeline(t *testing.T, dispatchPath resultLossDispatchPath, de
 	retryChecks := &retryStateChecks{}
 	worker := result_loss.NewResultLossWorker(retryChecks.checkBeforeRetry)
 	workerTarget := startWorker(t, worker)
-	testConfig := serverZDTestConfig{DevFlags: devFlags}
-	if dispatchPath == claimPath {
-		metricsAddress, err := reserveBinaryDexAddress()
-		require.NoError(t, err)
-		testConfig.MetricsListen = metricsAddress
-	}
+	testConfig := serverZDTestConfig{DevFlags: devFlags, IsMetricsEnabled: dispatchPath == claimPath}
 	runtime := startDexService(t, testConfig)
 	retryChecks.start(ctx, runtime.FlowClient)
 
@@ -144,7 +155,7 @@ func runResultLossPipeline(t *testing.T, dispatchPath resultLossDispatchPath, de
 		pullClient := runtime.FlowClient.(*pullWorkerFlowClient)
 		_, err := pullClient.FlowServiceClient.StartFlow(ctx, startRequest)
 		require.NoError(t, err)
-		waitForQueuedStepTask(t, testConfig.MetricsListen)
+		waitForQueuedStepTask(t, runtime.MetricsAddress)
 		registerPullWorkerFlowType(t, pullClient, workerTarget, result_loss.FlowType)
 	} else {
 		_, err := runtime.FlowClient.StartFlow(ctx, startRequest)
@@ -161,7 +172,43 @@ func runResultLossPipeline(t *testing.T, dispatchPath resultLossDispatchPath, de
 		attemptsSeen:  attemptsSeen,
 		failureTexts:  methodFailureTexts(t, ctx, runtime.FlowClient, resultLossPipelineFlowID),
 		attributeKeys: sortedFlowAttributeKeys(t, ctx, runtime.FlowClient, resultLossPipelineFlowID),
+		logMessages:   sortedLogMessages(t, ctx, runtime.FlowClient, resultLossPipelineFlowID),
 	}
+}
+
+func TestStepResultLossInjectionKeepsInvalidResultFailures(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	worker := result_loss.NewResultLossWorker(nil)
+	workerTarget := startWorker(t, worker)
+	runtime := startDexService(t, serverZDTestConfig{DevFlags: []string{"--inject-step-result-loss", "1"}})
+	stepOptions := result_loss.FastRetryStepOptions()
+	stepOptions.SkipWaitFor = true
+	stepOptions.ExecuteRetryPolicy.MaximumAttempts = 2
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             resultLossInvalidFlowID,
+		FlowType:           result_loss.FlowType,
+		FlowTimeoutSeconds: 100,
+		StartStepType:      result_loss.StepInvalid,
+		StepOptions:        stepOptions,
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+
+	var response *dexpb.FlowResult
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		response, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+			FlowId: resultLossInvalidFlowID, WaitTimeSeconds: 10,
+		})
+		require.NoError(collect, err)
+		require.NotEqual(collect, dexpb.FlowStatus_FLOW_STATUS_RUNNING, response.GetFlowStatus())
+	}, 90*time.Second, 100*time.Millisecond)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, response.GetFlowStatus())
+	require.Contains(t, response.GetErrorMessage(), "step decision is nil",
+		"an invalid result keeps its own failure when every valid result is dropped")
+	require.NotContains(t, response.GetErrorMessage(), injectedLossText)
+	require.Equal(t, []string{"Invalid_execute#1", "Invalid_execute#2"}, worker.AttemptsSeen())
 }
 
 // waitForQueuedStepTask polls the metrics listener until a Step task waits in the durable task queue.
@@ -176,11 +223,20 @@ func waitForQueuedStepTask(t *testing.T, metricsAddress string) {
 
 // scrapeGaugeValue returns the value of an unlabeled gauge from the server's /metrics text.
 func scrapeGaugeValue(metricsAddress string, name string) (_ float64, scrapeErr error) {
-	response, err := http.Get("http://" + metricsAddress + "/metrics")
+	ctx, cancel := context.WithTimeout(context.Background(), metricsScrapeTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+metricsAddress+"/metrics", nil)
+	if err != nil {
+		return 0, err
+	}
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { scrapeErr = errors.Join(scrapeErr, response.Body.Close()) }()
+	if response.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("metrics request returned %s", response.Status)
+	}
 	scanner := bufio.NewScanner(response.Body)
 	for scanner.Scan() {
 		value, isGauge := strings.CutPrefix(scanner.Text(), name+" ")
@@ -271,13 +327,14 @@ func (checks *retryStateChecks) violationList() []string {
 	return append([]string(nil), checks.violations...)
 }
 
-// attemptStartRecorder reports when the Worker received each method attempt.
-type attemptStartRecorder interface {
+// attemptTimeRecorder reports when the Worker received and answered each method attempt.
+type attemptTimeRecorder interface {
 	AttemptStart(attemptName string) (time.Time, bool)
+	AttemptReturn(attemptName string) (time.Time, bool)
 }
 
-// requireRetryBackoff requires every retry to start at least one retry interval after the dropped attempt started.
-func requireRetryBackoff(t *testing.T, worker attemptStartRecorder, attemptsSeen []string) {
+// requireRetryBackoff requires every retry to start one retry interval after the dropped attempt returned.
+func requireRetryBackoff(t *testing.T, worker attemptTimeRecorder, attemptsSeen []string) {
 	t.Helper()
 	for _, attemptName := range attemptsSeen {
 		handlerName, attempt := parseAttemptName(t, attemptName)
@@ -286,9 +343,9 @@ func requireRetryBackoff(t *testing.T, worker attemptStartRecorder, attemptsSeen
 		}
 		retryStart, hasRetryStart := worker.AttemptStart(attemptName)
 		require.True(t, hasRetryStart, "%s was seen without a start time", attemptName)
-		droppedStart, hasDroppedStart := worker.AttemptStart(result_loss.AttemptName(handlerName, attempt-1))
-		require.True(t, hasDroppedStart, "%s has no earlier attempt", attemptName)
-		require.GreaterOrEqual(t, retryStart.Sub(droppedStart), minimumRetryGap,
+		droppedReturn, hasDroppedReturn := worker.AttemptReturn(result_loss.AttemptName(handlerName, attempt-1))
+		require.True(t, hasDroppedReturn, "%s has no earlier attempt that returned", attemptName)
+		require.GreaterOrEqual(t, retryStart.Sub(droppedReturn), minimumRetryGap,
 			"%s started before the retry interval elapsed", attemptName)
 	}
 }
@@ -322,6 +379,20 @@ func methodFailureTexts(
 	return failureTexts
 }
 
+func sortedLogMessages(t *testing.T, ctx context.Context, flowClient dexpb.FlowServiceClient, flowID string) []string {
+	t.Helper()
+	response, err := flowClient.GetChannelMessages(ctx, &dexpb.GetChannelMessagesRequest{
+		FlowId: flowID, ChannelName: result_loss.LogChannel,
+	})
+	require.NoError(t, err)
+	values := make([]string, 0, len(response.GetMessages()))
+	for _, message := range response.GetMessages() {
+		values = append(values, message.GetValue().GetStringValue())
+	}
+	sort.Strings(values)
+	return values
+}
+
 func sortedFlowAttributeKeys(t *testing.T, ctx context.Context, flowClient dexpb.FlowServiceClient, flowID string) []string {
 	t.Helper()
 	attributes, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{FlowId: flowID, AllKeys: true})
@@ -345,6 +416,22 @@ func successfulAttemptKeys(t *testing.T, attemptsSeen []string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// successfulAttemptNames returns the sorted names of each method's last attempt, such as "S2_execute#3".
+func successfulAttemptNames(t *testing.T, attemptsSeen []string) []string {
+	t.Helper()
+	lastAttempts := make(map[string]int32)
+	for _, attemptName := range attemptsSeen {
+		handlerName, attempt := parseAttemptName(t, attemptName)
+		lastAttempts[handlerName] = attempt
+	}
+	names := make([]string, 0, len(lastAttempts))
+	for handlerName, attempt := range lastAttempts {
+		names = append(names, result_loss.AttemptName(handlerName, attempt))
+	}
+	sort.Strings(names)
+	return names
 }
 
 // parseAttemptName splits an attempt name such as "S1_execute#2" into its handler name and attempt.

@@ -75,10 +75,6 @@ func startBinaryDexServiceInDirectory(
 	// Per-test servers skip fsync for speed; YAML, unlike a flag, also suits older binaries.
 	configuration["dev"] = map[string]any{"durabilityMode": "processCrashSafe"}
 	createAttributeSyncFencingTables(t, testConfig.AttributeStore.Stores)
-	configurationPath := filepath.Join(dataDirectory, "integ-testconfig.yaml")
-	configurationBytes, err := yaml.Marshal(configuration)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(configurationPath, configurationBytes, 0o600))
 	outputPath := filepath.Join(dataDirectory, "server.log")
 	outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	require.NoError(t, err)
@@ -94,7 +90,15 @@ func startBinaryDexServiceInDirectory(
 			}
 		}
 	})
-	address, process := startBinaryDexProcessOnFreePort(t, dataDirectory, configurationPath, testConfig.DevFlags, outputFile)
+	started := startBinaryDexProcessOnFreePort(t, binaryDexStartRequest{
+		dataDirectory:     dataDirectory,
+		configuration:     configuration,
+		configurationPath: filepath.Join(dataDirectory, "integ-testconfig.yaml"),
+		isMetricsEnabled:  testConfig.IsMetricsEnabled,
+		devFlags:          testConfig.DevFlags,
+		outputFile:        outputFile,
+	})
+	address, process := started.address, started.process
 	var connection *grpc.ClientConn
 	if testConfig.Credential != "" {
 		connection = newDexClientConnectionWithCredential(t, address, testConfig.Credential, testconfig.DefaultGrpcMaxMessageBytes)
@@ -113,7 +117,8 @@ func startBinaryDexServiceInDirectory(
 	)
 	require.NoError(t, err)
 	runtime := &integRuntime{
-		PublicAddress: address,
+		PublicAddress:  address,
+		MetricsAddress: started.metricsAddress,
 		FlowClient: &externalDexFlowClient{
 			FlowServiceClient: flowServiceClient,
 			maxWaitSeconds:    int32(12),
@@ -195,9 +200,6 @@ func binaryDexConfig(testConfig serverZDTestConfig) (map[string]any, string) {
 	}
 	if testConfig.FlowDefinitionMaxBytes > 0 {
 		configuration["flowDefinitions"] = map[string]any{"maxDefinitionBytes": testConfig.FlowDefinitionMaxBytes}
-	}
-	if testConfig.MetricsListen != "" {
-		configuration["metrics"] = map[string]any{"listen": testConfig.MetricsListen}
 	}
 	return configuration, ""
 }
@@ -372,31 +374,56 @@ const maxBinaryDexStartAttempts = 3
 // binaryDexPortInUseText appears in dex-server-zd's listen error when another process holds its address.
 const binaryDexPortInUseText = "Address already in use"
 
-// startBinaryDexProcessOnFreePort returns the address and process of a serving dex-server-zd, moving to a new port when another process took one.
-func startBinaryDexProcessOnFreePort(
-	t *testing.T,
-	dataDirectory string,
-	configurationPath string,
-	devFlags []string,
-	outputFile *os.File,
-) (string, *binaryDexProcess) {
+// binaryDexStartRequest describes one dex-server-zd dev process to start on free ports.
+type binaryDexStartRequest struct {
+	dataDirectory string
+	// configuration is written to configurationPath before each start, with that start's metrics address.
+	configuration     map[string]any
+	configurationPath string
+	isMetricsEnabled  bool
+	devFlags          []string
+	outputFile        *os.File
+}
+
+// binaryDexStart is a serving dex-server-zd process and its addresses.
+type binaryDexStart struct {
+	address string
+	// metricsAddress is empty unless the request enabled metrics.
+	metricsAddress string
+	process        *binaryDexProcess
+}
+
+// startBinaryDexProcessOnFreePort returns a serving dex-server-zd, moving to new ports when another process took one.
+func startBinaryDexProcessOnFreePort(t *testing.T, request binaryDexStartRequest) binaryDexStart {
 	t.Helper()
 	for attempt := 1; ; attempt++ {
 		address, err := reserveBinaryDexAddress()
 		require.NoError(t, err)
-		outputInfo, err := outputFile.Stat()
+		metricsAddress := ""
+		if request.isMetricsEnabled {
+			metricsAddress, err = reserveBinaryDexAddress()
+			require.NoError(t, err)
+			request.configuration["metrics"] = map[string]any{"listen": metricsAddress}
+		}
+		configurationBytes, err := yaml.Marshal(request.configuration)
 		require.NoError(t, err)
-		arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", address, "--config", configurationPath}
-		arguments = append(arguments, devFlags...)
-		process := startBinaryDexProcess(t, arguments, outputFile)
+		require.NoError(t, os.WriteFile(request.configurationPath, configurationBytes, 0o600))
+		outputInfo, err := request.outputFile.Stat()
+		require.NoError(t, err)
+		arguments := []string{"dev", "--data-dir", request.dataDirectory, "--listen", address, "--config", request.configurationPath}
+		arguments = append(arguments, request.devFlags...)
+		process := startBinaryDexProcess(t, arguments, request.outputFile)
 		waitErr := waitForBinaryDex(address, process, 15*time.Second)
 		if waitErr == nil {
-			return address, process
+			return binaryDexStart{address: address, metricsAddress: metricsAddress, process: process}
 		}
-		if attempt == maxBinaryDexStartAttempts || !hasLostListenAddress(t, process, address, outputFile.Name(), outputInfo.Size()) {
+		outputPath := request.outputFile.Name()
+		hasLostAddress := hasLostListenAddress(t, process, address, outputPath, outputInfo.Size()) ||
+			(metricsAddress != "" && hasLostListenAddress(t, process, metricsAddress, outputPath, outputInfo.Size()))
+		if attempt == maxBinaryDexStartAttempts || !hasLostAddress {
 			require.NoError(t, waitErr)
 		}
-		t.Logf("Dex Server could not listen on %s; starting it again on a new port", address)
+		t.Logf("Dex Server could not listen on %s or its metrics address; starting it again on new ports", address)
 	}
 }
 
