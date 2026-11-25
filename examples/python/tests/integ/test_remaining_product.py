@@ -20,9 +20,10 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.http_app import create_app
 from dex_examples.products.job_post.job_info import JobInfo
 from dex_examples.products.signup.signup_form import SignupForm
-from tests.integ.conftest import WAIT_TIMEOUT
+from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
 from dex import (
     AsyncClient,
@@ -139,3 +140,58 @@ async def test_job_posting_create_read_and_update_both_job_boards(
     )
     updated = await client.invoke_rpc(app.job_post.get, flow_id)
     assert updated == newest
+
+
+async def test_job_posting_search_matches_indexed_title_and_scopes_results(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    posting_id = new_flow_id("job-posting-search")
+    other_flow_id = new_flow_id("channel-search")
+    title_term = posting_id.replace("-", "")
+    options = (
+        start_options()
+        .with_attribute(app.job_post.title, "Software Engineer")
+        .with_attribute(app.job_post.job_description, "Build reliable systems")
+        .with_attribute(app.job_post.last_update_time_millis, 1)
+        .with_attribute(app.job_post.update_version, 0)
+    )
+    await client.start_flow(app.job_post, posting_id, None, options)
+    try:
+        await client.wait_for_step_completion(
+            posting_id,
+            JOB_POSTING_INIT,
+            WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
+        )
+        await client.invoke_rpc(
+            app.job_post.update,
+            posting_id,
+            JobInfo(f"{title_term} Engineer", "Build reliable systems", "indexed title"),
+        )
+        await client.start_flow(app.channel, other_flow_id, 3600, start_options())
+        try:
+            title_query = f"text1 = '{title_term}'"
+            mixed_query = f"{title_query} OR WorkflowId = '{other_flow_id}'"
+
+            async def both_flows_are_searchable() -> bool:
+                page = await client.search_flows(mixed_query, page_size=20)
+                return {posting_id, other_flow_id} <= {flow.flow_id for flow in page.flows}
+
+            await wait_until("both Flows to be searchable", both_flows_are_searchable)
+
+            http_client = create_app(app).test_client()
+            for query, expected in (
+                (title_query, [posting_id]),
+                (mixed_query, [posting_id]),
+                (f"text1 = '{title_term}missing'", []),
+            ):
+                response = await http_client.get(
+                    "/products/job-post/search", query_string={"query": query}
+                )
+                assert response.status_code == 200, query
+                assert (await response.get_json())["flowIDs"] == expected, query
+        finally:
+            await client.stop_flow(other_flow_id)
+    finally:
+        await client.stop_flow(posting_id)

@@ -16,15 +16,18 @@
 
 package io.superdurable.dex.integ;
 
+import io.superdurable.dex.SearchFlowEntry;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.products.jobpost.JobInfo;
+import io.superdurable.dex.products.jobpost.JobPostingController;
 import io.superdurable.dex.products.jobpost.JobPostingFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -73,6 +76,50 @@ public class JobPostingIntegTest {
         assertEquals(newest.description, actual.description);
         assertEquals(newest.notes, actual.notes);
         environment.client().stopFlow(flowId);
+    }
+
+    @Test
+    void jobPostingSearchMatchesIndexedTitleAndScopesResults() throws InterruptedException {
+        final IntegEnvironment environment = SharedIntegExtension.environment();
+        final JobPostingFlow flow = environment.jobPostingFlow();
+        final JobPostingController controller = new JobPostingController(environment.client(), flow);
+        final String postingId = environment.newFlowId("job-posting-search");
+        final String otherFlowId = environment.newFlowId("channel-search");
+        final String titleTerm = postingId.replace("-", "");
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .timeout(Duration.ofHours(1))
+                .addAttribute(flow.title, "Software Engineer")
+                .addAttribute(flow.jobDescription, "Build reliable systems")
+                .addAttribute(flow.lastUpdateTimeMillis, System.currentTimeMillis())
+                .addAttribute(flow.updateVersion, 0)
+                .build();
+        environment.client().startFlow(flow, postingId, null, options);
+        try {
+            environment.client().waitForStepCompletion(postingId, StepExecutionId.of("InitStep", 1), waitOptions());
+            final JobPostingFlow stub = environment.client().newRpcStub(JobPostingFlow.class, postingId);
+            environment.client().invokeRPC(stub::update,
+                    new JobInfo(titleTerm + " Engineer", "Build reliable systems", "indexed title"));
+            environment.client().startFlow(environment.channelFlow(), otherFlowId, 3600, environment.startOptions());
+            try {
+                final String titleQuery = "text1 = '" + titleTerm + "'";
+                final String mixedQuery = titleQuery + " OR WorkflowId = '" + otherFlowId + "'";
+                environment.awaitCondition(
+                        () -> environment.client().searchFlows(mixedQuery, 20).getFlows().stream()
+                                .map(SearchFlowEntry::getFlowId).toList(),
+                        ids -> ids.containsAll(List.of(postingId, otherFlowId)),
+                        Duration.ofSeconds(20),
+                        "Both Flows must be searchable before checking the controller scope");
+
+                assertEquals(List.of(postingId), controller.search(titleQuery).getBody().get("flowIDs"));
+                assertEquals(List.of(postingId), controller.search(mixedQuery).getBody().get("flowIDs"));
+                assertEquals(List.of(), controller.search("text1 = '" + titleTerm + "missing'")
+                        .getBody().get("flowIDs"));
+            } finally {
+                environment.client().stopFlow(otherFlowId);
+            }
+        } finally {
+            environment.client().stopFlow(postingId);
+        }
     }
 
     private static WaitForStepCompletionOptions waitOptions() {

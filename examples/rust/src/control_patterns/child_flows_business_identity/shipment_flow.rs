@@ -15,8 +15,9 @@
 use std::sync::{Arc, LazyLock};
 
 use dex_sdk::{
-    Attribute, Client, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, SdkError,
-    Step, StepDecision, StepDurability, StepList, StepOptions, Timer, Wait,
+    Attribute, Client, Context, Flow, HandlerError, HandlerResult, PersistenceSchema,
+    RpcInvokeOptions, SdkError, Step, StepDecision, StepDurability, StepList, StepOptions, Timer,
+    Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -141,12 +142,15 @@ impl Step for ReportShipmentOutcome {
     fn execute(&self, _context: &mut Context, pending: Self::Input) -> HandlerResult<StepDecision> {
         let client = require_client(self.client.as_ref())?;
         let outcome = pending.report.outcome.clone();
-        // This SDK pin has no RPC request ID. The locked RPC keeps the first
-        // outcome, so a repeat changes nothing.
-        match client.invoke_rpc(
+        let options = RpcInvokeOptions::new().request_id(format!(
+            "report:{}:{}",
+            pending.report.shipment_number, pending.report.shipment_run_id
+        ));
+        match client.invoke_rpc_with_options(
             &pending.order_flow_id,
             RECORD_SHIPMENT_OUTCOME,
             pending.report,
+            options,
         ) {
             // A closed order ends the attempts; the outcome stays readable through the Client.
             Ok(())

@@ -21,6 +21,7 @@ from dex import (
     FlowAlreadyStartedError,
     FlowNotActiveOrNotFoundError,
     IdReusePolicy,
+    RPCInvokeOptions,
     StartFlowOptions,
 )
 from quart import Blueprint
@@ -79,6 +80,7 @@ def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
                     app_state.drain_external.publish_external_channel_message,
                     flow_id,
                     message,
+                    options=RPCInvokeOptions(request_id=f"publish:{message_id}"),
                 )
                 return f"Accepted message {message_id}", 200
             except FlowNotActiveOrNotFoundError:

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-25T07:55:31Z",
+  "generatedAt": "2026-11-25T18:24:24Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -10,9 +10,9 @@
     "name": "OrderFulfillmentFlow",
     "startStepId": "step:StartShipments",
     "span": {
-      "startLine": 372,
+      "startLine": 373,
       "startColumn": 1,
-      "endLine": 423,
+      "endLine": 424,
       "endColumn": 10
     }
   },
@@ -24,9 +24,9 @@
       "parentId": "step:AwaitShipment",
       "phase": "execute",
       "span": {
-        "startLine": 294,
+        "startLine": 295,
         "startColumn": 5,
-        "endLine": 314,
+        "endLine": 315,
         "endColumn": 35
       }
     },
@@ -37,9 +37,9 @@
       "parentId": "step:StartShipment",
       "phase": "execute",
       "span": {
-        "startLine": 247,
+        "startLine": 248,
         "startColumn": 5,
-        "endLine": 271,
+        "endLine": 272,
         "endColumn": 90
       }
     },
@@ -50,23 +50,23 @@
       "parentId": "step:StartShipments",
       "phase": "execute",
       "span": {
-        "startLine": 176,
+        "startLine": 177,
         "startColumn": 5,
-        "endLine": 202,
+        "endLine": 203,
         "endColumn": 38
       }
     },
     {
-      "id": "decision:step:AwaitShipment:302:20",
+      "id": "decision:step:AwaitShipment:303:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitShipment",
       "condition": "reading.status == FlowStatus.RUNNING.value",
       "phase": "execute",
       "span": {
-        "startLine": 302,
+        "startLine": 303,
         "startColumn": 20,
-        "endLine": 302,
+        "endLine": 303,
         "endColumn": 49
       },
       "decision": {
@@ -74,16 +74,16 @@
       }
     },
     {
-      "id": "decision:step:AwaitShipment:314:16",
+      "id": "decision:step:AwaitShipment:315:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:AwaitShipment",
       "condition": "not (reading.status == FlowStatus.RUNNING.value)",
       "phase": "execute",
       "span": {
-        "startLine": 314,
+        "startLine": 315,
         "startColumn": 16,
-        "endLine": 314,
+        "endLine": 315,
         "endColumn": 35
       },
       "decision": {
@@ -91,16 +91,16 @@
       }
     },
     {
-      "id": "decision:step:StartShipment:266:20",
+      "id": "decision:step:StartShipment:267:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:StartShipment",
       "condition": "exception",
       "phase": "execute",
       "span": {
-        "startLine": 266,
+        "startLine": 267,
         "startColumn": 20,
-        "endLine": 266,
+        "endLine": 267,
         "endColumn": 39
       },
       "decision": {
@@ -108,16 +108,16 @@
       }
     },
     {
-      "id": "decision:step:StartShipment:271:16",
+      "id": "decision:step:StartShipment:272:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:StartShipment",
       "condition": "otherwise",
       "phase": "execute",
       "span": {
-        "startLine": 271,
+        "startLine": 272,
         "startColumn": 16,
-        "endLine": 271,
+        "endLine": 272,
         "endColumn": 90
       },
       "decision": {
@@ -125,16 +125,16 @@
       }
     },
     {
-      "id": "decision:step:StartShipments:178:20",
+      "id": "decision:step:StartShipments:179:20",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:StartShipments",
       "condition": "order.reconcile_interval_seconds \u003c= 0",
       "phase": "execute",
       "span": {
-        "startLine": 178,
+        "startLine": 179,
         "startColumn": 20,
-        "endLine": 178,
+        "endLine": 179,
         "endColumn": 66
       },
       "decision": {
@@ -142,16 +142,16 @@
       }
     },
     {
-      "id": "decision:step:StartShipments:180:20",
+      "id": "decision:step:StartShipments:181:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:StartShipments",
       "condition": "not (order.reconcile_interval_seconds \u003c= 0) and not order.shipments",
       "phase": "execute",
       "span": {
-        "startLine": 180,
+        "startLine": 181,
         "startColumn": 20,
-        "endLine": 180,
+        "endLine": 181,
         "endColumn": 39
       },
       "decision": {
@@ -159,16 +159,16 @@
       }
     },
     {
-      "id": "decision:step:StartShipments:184:24",
+      "id": "decision:step:StartShipments:185:24",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:StartShipments",
       "condition": "not (order.reconcile_interval_seconds \u003c= 0) and not (not order.shipments) and shipment.delivery_delay_seconds \u003c 0",
       "phase": "execute",
       "span": {
-        "startLine": 184,
+        "startLine": 185,
         "startColumn": 24,
-        "endLine": 184,
+        "endLine": 185,
         "endColumn": 93
       },
       "decision": {
@@ -176,16 +176,16 @@
       }
     },
     {
-      "id": "decision:step:StartShipments:186:24",
+      "id": "decision:step:StartShipments:187:24",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:StartShipments",
       "condition": "not (order.reconcile_interval_seconds \u003c= 0) and not (not order.shipments) and not (shipment.delivery_delay_seconds \u003c 0) and shipment.shipment_number in numbers",
       "phase": "execute",
       "span": {
-        "startLine": 186,
+        "startLine": 187,
         "startColumn": 24,
-        "endLine": 186,
+        "endLine": 187,
         "endColumn": 88
       },
       "decision": {
@@ -193,16 +193,16 @@
       }
     },
     {
-      "id": "decision:step:StartShipments:202:16",
+      "id": "decision:step:StartShipments:203:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:StartShipments",
       "condition": "not (order.reconcile_interval_seconds \u003c= 0) and not (not order.shipments)",
       "phase": "execute",
       "span": {
-        "startLine": 202,
+        "startLine": 203,
         "startColumn": 16,
-        "endLine": 202,
+        "endLine": 203,
         "endColumn": 38
       },
       "decision": {
@@ -214,9 +214,9 @@
       "kind": "attribute",
       "name": "shipmentRecords",
       "span": {
-        "startLine": 162,
+        "startLine": 163,
         "startColumn": 1,
-        "endLine": 162,
+        "endLine": 163,
         "endColumn": 67
       },
       "resource": {
@@ -229,9 +229,9 @@
       "kind": "attribute",
       "name": "shipmentRecordsLock",
       "span": {
-        "startLine": 164,
+        "startLine": 165,
         "startColumn": 1,
-        "endLine": 164,
+        "endLine": 165,
         "endColumn": 63
       },
       "resource": {
@@ -243,9 +243,9 @@
       "kind": "rpc",
       "name": "record_shipment_outcome",
       "span": {
-        "startLine": 399,
+        "startLine": 400,
         "startColumn": 5,
-        "endLine": 423,
+        "endLine": 424,
         "endColumn": 10
       }
     },
@@ -255,9 +255,9 @@
       "name": "AwaitShipment",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 389,
+        "startLine": 390,
         "startColumn": 34,
-        "endLine": 389,
+        "endLine": 390,
         "endColumn": 53
       },
       "metadata": {
@@ -270,9 +270,9 @@
       "name": "StartShipment",
       "phase": "execute",
       "span": {
-        "startLine": 389,
+        "startLine": 390,
         "startColumn": 13,
-        "endLine": 389,
+        "endLine": 390,
         "endColumn": 32
       },
       "metadata": {
@@ -286,9 +286,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 388,
+        "startLine": 389,
         "startColumn": 36,
-        "endLine": 388,
+        "endLine": 389,
         "endColumn": 56
       },
       "metadata": {
@@ -296,15 +296,15 @@
       }
     },
     {
-      "id": "wait:AwaitShipment:290:16:0",
+      "id": "wait:AwaitShipment:291:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:AwaitShipment",
       "phase": "wait_for",
       "span": {
-        "startLine": 290,
+        "startLine": 291,
         "startColumn": 16,
-        "endLine": 292,
+        "endLine": 293,
         "endColumn": 10
       },
       "wait": {
@@ -315,9 +315,9 @@
             "label": "timedelta(seconds=tracked.reconcile_interval_seconds) timer",
             "expression": "timedelta(seconds=tracked.reconcile_interval_seconds)",
             "span": {
-              "startLine": 291,
+              "startLine": 292,
               "startColumn": 13,
-              "endLine": 291,
+              "endLine": 292,
               "endColumn": 85
             }
           }
@@ -329,40 +329,40 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:AwaitShipment:302:20",
+      "from": "decision:step:AwaitShipment:303:20",
       "to": "step:AwaitShipment",
       "label": "go_to",
       "span": {
-        "startLine": 302,
+        "startLine": 303,
         "startColumn": 20,
-        "endLine": 302,
+        "endLine": 303,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:StartShipment:271:16",
+      "from": "decision:step:StartShipment:272:16",
       "to": "step:AwaitShipment",
       "label": "go_to",
       "span": {
-        "startLine": 271,
+        "startLine": 272,
         "startColumn": 16,
-        "endLine": 271,
+        "endLine": 272,
         "endColumn": 90
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:StartShipments:202:16",
+      "from": "decision:step:StartShipments:203:16",
       "to": "step:StartShipment",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
-        "startLine": 194,
+        "startLine": 195,
         "startColumn": 17,
-        "endLine": 200,
+        "endLine": 201,
         "endColumn": 18
       }
     },
@@ -373,9 +373,9 @@
       "to": "rpc:record_shipment_outcome",
       "label": "load_attribute_maps",
       "span": {
-        "startLine": 397,
+        "startLine": 398,
         "startColumn": 30,
-        "endLine": 397,
+        "endLine": 398,
         "endColumn": 46
       },
       "metadata": {
@@ -389,9 +389,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS",
       "label": "set",
       "span": {
-        "startLine": 419,
+        "startLine": 420,
         "startColumn": 9,
-        "endLine": 423,
+        "endLine": 424,
         "endColumn": 10
       },
       "metadata": {
@@ -405,9 +405,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS_LOCK",
       "label": "lock",
       "span": {
-        "startLine": 396,
+        "startLine": 397,
         "startColumn": 26,
-        "endLine": 396,
+        "endLine": 397,
         "endColumn": 54
       },
       "metadata": {
@@ -422,9 +422,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS",
       "label": "set",
       "span": {
-        "startLine": 305,
+        "startLine": 306,
         "startColumn": 9,
-        "endLine": 313,
+        "endLine": 314,
         "endColumn": 10
       },
       "metadata": {
@@ -438,9 +438,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS_LOCK",
       "label": "lock",
       "span": {
-        "startLine": 285,
+        "startLine": 286,
         "startColumn": 38,
-        "endLine": 285,
+        "endLine": 286,
         "endColumn": 66
       },
       "metadata": {
@@ -454,9 +454,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS",
       "label": "set",
       "span": {
-        "startLine": 268,
+        "startLine": 269,
         "startColumn": 9,
-        "endLine": 270,
+        "endLine": 271,
         "endColumn": 10
       },
       "metadata": {
@@ -470,9 +470,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS_LOCK",
       "label": "lock",
       "span": {
-        "startLine": 245,
+        "startLine": 246,
         "startColumn": 53,
-        "endLine": 245,
+        "endLine": 246,
         "endColumn": 81
       },
       "metadata": {
@@ -486,9 +486,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS",
       "label": "set",
       "span": {
-        "startLine": 190,
+        "startLine": 191,
         "startColumn": 13,
-        "endLine": 192,
+        "endLine": 193,
         "endColumn": 14
       },
       "metadata": {
@@ -502,9 +502,9 @@
       "to": "resource:attribute:SHIPMENT_RECORDS_LOCK",
       "label": "lock",
       "span": {
-        "startLine": 174,
+        "startLine": 175,
         "startColumn": 53,
-        "endLine": 174,
+        "endLine": 175,
         "endColumn": 81
       },
       "metadata": {

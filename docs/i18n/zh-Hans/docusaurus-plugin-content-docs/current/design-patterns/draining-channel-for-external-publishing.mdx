@@ -452,6 +452,7 @@ def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
                     app_state.drain_external.publish_external_channel_message,
                     flow_id,
                     message,
+                    options=RPCInvokeOptions(request_id=f"publish:{message_id}"),
                 )
                 return f"Accepted message {message_id}", 200
             except FlowNotActiveOrNotFoundError:
@@ -704,7 +705,12 @@ async fn start_or_publish(
                 Err(error) if is_already_started(&error) => {}
                 Err(error) => return Err(error),
             }
-            match client.invoke_rpc(&flow_id, PUBLISH_EXTERNAL_CHANNEL_MESSAGE, message.clone()) {
+            match client.invoke_rpc_with_options(
+                &flow_id,
+                PUBLISH_EXTERNAL_CHANNEL_MESSAGE,
+                message.clone(),
+                RpcInvokeOptions::new().request_id(format!("publish:{message_id}")),
+            ) {
                 Ok(_) => return Ok(Ok(format!("Accepted message {message_id}"))),
                 // That run closed before the publish: start again.
                 Err(error) if is_missing_or_inactive(&error) => {}

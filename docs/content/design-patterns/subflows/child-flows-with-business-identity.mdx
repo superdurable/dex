@@ -795,13 +795,14 @@ class ReportShipmentOutcome(Step[PendingReport]):
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, pending: PendingReport
     ) -> StepDecision:
-        # This SDK pin has no RPC request ID. The locked RPC keeps the first
-        # outcome, so a repeat changes nothing.
         try:
             await self.client_provider().invoke_rpc(
                 self.order_flow_provider().record_shipment_outcome,
                 pending.order_flow_id,
                 pending.report,
+                options=RPCInvokeOptions(
+                    request_id=f"report:{pending.report.shipment_number}:{pending.report.shipment_run_id}",
+                ),
             )
         except (FlowNotFoundError, FlowNotActiveOrNotFoundError):
             # A closed order ends the attempts; the outcome stays readable through the Client.
@@ -1083,12 +1084,15 @@ impl Step for ReportShipmentOutcome {
     fn execute(&self, _context: &mut Context, pending: Self::Input) -> HandlerResult<StepDecision> {
         let client = require_client(self.client.as_ref())?;
         let outcome = pending.report.outcome.clone();
-        // This SDK pin has no RPC request ID. The locked RPC keeps the first
-        // outcome, so a repeat changes nothing.
-        match client.invoke_rpc(
+        let options = RpcInvokeOptions::new().request_id(format!(
+            "report:{}:{}",
+            pending.report.shipment_number, pending.report.shipment_run_id
+        ));
+        match client.invoke_rpc_with_options(
             &pending.order_flow_id,
             RECORD_SHIPMENT_OUTCOME,
             pending.report,
+            options,
         ) {
             // A closed order ends the attempts; the outcome stays readable through the Client.
             Ok(())
