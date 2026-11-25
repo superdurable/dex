@@ -85,6 +85,10 @@ mod no_start_state_dead_end_workflow;
 mod no_start_state_test;
 #[path = "integ/no_start_state_workflow.rs"]
 mod no_start_state_workflow;
+#[path = "integ/non_retryable_test.rs"]
+mod non_retryable_test;
+#[path = "integ/non_retryable_workflow.rs"]
+mod non_retryable_workflow;
 #[path = "integ/persistence_set_attributes_workflow.rs"]
 mod persistence_set_attributes_workflow;
 #[path = "integ/persistence_test.rs"]

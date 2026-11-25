@@ -62,6 +62,7 @@ pub struct HandlerError {
     message: String,
     error_type: String,
     retry_after_seconds: Option<i32>,
+    is_non_retryable: bool,
     stack: Backtrace,
 }
 
@@ -90,6 +91,7 @@ impl HandlerError {
             message: message.into(),
             error_type: error_type.into(),
             retry_after_seconds: None,
+            is_non_retryable: false,
             stack: Backtrace::force_capture(),
         }
     }
@@ -129,6 +131,7 @@ impl HandlerError {
             message: error.to_string(),
             error_type: std::any::type_name::<E>().to_string(),
             retry_after_seconds: None,
+            is_non_retryable: false,
             stack: Backtrace::force_capture(),
         }
     }
@@ -158,8 +161,75 @@ impl HandlerError {
             message: message.into(),
             error_type: error_type.into(),
             retry_after_seconds: Some(after_seconds),
+            is_non_retryable: false,
             stack: Backtrace::force_capture(),
         }
+    }
+
+    /// Creates a failure that ends the current Step method attempt without further retries.
+    ///
+    /// Return it from [`crate::Step::wait_for`] or [`crate::Step::execute`] when a later
+    /// attempt cannot succeed, such as rejected input or a request that a provider reports as
+    /// permanent. Dex skips the remaining attempts of the method's
+    /// [`crate::RetryPolicy`] and applies the Step's failure policy at once. By default the
+    /// Flow fails. A `wait_for` configured to proceed on failure runs `execute`, and an
+    /// `execute` configured to proceed to a recovery Step starts that Step. The recovery Step
+    /// sees `error_type` and `message` in its recovery error.
+    ///
+    /// Captures a stack at this call site the same way [`Self::new`] does. Use
+    /// [`Self::into_non_retryable`] to mark an error built with [`Self::from_error`]. A
+    /// non-retryable failure ignores a retry-after request. Returned from an RPC handler, it
+    /// has no effect, because RPC handlers never retry.
+    ///
+    /// It needs server-zd 0.1.38 or later. An older server ignores the request and retries the
+    /// attempt under the retry policy.
+    ///
+    /// Since 1.45.9.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dex_sdk::HandlerError;
+    ///
+    /// fn charge(card_accepted: bool) -> Result<(), HandlerError> {
+    ///     if !card_accepted {
+    ///         return Err(HandlerError::non_retryable("CardRejected", "card rejected"));
+    ///     }
+    ///     Ok(())
+    /// }
+    ///
+    /// assert!(charge(false).unwrap_err().is_non_retryable());
+    /// ```
+    pub fn non_retryable(error_type: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(error_type, message).into_non_retryable()
+    }
+
+    /// Marks this failure as non-retryable and returns it.
+    ///
+    /// The error keeps its type, message, and stack. Dex then handles it as
+    /// [`Self::non_retryable`] describes.
+    ///
+    /// Since 1.45.9.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dex_sdk::HandlerError;
+    ///
+    /// let error = HandlerError::from_error(std::fmt::Error).into_non_retryable();
+    /// assert!(error.is_non_retryable());
+    /// ```
+    #[must_use]
+    pub fn into_non_retryable(mut self) -> Self {
+        self.is_non_retryable = true;
+        self
+    }
+
+    /// Returns whether Dex ends the Step method attempt without further retries.
+    ///
+    /// Since 1.45.9.
+    pub fn is_non_retryable(&self) -> bool {
+        self.is_non_retryable
     }
 
     pub(crate) fn retry_after_seconds(&self) -> i32 {
@@ -180,6 +250,7 @@ impl HandlerError {
             message: format!("{target} {method} returned an invalid result: {detail}"),
             error_type: "dex_sdk::SdkError::InvalidStepResult".to_string(),
             retry_after_seconds: None,
+            is_non_retryable: false,
             stack: Backtrace::force_capture(),
         }
     }

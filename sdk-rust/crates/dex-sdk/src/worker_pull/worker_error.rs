@@ -42,7 +42,7 @@ pub(crate) fn worker_error_response(error: HandlerError) -> WorkerErrorResponse 
         stack_trace,
         retry_after_seconds: error.retry_after_seconds(),
         grpc_status: Code::Unknown as i32,
-        non_retryable: false,
+        non_retryable: error.is_non_retryable(),
     }
 }
 
@@ -95,6 +95,19 @@ mod tests {
         assert!(!worker.detail.contains('\u{fffd}'));
         assert!(!worker.error_type.contains('\u{fffd}'));
         assert!(!worker.stack_trace.contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn worker_error_reports_non_retryable_failures() {
+        let worker = worker_error_response(HandlerError::non_retryable("CardRejected", "rejected"));
+        assert!(worker.non_retryable);
+        assert_eq!("CardRejected", worker.error_type);
+
+        let marked = HandlerError::retry_after(7, "CardRejected", "rejected").into_non_retryable();
+        assert!(worker_error_response(marked).non_retryable);
+
+        let plain = HandlerError::new("Transient", "try again");
+        assert!(!worker_error_response(plain).non_retryable);
     }
 
     #[test]
