@@ -21,22 +21,43 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 第一个 Condition 满足后，这个 Step 的 `Execute` 运行。它检查是哪个 Condition 胜出，然后进入对应的分支。
 
-1. 客户通过 RPC 接受或拒绝报价。每个 RPC 把客户的备注发布到各自的 Channel。
+1. 客户通过 RPC 接受或拒绝报价。回应窗口打开时，每个 RPC 把客户的备注发布到各自的 Channel。
 2. `AwaitOfferResponse` 等待接受、拒绝或 3 天截止时间，以先到者为准。
-3. Timer 胜出时（`HasTimerFired`），进入 `ExpireOffer`。
+3. 它的 `Execute` 先关闭回应窗口。
 4. 接受 Channel 胜出时，进入 `FulfillOffer`。拒绝 Channel 胜出时，进入 `CloseRejectedOffer`。
+5. Timer 胜出时（`HasTimerFired`），进入 `ExpireOffer`。如果仍有回应在排队，就改为进入 `RouteResponseBeforeExpiry`，由它取走这条回应。
 
 只有一个 Condition 会胜出，所以只有一个分支会开始。
 
 ## 规则
 
 - `AnyOf` 只消费胜出 Condition 的消息。落败的回应仍留在它的 Channel 中等待。
-- 多个备选条件同时就绪时，Timer 胜出。先看 Timer，再按声明顺序看 Channel。在示例中，如果一个回应和截止时间在同一时刻就绪，过期胜出。
+- Step 开始等待时已经在排队的回应会立刻胜出。否则先提交的事件胜出。
 - Channel 的优先级按声明顺序决定。按业务优先级声明它们。在示例中，如果接受和拒绝都已在等待，选中的是接受。
 - 在 `Execute` 中，判断是哪个 Condition 触发了：用 `HasTimerFired` 判断 Timer，用 Channel 结果判断客户回应。落败的 Channel 没有结果。不要把“没有回应”当作已过期。
 - Timer 从 Step 开始等待时计时。Worker 和 Server 重启后它仍然有效。Step 等待期间不占用 Worker。
-- 选择完成后才到达的回应不会改变已选的分支。如果它的 RPC 仍被接受，就会发布一条没有 Step 消费的消息。Flow 开始关闭后，Dex 可能拒绝这个 RPC。所以 RPC 调用成功并不代表这个回应胜出。调用方要知道最终结果，应读取 Flow 结果。
+- 每个回应都会得到明确的答复：要么被记录并决定这份报价，要么 RPC 返回“窗口已关闭”。Flow 关闭后，Dex 会拒绝这个 RPC。
 - 测试过期分支时，用 Client 的 `SkipTimer` 跳过 Timer。不要为了测试缩短业务截止时间。
+
+## 关闭回应窗口 {#close-the-response-window}
+
+回应可能在 Timer 胜出之后、`Execute` 运行之前提交，它的 RPC 返回成功。如果没有窗口，`Execute` 随后会让报价过期，客户的回应就被悄悄忽略了。只在 `Execute` 里读取 Channel 大小并不能堵住这个缺口，因为读取之后仍可能有回应提交。
+
+示例用 Attribute 锁堵住这个缺口：
+
+- `offerResponseWindow` Attribute 在 `AwaitOfferResponse` 做出决定之前保持打开。未设置的值视为打开。
+- 两个回应 RPC 都锁住 `offerResponseWindow`。带锁的 RPC 是事务性的，所以它的检查和发布一起提交。窗口已关闭时，RPC 不发布任何消息，返回“窗口已关闭”。
+- `AwaitOfferResponse` 的 `Execute` 锁住同一个 Attribute，并把它设为关闭。Dex 先拿到锁，再把 `Execute` 交给 Worker，之后才读取状态。
+- 在拿锁之前提交的回应已经在 Channel 里。`Execute` 通过 Channel 大小看到它，进入 `RouteResponseBeforeExpiry`。这个 Step 等待两个 Channel，排队的回应会立刻胜出。
+- `Execute` 持有锁期间，回应 RPC 会遇到 lock conflict。Dex 不会让它排队。HTTP 路由用短暂的退避重试几次。窗口关闭后，重试会返回“窗口已关闭”，路由返回 `409`。参见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。
+
+使用这个窗口时遵守这些规则：
+
+- 每个写回应 Channel 的 RPC 都声明同一把锁。锁是协作式的，不声明锁的 RPC 会绕过窗口。
+- 只锁 `Execute`，不锁 `WaitFor`。
+- 让加锁的 `Execute` 保持简短。把副作用（例如过期通知）放到下一个 Step。失败的 `Execute` 在重试期间一直持有锁，这段时间里回应都会遇到 lock conflict。
+- 让回应是幂等的，这样重试调用是安全的。
+- 要再次等待时，在开始下一轮等待的 `Execute` 里，在同一把锁下重新打开窗口。
 
 ## 相关形状
 
@@ -45,7 +66,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 ## 示例
 
-`OfferResponseFlow` 以报价 ID 启动。`AwaitOfferResponse` 等待 `acceptCustomerOffer` RPC、`rejectCustomerOffer` RPC 或 3 天的 Timer，然后进入 `FulfillOffer`、`CloseRejectedOffer` 或 `ExpireOffer`。这三个 Step 都用各自的结果完成 Flow。
+`OfferResponseFlow` 以报价 ID 启动。`AwaitOfferResponse` 等待 `acceptCustomerOffer` RPC、`rejectCustomerOffer` RPC 或 3 天的 Timer。它关闭回应窗口，然后进入 `FulfillOffer`、`CloseRejectedOffer`、`RouteResponseBeforeExpiry` 或 `ExpireOffer`。每个结果 Step 都用各自的结果完成 Flow。
+
+HTTP 路由（包括 lock conflict 重试）和测试在示例目录里。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里试用这些路由。
 
 <SdkTabs
   examples={{
@@ -60,12 +83,43 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 ```python
 # How long the customer has to respond.
 OFFER_EXPIRY = timedelta(days=3)
+
+# The response window is open until AwaitOfferResponse decides. Unset reads as open.
+RESPONSE_WINDOW_OPEN = "open"
+RESPONSE_WINDOW_CLOSED = "closed"
+
+# The outcomes of a customer response RPC.
+OFFER_RESPONSE_RECORDED = "recorded"
+OFFER_RESPONSE_WINDOW_CLOSED = "window closed"
+
 OFFER_ACCEPTED = Channel("offerAccepted", str)
 OFFER_REJECTED = Channel("offerRejected", str)
+# Locked by both response RPCs and by AwaitOfferResponse.execute.
+OFFER_RESPONSE_WINDOW = Attribute("offerResponseWindow", str)
+
+
+def read_response_window(context: Context) -> str:
+    """Returns RESPONSE_WINDOW_OPEN while the window was never closed."""
+    return OFFER_RESPONSE_WINDOW.get(context) or RESPONSE_WINDOW_OPEN
+
+
+def publish_while_window_open(
+    context: Context, response: Channel[str], note: str
+) -> RPCResult[str]:
+    """Publishes the response unless the window is closed.
+
+    The publish commits together with this check, because the RPC holds the window lock.
+    """
+    if read_response_window(context) == RESPONSE_WINDOW_CLOSED:
+        return RPCResult(OFFER_RESPONSE_WINDOW_CLOSED)
+    response.publish(context, note)
+    return RPCResult(OFFER_RESPONSE_RECORDED)
 
 
 class AwaitOfferResponse(Step[str]):
-    """Waits for whichever event happens first and routes on it."""
+    def get_step_options(self) -> StepOptions:
+        """Locks the response window in execute, the same lock as the response RPCs."""
+        return StepOptions(execute_lock_attributes=(OFFER_RESPONSE_WINDOW.lock(),))
 
     def wait_for(self, context: Context, offer_id: str) -> Wait:
         return Wait.any_of(
@@ -75,11 +129,36 @@ class AwaitOfferResponse(Step[str]):
         )
 
     def execute(self, context: Context, offer_id: str) -> StepDecision:
+        # Every later response RPC now returns OFFER_RESPONSE_WINDOW_CLOSED.
+        OFFER_RESPONSE_WINDOW.set(context, RESPONSE_WINDOW_CLOSED)
         if context.has_timer_fired():
+            # A response committed after the Timer won but before this execute took the lock.
+            if OFFER_ACCEPTED.size(context) + OFFER_REJECTED.size(context) > 0:
+                return go_to(RouteResponseBeforeExpiry, offer_id)
             return go_to(ExpireOffer, offer_id)
         if OFFER_ACCEPTED.results(context):
             return go_to(FulfillOffer, offer_id)
         return go_to(CloseRejectedOffer, offer_id)
+
+
+class RouteResponseBeforeExpiry(Step[str]):
+    def wait_for(self, context: Context, offer_id: str) -> Wait:
+        return Wait.any_of(OFFER_ACCEPTED.for_one(), OFFER_REJECTED.for_one())
+
+    def execute(self, context: Context, offer_id: str) -> StepDecision:
+        if OFFER_ACCEPTED.results(context):
+            return go_to(FulfillOffer, offer_id)
+        return go_to(CloseRejectedOffer, offer_id)
+
+
+class OfferResponseFlow(Flow[str]):
+    @rpc(lock_attributes=(OFFER_RESPONSE_WINDOW.lock(),))
+    def accept_customer_offer(self, context: Context, note: str) -> RPCResult[str]:
+        """Records that the customer accepted the offer.
+
+        Returns OFFER_RESPONSE_WINDOW_CLOSED once the offer has decided.
+        """
+        return publish_while_window_open(context, OFFER_ACCEPTED, note)
 ```
 
 </SdkSnippet>
@@ -89,13 +168,75 @@ class AwaitOfferResponse(Step[str]):
 // OfferExpiry is how long the customer has to respond.
 const OfferExpiry = 3 * 24 * time.Hour
 
+// The response window is open until AwaitOfferResponse decides. Unset reads as open.
+const (
+	ResponseWindowOpen   = "open"
+	ResponseWindowClosed = "closed"
+)
+
+// The outcomes of a customer response RPC.
+const (
+	OfferResponseRecorded     = "recorded"
+	OfferResponseWindowClosed = "window closed"
+)
+
 var (
 	OfferAccepted = dex.DefineChannel[string]("offerAccepted")
 	OfferRejected = dex.DefineChannel[string]("offerRejected")
+	// OfferResponseWindow is locked by both response RPCs and by AwaitOfferResponse.Execute.
+	OfferResponseWindow = dex.DefineAttribute[string]("offerResponseWindow")
 )
 
-// AwaitOfferResponse waits for whichever event happens first and routes on it.
+var responseWindowLock = []dex.AttributeLock{dex.LockAttribute(OfferResponseWindow)}
+
+func (flow *OfferResponseFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.AcceptCustomerOffer, &dex.RPCOptions{LockAttributes: responseWindowLock}),
+		dex.DefineRPC(flow.RejectCustomerOffer, &dex.RPCOptions{LockAttributes: responseWindowLock}),
+		dex.DefineRPC(flow.GetDexSummary, nil),
+		dex.DefineRPC(flow.GetDexDisplay, nil),
+	}
+}
+
+// AcceptCustomerOffer records that the customer accepted the offer.
+// It returns OfferResponseWindowClosed once the offer has decided.
+func (*OfferResponseFlow) AcceptCustomerOffer(ctx dex.Context, note string) (*dex.RPCResult[string], error) {
+	return publishWhileWindowOpen(ctx, OfferAccepted, note)
+}
+
+// publishWhileWindowOpen publishes the response unless the window is closed.
+// The publish commits together with this check, because the RPC holds the window lock.
+func publishWhileWindowOpen(ctx dex.Context, response dex.Channel[string], note string) (*dex.RPCResult[string], error) {
+	window, err := readResponseWindow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if window == ResponseWindowClosed {
+		return &dex.RPCResult[string]{Output: OfferResponseWindowClosed}, nil
+	}
+	if err := response.Publish(ctx, note); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: OfferResponseRecorded}, nil
+}
+
+// readResponseWindow returns ResponseWindowOpen while the window was never closed.
+// It returns an error when the value cannot be read.
+func readResponseWindow(ctx dex.Context) (string, error) {
+	window, err := OfferResponseWindow.Get(ctx)
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		return ResponseWindowOpen, nil
+	}
+	return window, err
+}
+
 type AwaitOfferResponse struct{ dex.StepDefaults }
+
+// GetStepOptions locks the response window in Execute, the same lock as the response RPCs.
+func (AwaitOfferResponse) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: responseWindowLock}
+}
 
 func (AwaitOfferResponse) WaitFor(dex.Context, string) (*dex.Wait, error) {
 	return dex.AnyOf(
@@ -106,9 +247,34 @@ func (AwaitOfferResponse) WaitFor(dex.Context, string) (*dex.Wait, error) {
 }
 
 func (AwaitOfferResponse) Execute(ctx dex.Context, offerID string) (*dex.StepDecision, error) {
+	// Every later response RPC now returns OfferResponseWindowClosed.
+	if err := OfferResponseWindow.Set(ctx, ResponseWindowClosed); err != nil {
+		return nil, err
+	}
 	if ctx.HasTimerFired() {
+		// A response committed after the Timer won but before this Execute took the lock.
+		if OfferAccepted.Size(ctx)+OfferRejected.Size(ctx) > 0 {
+			return dex.GoTo(RouteResponseBeforeExpiry{}, offerID), nil
+		}
 		return dex.GoTo(ExpireOffer{}, offerID), nil
 	}
+	accepted, err := OfferAccepted.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(accepted) > 0 {
+		return dex.GoTo(FulfillOffer{}, offerID), nil
+	}
+	return dex.GoTo(CloseRejectedOffer{}, offerID), nil
+}
+
+type RouteResponseBeforeExpiry struct{ dex.StepDefaults }
+
+func (RouteResponseBeforeExpiry) WaitFor(dex.Context, string) (*dex.Wait, error) {
+	return dex.AnyOf(OfferAccepted.ForOne(), OfferRejected.ForOne()), nil
+}
+
+func (RouteResponseBeforeExpiry) Execute(ctx dex.Context, offerID string) (*dex.StepDecision, error) {
 	accepted, err := OfferAccepted.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
@@ -126,16 +292,59 @@ func (AwaitOfferResponse) Execute(ctx dex.Context, offerID string) (*dex.StepDec
 ```java
 /** How long the customer has to respond. */
 public static final Duration OFFER_EXPIRY = Duration.ofDays(3);
+
+/** The response window is open until AwaitOfferResponse decides. Unset reads as open. */
+public static final String RESPONSE_WINDOW_OPEN = "open";
+public static final String RESPONSE_WINDOW_CLOSED = "closed";
+
+/** The outcomes of a customer response RPC. */
+public static final String OFFER_RESPONSE_RECORDED = "recorded";
+public static final String OFFER_RESPONSE_WINDOW_CLOSED = "window closed";
+
 public static final Channel<String> offerAccepted =
         Channel.define("offerAccepted", String.class);
 public static final Channel<String> offerRejected =
         Channel.define("offerRejected", String.class);
+/** Locked by both response RPCs and by AwaitOfferResponse's execute. */
+public static final Attribute<String> offerResponseWindow =
+        Attribute.define("offerResponseWindow", String.class);
+
+/**
+ * Records that the customer accepted the offer.
+ *
+ * @return {@link #OFFER_RESPONSE_WINDOW_CLOSED} once the offer has decided
+ */
+@RPC(lockAttributes = {"offerResponseWindow"})
+public RPCResult<String> acceptCustomerOffer(final Context context, final String note) {
+    return publishWhileWindowOpen(context, offerAccepted, note);
+}
+
+/**
+ * Publishes the response unless the window is closed. The publish commits together with
+ * this check, because the RPC holds the window lock.
+ */
+static RPCResult<String> publishWhileWindowOpen(
+        final Context context, final Channel<String> response, final String note) {
+    if (RESPONSE_WINDOW_CLOSED.equals(offerResponseWindow.get(context))) {
+        return RPCResult.of(OFFER_RESPONSE_WINDOW_CLOSED);
+    }
+    response.publish(context, note);
+    return RPCResult.of(OFFER_RESPONSE_RECORDED);
+}
 
 /** Waits for whichever event happens first and routes on it. */
-static final class AwaitOfferResponse implements Step<String> {
+public static final class AwaitOfferResponse implements Step<String> {
     @Override
     public Class<String> getInputType() {
         return String.class;
+    }
+
+    /** Locks the response window in execute, the same lock as the response RPCs. */
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .addExecuteLock(AttributeLock.of(offerResponseWindow))
+                .build();
     }
 
     @Override
@@ -148,9 +357,36 @@ static final class AwaitOfferResponse implements Step<String> {
 
     @Override
     public StepDecision execute(final Context context, final String offerId) {
+        // Every later response RPC now returns OFFER_RESPONSE_WINDOW_CLOSED.
+        offerResponseWindow.set(context, RESPONSE_WINDOW_CLOSED);
         if (context.hasTimerFired()) {
+            // A response committed after the Timer won but before this execute took the lock.
+            if (offerAccepted.size(context) + offerRejected.size(context) > 0) {
+                return StepDecision.goTo(RouteResponseBeforeExpiry.class, offerId);
+            }
             return StepDecision.goTo(ExpireOffer.class, offerId);
         }
+        if (!offerAccepted.getConditionResults(context).isEmpty()) {
+            return StepDecision.goTo(FulfillOffer.class, offerId);
+        }
+        return StepDecision.goTo(CloseRejectedOffer.class, offerId);
+    }
+}
+
+/** Takes the response that committed before the window closed. */
+public static final class RouteResponseBeforeExpiry implements Step<String> {
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final String offerId) {
+        return Wait.anyOf(offerAccepted.forOne(), offerRejected.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String offerId) {
         if (!offerAccepted.getConditionResults(context).isEmpty()) {
             return StepDecision.goTo(FulfillOffer.class, offerId);
         }
@@ -165,15 +401,50 @@ static final class AwaitOfferResponse implements Step<String> {
 ```typescript
 /** How long the customer has to respond. */
 export const OFFER_EXPIRY_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** The response window is open until AwaitOfferResponse decides. Unset reads as open. */
+export const RESPONSE_WINDOW_OPEN = "open";
+export const RESPONSE_WINDOW_CLOSED = "closed";
+
+/** The outcomes of a customer response RPC. */
+export const OFFER_RESPONSE_RECORDED = "recorded";
+export const OFFER_RESPONSE_WINDOW_CLOSED = "window closed";
+
 export const offerAccepted = new Channel("offerAccepted", stringCodec);
 export const offerRejected = new Channel("offerRejected", stringCodec);
+/** Locked by both response RPCs and by AwaitOfferResponse.execute. */
+export const offerResponseWindow = new Attribute("offerResponseWindow", stringCodec);
 
-/** Waits for whichever event happens first and routes on it. */
-class AwaitOfferResponse implements Step<string> {
+/**
+ * Publishes the response unless the window is closed. The publish commits
+ * together with this check, because the RPC holds the window lock.
+ */
+export function publishWhileWindowOpen(
+  context: Context,
+  response: Channel<string>,
+  note: string,
+): RPCResult<string> {
+  if (readResponseWindow(context) === RESPONSE_WINDOW_CLOSED) {
+    return { output: OFFER_RESPONSE_WINDOW_CLOSED };
+  }
+  response.publish(context, note);
+  return { output: OFFER_RESPONSE_RECORDED };
+}
+
+function readResponseWindow(context: Context): string {
+  return offerResponseWindow.get(context) ?? RESPONSE_WINDOW_OPEN;
+}
+
+export class AwaitOfferResponse implements Step<string> {
   public readonly inputCodec = stringCodec;
 
   public getStepType(): string {
     return "AwaitOfferResponse";
+  }
+
+  /** Locks the response window in execute, the same lock as the response RPCs. */
+  public getStepOptions(): StepOptions {
+    return { executeLockAttributes: [offerResponseWindow.lock()] };
   }
 
   public waitFor(_context: Context, _offerId: string): Wait {
@@ -185,13 +456,49 @@ class AwaitOfferResponse implements Step<string> {
   }
 
   public execute(context: Context, offerId: string): StepDecision {
+    // Every later response RPC now returns OFFER_RESPONSE_WINDOW_CLOSED.
+    offerResponseWindow.set(context, RESPONSE_WINDOW_CLOSED);
     if (context.hasTimerFired()) {
+      // A response committed after the Timer won but before this execute took the lock.
+      if (offerAccepted.size(context) + offerRejected.size(context) > 0) {
+        return goTo(RouteResponseBeforeExpiry, offerId);
+      }
       return goTo(ExpireOffer, offerId);
     }
     if (offerAccepted.results(context).length > 0) {
       return goTo(FulfillOffer, offerId);
     }
     return goTo(CloseRejectedOffer, offerId);
+  }
+}
+
+export class RouteResponseBeforeExpiry implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RouteResponseBeforeExpiry";
+  }
+
+  public waitFor(_context: Context, _offerId: string): Wait {
+    return Wait.anyOf(offerAccepted.forOne(), offerRejected.forOne());
+  }
+
+  public execute(context: Context, offerId: string): StepDecision {
+    if (offerAccepted.results(context).length > 0) {
+      return goTo(FulfillOffer, offerId);
+    }
+    return goTo(CloseRejectedOffer, offerId);
+  }
+}
+
+export class OfferResponseFlow implements Flow<string> {
+  /**
+   * Records that the customer accepted the offer.
+   * Returns OFFER_RESPONSE_WINDOW_CLOSED once the offer has decided.
+   */
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [offerResponseWindow.lock()] })
+  public acceptCustomerOffer(context: Context, note: string): RPCResult<string> {
+    return publishWhileWindowOpen(context, offerAccepted, note);
   }
 }
 ```
@@ -202,19 +509,77 @@ class AwaitOfferResponse implements Step<string> {
 ```rust
 /// How long the customer has to respond.
 pub const OFFER_EXPIRY: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+
+/// The response window is open until `AwaitOfferResponse` decides. Unset reads as open.
+pub const RESPONSE_WINDOW_OPEN: &str = "open";
+pub const RESPONSE_WINDOW_CLOSED: &str = "closed";
+
+/// The outcomes of a customer response RPC.
+pub const OFFER_RESPONSE_RECORDED: &str = "recorded";
+pub const OFFER_RESPONSE_WINDOW_CLOSED: &str = "window closed";
+
 pub static OFFER_ACCEPTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerAccepted"));
 pub static OFFER_REJECTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerRejected"));
-pub const ACCEPT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("accept_customer_offer");
-pub const REJECT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("reject_customer_offer");
+/// Locked by both response RPCs and by `AwaitOfferResponse::execute`.
+pub static OFFER_RESPONSE_WINDOW: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("offerResponseWindow"));
 
-/// Waits for whichever event happens first and routes on it.
+pub const ACCEPT_CUSTOMER_OFFER: Rpc<String, String> = Rpc::new("accept_customer_offer");
+pub const REJECT_CUSTOMER_OFFER: Rpc<String, String> = Rpc::new("reject_customer_offer");
+
+impl OfferResponseFlow {
+    /// Records that the customer accepted the offer.
+    /// Returns `OFFER_RESPONSE_WINDOW_CLOSED` once the offer has decided.
+    pub fn accept_customer_offer(
+        &self,
+        context: &mut Context,
+        note: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        publish_while_window_open(context, &OFFER_ACCEPTED, note)
+    }
+}
+
+/// Publishes the response unless the window is closed.
+/// The publish commits together with this check, because the RPC holds the window lock.
+fn publish_while_window_open(
+    context: &mut Context,
+    response: &Channel<String>,
+    note: String,
+) -> HandlerResult<RpcResult<String>> {
+    let window = OFFER_RESPONSE_WINDOW.get(context)?;
+    if window.as_deref() == Some(RESPONSE_WINDOW_CLOSED) {
+        return Ok(RpcResult::new(OFFER_RESPONSE_WINDOW_CLOSED.to_string()));
+    }
+    response.publish(context, note)?;
+    Ok(RpcResult::new(OFFER_RESPONSE_RECORDED.to_string()))
+}
+
+impl Flow for OfferResponseFlow {
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .function(
+                ACCEPT_CUSTOMER_OFFER.lock(OFFER_RESPONSE_WINDOW.lock()),
+                Self::accept_customer_offer,
+            )
+            .function(
+                REJECT_CUSTOMER_OFFER.lock(OFFER_RESPONSE_WINDOW.lock()),
+                Self::reject_customer_offer,
+            )
+    }
+}
+
 #[derive(Default)]
 pub struct AwaitOfferResponse;
 
 impl Step for AwaitOfferResponse {
     type Input = String;
+
+    /// Locks the response window in Execute, the same lock as the response RPCs.
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_lock(OFFER_RESPONSE_WINDOW.lock())
+    }
 
     fn wait_for(&self, _context: &mut Context, _offer_id: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
@@ -225,9 +590,36 @@ impl Step for AwaitOfferResponse {
     }
 
     fn execute(&self, context: &mut Context, offer_id: Self::Input) -> HandlerResult<StepDecision> {
+        // Every later response RPC now returns OFFER_RESPONSE_WINDOW_CLOSED.
+        OFFER_RESPONSE_WINDOW.set(context, RESPONSE_WINDOW_CLOSED.to_string())?;
         if context.has_any_timer_fired() {
+            // A response committed after the Timer won but before this Execute took the lock.
+            if OFFER_ACCEPTED.size(context)? + OFFER_REJECTED.size(context)? > 0 {
+                return Ok(StepDecision::go_to(&RouteResponseBeforeExpiry, offer_id));
+            }
             return Ok(StepDecision::go_to(&ExpireOffer, offer_id));
         }
+        if !OFFER_ACCEPTED.condition_results(context)?.is_empty() {
+            return Ok(StepDecision::go_to(&FulfillOffer, offer_id));
+        }
+        Ok(StepDecision::go_to(&CloseRejectedOffer, offer_id))
+    }
+}
+
+#[derive(Default)]
+pub struct RouteResponseBeforeExpiry;
+
+impl Step for RouteResponseBeforeExpiry {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, _offer_id: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            OFFER_ACCEPTED.for_one(),
+            OFFER_REJECTED.for_one(),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, offer_id: Self::Input) -> HandlerResult<StepDecision> {
         if !OFFER_ACCEPTED.condition_results(context)?.is_empty() {
             return Ok(StepDecision::go_to(&FulfillOffer, offer_id));
         }
