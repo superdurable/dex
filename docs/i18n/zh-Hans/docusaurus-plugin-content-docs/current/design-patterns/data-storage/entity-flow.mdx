@@ -12,7 +12,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/enti
 
 可运行的示例为每个客户账户保留一个 `CustomerAccountFlow`。它保存显示名称、邮箱地址、积分余额，以及账户是否已停用。可以在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 里试用它的路由。
 
-<DocsFlowDefinitionGraph graph={flowDefinition} />
+<DocsFlowDefinitionGraph graph={flowDefinition} markdownReference="/design-patterns/data-storage/entity-flow#how-it-works" markdownReferenceLabel="工作方式" />
 
 ## 适用场景 {#when-to-use-this-pattern}
 
@@ -203,6 +203,17 @@ func (*CustomerAccountFlow) AdjustCreditBalance(
 	}
 	return &dex.RPCResult[int64]{Output: balance}, nil
 }
+
+func requireOpenAccount(ctx dex.Context) error {
+	retired, err := Retired.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return errors.New("account is retired")
+	}
+	return nil
+}
 ```
 
 </SdkSnippet>
@@ -231,6 +242,12 @@ public RPCResult<Long> adjustCreditBalance(
     }
     creditBalance.set(context, balance);
     return RPCResult.of(balance);
+}
+
+private void requireOpenAccount(final Context context) {
+    if (Boolean.TRUE.equals(retired.get(context))) {
+        throw new IllegalStateException("account is retired");
+    }
 }
 ```
 
@@ -272,6 +289,12 @@ public adjustCreditBalance(
   this.creditBalance.set(context, balance);
   return { output: balance };
 }
+
+private requireOpenAccount(context: Context): void {
+  if (this.retired.get(context)) {
+    throw new Error("account is retired");
+  }
+}
 ```
 
 </SdkSnippet>
@@ -312,6 +335,13 @@ fn rpcs(&self) -> RpcList<Self> {
             RETIRE_ACCOUNT.lock(CREDIT_BALANCE.lock()),
             Self::retire_account,
         )
+}
+
+fn require_open_account(context: &Context) -> HandlerResult<()> {
+    if RETIRED.get(context)?.unwrap_or(false) {
+        return Err(account_error("account is retired"));
+    }
+    Ok(())
 }
 ```
 
