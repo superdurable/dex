@@ -707,7 +707,11 @@ export class PullWorker implements PullSlotStreamHost {
     try {
       await batch.run();
     } catch {
-      return fixedWorkerErrorResponse("Dex TypeScript SDK could not encrypt the Worker error text", response.grpcStatus);
+      return fixedWorkerErrorResponse(
+        "Dex TypeScript SDK could not encrypt the Worker error text",
+        response.grpcStatus,
+        response.nonRetryable,
+      );
     }
     return sealed;
   }
@@ -989,8 +993,15 @@ export class PullWorker implements PullSlotStreamHost {
 }
 
 /** @returns A Worker failure made only of SDK text and the gRPC status. */
-function fixedWorkerErrorResponse(detail: string, grpcStatus: number): WorkerErrorResponse {
-  return WorkerErrorResponse.create({ detail, errorType: "Error", stackTrace: "", retryAfterSeconds: 0, grpcStatus });
+function fixedWorkerErrorResponse(detail: string, grpcStatus: number, isNonRetryable = false): WorkerErrorResponse {
+  return WorkerErrorResponse.create({
+    detail,
+    errorType: "Error",
+    stackTrace: "",
+    retryAfterSeconds: 0,
+    grpcStatus,
+    nonRetryable: isNonRetryable,
+  });
 }
 
 class PullStepOutputEmitter implements StepOutputEmitter {

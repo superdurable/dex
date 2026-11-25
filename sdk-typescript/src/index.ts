@@ -38,6 +38,7 @@ export type {
   PayloadContext,
   PayloadEncryptionKeyProvider,
 } from "./payload-encryption.js";
+export * from "./non-retryable.js";
 export * from "./persistence.js";
 export * from "./retry-after.js";
 export { declareRPCMethod, rpc } from "./rpc.js";

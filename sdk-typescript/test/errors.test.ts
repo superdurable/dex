@@ -25,6 +25,8 @@ import {
 } from "../src/errors.js";
 import { ServiceErrorResponse, ErrorSubStatus, WorkerErrorResponse } from "../src/gen/dex.js";
 import { translateServiceError, workerErrorResponse } from "../src/grpc-status.js";
+import { NonRetryableError } from "../src/non-retryable.js";
+import { retryAfter } from "../src/retry-after.js";
 
 test("missing Flow uses the endpoint lifecycle requirement", () => {
   const error = serviceError(status.NOT_FOUND, ErrorSubStatus.ERROR_SUB_STATUS_FLOW_NOT_EXISTS);
@@ -143,6 +145,24 @@ test("worker errors bound every text field at UTF-8 boundaries", () => {
   assert.doesNotMatch(worker.detail, /\ufffd/);
   assert.doesNotMatch(worker.errorType, /\ufffd/);
   assert.doesNotMatch(worker.stackTrace, /\ufffd/);
+});
+
+test("non-retryable worker errors report the cause in either nesting order", () => {
+  const cause = new RangeError("card rejected");
+  for (const failure of [
+    new NonRetryableError(cause),
+    retryAfter(7, new NonRetryableError(cause)),
+    new NonRetryableError(retryAfter(7, cause)),
+  ]) {
+    const worker = workerErrorResponse(failure);
+    assert.equal(worker.nonRetryable, true);
+    assert.equal(worker.errorType, "RangeError");
+    assert.equal(worker.detail, "card rejected");
+  }
+  const fromMessage = workerErrorResponse(new NonRetryableError("bad input"));
+  assert.equal(fromMessage.nonRetryable, true);
+  assert.equal(fromMessage.errorType, "NonRetryableError");
+  assert.equal(workerErrorResponse(cause).nonRetryable, false);
 });
 
 function serviceError(

@@ -29,6 +29,7 @@ import {
   type ErrorSubStatus as ErrorSubStatusValue,
 } from "./errors.js";
 import type { PayloadEncryption } from "./payload-value-encryption.js";
+import { NonRetryableError } from "./non-retryable.js";
 import { RetryAfterError } from "./retry-after.js";
 
 const statusDetailsKey = "grpc-status-details-bin";
@@ -45,13 +46,8 @@ interface AnyDetail {
 }
 
 export function workerErrorResponse(failure: unknown, grpcStatus: status = status.UNKNOWN): WorkerErrorResponse {
-  const retryAfterError = failure instanceof RetryAfterError ? failure : undefined;
-  const cause =
-    retryAfterError?.cause instanceof Error
-      ? retryAfterError.cause
-      : failure instanceof Error
-        ? failure
-        : new Error(String(failure));
+  const { reported, retryAfterError, isNonRetryable } = unwrapWorkerFailure(failure);
+  const cause = reported instanceof Error ? reported : new Error(String(reported));
   const detail = truncateWorkerFailureField(
     cause.message || cause.name,
     maxWorkerErrorDetailBytes,
@@ -71,7 +67,36 @@ export function workerErrorResponse(failure: unknown, grpcStatus: status = statu
     ),
     retryAfterSeconds: retryAfterError?.afterSeconds ?? 0,
     grpcStatus,
+    nonRetryable: isNonRetryable,
   });
+}
+
+/**
+ * Removes the RetryAfterError and NonRetryableError wrappers of a handler failure.
+ * @returns The failure to report, the retry-after request, and whether a wrapper marks it non-retryable.
+ */
+function unwrapWorkerFailure(failure: unknown): {
+  reported: unknown;
+  retryAfterError: RetryAfterError | undefined;
+  isNonRetryable: boolean;
+} {
+  let reported = failure;
+  let retryAfterError: RetryAfterError | undefined;
+  let isNonRetryable = false;
+  for (;;) {
+    if (reported instanceof RetryAfterError && retryAfterError === undefined) {
+      retryAfterError = reported;
+      if (!(reported.cause instanceof Error)) break;
+      reported = reported.cause;
+    } else if (reported instanceof NonRetryableError && !isNonRetryable) {
+      isNonRetryable = true;
+      if (!(reported.cause instanceof Error)) break;
+      reported = reported.cause;
+    } else {
+      break;
+    }
+  }
+  return { reported, retryAfterError, isNonRetryable };
 }
 
 function truncateWorkerFailureField(
