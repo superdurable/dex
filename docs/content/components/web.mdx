@@ -19,7 +19,11 @@ inputs, Attributes, and failures, and act on it.
   Definition Graph. The **dexcli visualize** analyzer produces this graph from
   Flow source. Each `Execute` returns its decision, and every successful Wait
   return of `WaitFor` resolves to a Wait factory the analyzer can read, inline or
-  through a local variable.
+  through a local variable. This graph comes from static source analysis and is
+  experimental. It may be incomplete or inaccurate for some code patterns. It
+  does not change how your Flows run. When it is wrong,
+  [open an issue](https://github.com/superdurable/dex/issues) with a minimal
+  code sample.
 - **Start Flow** starts a Flow, and **Actions** call RPCs on a selected run.
 - Features such as **Designs**, **Work Queue**, **Connectors**, and the
   **Agent session** view show only when they apply. Their release status is in
