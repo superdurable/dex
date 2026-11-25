@@ -137,7 +137,6 @@ class DexVersionTest(unittest.TestCase):
             "Use OAuth 2.0 client credentials.",
             "Rust 1.97 or newer builds the SDK.",
             "Node 22.18 and later strip types.",
-            "n8n 2.36.0 added the field.",
             "Dex Web v2 shows the Run.",
             "Bind to 0.0.0.0:8080.",
             "Retry with a backoff coefficient of 2.0.",
@@ -146,11 +145,6 @@ class DexVersionTest(unittest.TestCase):
         ):
             with self.subTest(line=line):
                 self.assertEqual(CHECKER.find_dex_versions(line), [])
-
-    def test_checks_only_dex_releases_in_n8n_documents(self):
-        self.assertEqual(CHECKER.find_dex_versions("Before v4.4 the HTTP Request node resent credentials.", True), [])
-        self.assertTrue(CHECKER.find_dex_versions("Pin sdk-go/v1.35.0 for the backend.", True))
-        self.assertTrue(CHECKER.find_dex_versions("Before v4.4 the HTTP Request node resent credentials."))
 
 
 class BoundaryTest(unittest.TestCase):
@@ -185,12 +179,11 @@ class BoundaryTest(unittest.TestCase):
             "Read the Flow history for diagnosis.",
             "Have the fake signal that the Step started.",
             "A query-only RPC reads a retained run.",
-            "The n8n workflow imports into one Flow.",
             "Signal the operator when the query returns.",
             "A Channel message can signal that a query finished.",
             "The workflow updates the stored Attributes.",
             "This workflow queries the external service.",
-            "The n8n workflow signals completion with a webhook.",
+            "The workflow signals completion with a webhook.",
         ):
             with self.subTest(text=text):
                 self.assertEqual(CHECKER.find_boundary_terms(text), [])

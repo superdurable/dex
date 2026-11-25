@@ -177,12 +177,10 @@ unmapped:
   - skills/dex-app-builder/references/python/*.md
   - skills/dex-app-builder/references/rust/*.md
   - skills/dex-app-builder/references/typescript/*.md
-  # App Builder workflow and n8n import.
+  # App Builder workflow.
   # A short onboarding route; it reuses the SKILL.md mental model and the CLI reference.
   - skills/dex-app-builder/references/getting-started.md
   - skills/dex-app-builder/references/product-discovery.md
-  - skills/dex-app-builder/references/workflow-import.md
-  - skills/dex-app-builder/references/n8n-semantics.md
   - skills/dex-connector-contributor/SKILL.md
   # The Concepts overview; dex-app-builder/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx

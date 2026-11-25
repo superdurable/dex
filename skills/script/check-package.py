@@ -88,7 +88,6 @@ DEX_RELEASE_PATTERNS = (
     re.compile(r"\bcli-v\d+"),
     re.compile(r"\b(?:dex[\w-]*|superdurable[\w/.-]*)[\"']?\s*(?:==|~=|>=|@|:|=)\s*[\"']?[\^~]?" + VERSION_NUMBER, re.IGNORECASE),
 )
-# Version phrases that are Dex versions everywhere except in the documents about n8n.
 GENERIC_VERSION_PATTERNS = (
     re.compile(r"\bv\d+\.\d+(?:\.\d+)?(?!\.?\d)"),
     re.compile(r"\b(?:Dex|SDK|server-zd|Server|dexcli|CLI|Web)\s+" + VERSION_NUMBER, re.IGNORECASE),
@@ -103,18 +102,13 @@ GENERIC_VERSION_PATTERNS = (
     ),
     re.compile(RELEASE_VERSION_NUMBER + r"\s+(?:or|and)\s+(?:later|newer|earlier|older)\b", re.IGNORECASE),
 )
-# These App Builder references describe n8n releases and node type versions.
-N8N_VERSION_DOCUMENTS = {
-    "dex-app-builder/references/n8n-semantics.md",
-    "dex-app-builder/references/workflow-import.md",
-}
 # A bare 0.x.y or 1.x.y counts only on a line that names a Dex component or a release.
 BARE_DEX_VERSION = re.compile(r"(?<![\w.])[01]\.\d+\.\d+(?!\w|\.\d)")
 BARE_VERSION_CONTEXT = re.compile(r"\b(?:dex|sdk|server|cli|web|release|version)", re.IGNORECASE)
 # Versions of external standards, formats, and toolchains, not Dex releases.
 ALLOWED_VERSION_TEXT = re.compile(
     r"(?i:\b(?:FDG|OAuth|TLS|HTTP|schema[- ]version)[ /]v?\d+(?:\.\d+)?|--schema-version[ =]+\d+\.\d+)"
-    r"|(?<![-\w/])(?:Node(?:\.js)?|Go|Rust|Java|JDK|Python|TypeScript|n8n) \d+(?:\.\d+)*"
+    r"|(?<![-\w/])(?:Node(?:\.js)?|Go|Rust|Java|JDK|Python|TypeScript) \d+(?:\.\d+)*"
     r"|\btypeVersion`?:?\s+\d+(?:\.\d+)*"
 )
 
@@ -356,8 +350,7 @@ def check_skill_content(skills: list[Path], *, allow_pinned_examples: bool = Fal
                     problems.append(f"{location}: {problem}: {url}")
             for term in find_boundary_terms(content):
                 problems.append(f"{location}: names {term}; describe the Dex behavior instead")
-            is_n8n_document = location.as_posix() in N8N_VERSION_DOCUMENTS
-            for line_number, text in find_dex_versions(content, is_n8n_document):
+            for line_number, text in find_dex_versions(content):
                 problems.append(f"{location}:{line_number}: version number {text!r}; skills contain no version numbers")
     if problems:
         fail("skill content problems:\n" + "\n".join(f"  {problem}" for problem in problems))
@@ -424,17 +417,14 @@ def find_boundary_terms(content: str) -> list[str]:
     return [description for pattern, description in CONCEPT_BOUNDARY_TERMS if pattern.search(content)]
 
 
-def find_dex_versions(content: str, is_n8n_document: bool = False) -> list[tuple[int, str]]:
-    """Returns (line number, matched text) for each Dex version number in the content.
-
-    An n8n document is checked only for Dex release tags and dependency pins.
-    """
-    patterns = DEX_RELEASE_PATTERNS if is_n8n_document else DEX_RELEASE_PATTERNS + GENERIC_VERSION_PATTERNS
+def find_dex_versions(content: str) -> list[tuple[int, str]]:
+    """Returns (line number, matched text) for each Dex version number in the content."""
+    patterns = DEX_RELEASE_PATTERNS + GENERIC_VERSION_PATTERNS
     found = []
     for line_number, line in enumerate(content.splitlines(), start=1):
         text = ALLOWED_VERSION_TEXT.sub(" ", line)
         matches = [match.group(0) for pattern in patterns for match in pattern.finditer(text)]
-        if not is_n8n_document and BARE_VERSION_CONTEXT.search(text):
+        if BARE_VERSION_CONTEXT.search(text):
             matches.extend(match.group(0) for match in BARE_DEX_VERSION.finditer(text))
         found.extend((line_number, match) for match in dict.fromkeys(matches))
     return found
