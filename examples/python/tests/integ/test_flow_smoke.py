@@ -152,6 +152,7 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
         FlowSmokeEntry(
             "patterns/entity-flow",
             lambda c: _entity_flow_trigger(c, new_id),
+            flags=FlowSmokeFlags(no_start_step=True),
         ),
         FlowSmokeEntry(
             "patterns/entity-store",

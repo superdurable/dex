@@ -25,9 +25,8 @@ from dex import (
     Step,
     StepDecision,
     StepList,
-    Wait,
-    dead_end,
-    graceful_completion_requested,
+    StepMovement,
+    graceful_complete,
     rpc,
 )
 
@@ -53,14 +52,11 @@ class CreditAdjustment:
     amount: int
 
 
-# dex:group group-id:account-lifecycle group-label:"Account lifecycle"
-# dex:explanation text:"Keep the account open until someone asks to retire it."
-class AwaitAccountRetirementStep(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
-        return Wait.until(graceful_completion_requested())
-
+# dex:group group-id:account-retirement group-label:"Account retirement"
+# dex:explanation text:"Complete the account Flow after the retire request passes its checks."
+class CloseAccountStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        return dead_end()
+        return graceful_complete()
 
 
 class CustomerAccountFlow(Flow[None]):
@@ -69,7 +65,7 @@ class CustomerAccountFlow(Flow[None]):
     credit_balance = Attribute("credit_balance", int)
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(AwaitAccountRetirementStep())
+        return StepList.without_start_step(CloseAccountStep())
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.display_name, self.email, self.credit_balance)
@@ -91,3 +87,9 @@ class CustomerAccountFlow(Flow[None]):
             raise ValueError("credit balance cannot go below zero")
         self.credit_balance.set(context, balance)
         return RPCResult(balance)
+
+    @rpc(name="RetireAccount", lock_attributes=(credit_balance.lock(),))
+    def retire_account(self, context: Context) -> RPCResult[None]:
+        if self.credit_balance.get(context) != 0:
+            raise ValueError("spend or refund the credit balance before retiring")
+        return RPCResult(None, next_steps=(StepMovement.of(CloseAccountStep, None),))

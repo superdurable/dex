@@ -24,8 +24,6 @@ from dex import (
     FlowStatus,
     RpcLockConflictError,
     StartFlowOptions,
-    StopFlowOptions,
-    StopType,
     WorkerInvocationError,
 )
 
@@ -86,9 +84,16 @@ async def test_customer_account_entity_flow_lifecycle(
     assert values[flow.email] == "ada@lovelace.example"
     assert values[flow.credit_balance] == 5 * CONCURRENT_DEPOSITS
 
-    await client.stop_flow(
-        flow_id, StopFlowOptions(type=StopType.GRACEFUL_COMPLETE)
+    with pytest.raises(WorkerInvocationError, match="before retiring"):
+        await client.invoke_rpc(flow.retire_account, flow_id)
+    assert (await client.describe_flow(flow_id)).status == FlowStatus.RUNNING
+
+    await client.invoke_rpc(
+        flow.adjust_credit_balance,
+        flow_id,
+        CreditAdjustment(-5 * CONCURRENT_DEPOSITS),
     )
+    await client.invoke_rpc(flow.retire_account, flow_id)
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED
 

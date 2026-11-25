@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dex import StartFlowOptions, StopFlowOptions, StopType
+from dex import StartFlowOptions
 from quart import Blueprint, Response, abort, jsonify
 
 from dex_examples.app import ExampleApp
@@ -96,9 +96,9 @@ def create_entity_flow_blueprint(app_state: ExampleApp) -> Blueprint:
 
     @blueprint.post("/account/retire")
     async def retire_account() -> str:
-        await app_state.client.stop_flow(
+        await app_state.client.invoke_rpc(
+            app_state.customer_account.retire_account,
             customer_account_flow_id(required_query("accountId")),
-            StopFlowOptions(type=StopType.GRACEFUL_COMPLETE),
         )
         return "Retired account"
 
