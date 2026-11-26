@@ -14,7 +14,7 @@ Release Watch keeps track of the libraries your application depends on. Every we
 
 ## What the agent does {#what-the-agent-does}
 
-1. At 08:00 Los Angeles time each weekday, the app reads every watched source: GitHub releases and Hacker News searches.
+1. At 08:00 Los Angeles time each weekday, the app reads every watched source: GitHub releases, Hacker News searches, and web feeds.
 2. The analyst agent judges the new releases. It puts each one in a tier and writes what it means for your application.
 3. The app posts the digest in a Slack channel: the urgent releases first, and the rest in the thread.
 4. A teammate replies in the thread, such as `track 1 P1`, `dismiss 2, we don't use that API`, or `move 3 to must-fix`.
@@ -36,7 +36,7 @@ The app is four Flows:
 | Flow | ID | What it does |
 | --- | --- | --- |
 | `ReleaseWatchScheduleFlow` | `release-watch` | Starts a digest each weekday, or on request. Keeps the watchlist and the releases earlier digests posted. |
-| `ReleaseDigestFlow` | `release-digest-<date>` | Reads the sources, runs the analyst, posts the digest, and files the issues. |
+| `ReleaseDigestFlow` | `release-digest-<date>`, or `release-digest-<date>-run-<n>` for a manual run | Reads the sources, runs the analyst, posts the digest, and files the issues. |
 | `ReleaseAnalystAgentFlow` | `<digestId>-analyst` | The analyst agent. Judges the candidates and submits one report. |
 | `ReleaseTriageAgentFlow` | `release-triage-<channel>-<thread>` | The triage agent. One session per digest thread. |
 
@@ -70,7 +70,7 @@ You need Node.js 22.19 or later, `dexcli`, a Slack app with Socket Mode, and an 
 2. In Dex Web, open **Connectors** and add the five connections the app uses: Slack, two GitHub connections (one reads releases, one files issues), Hacker News, and Web feed. Then add the Slack reply binding with the digest channel and the members who may triage.
 3. Write the settings to a local file: `ISSUE_REPOSITORY`, the repository that tracks releases, and the model settings.
 4. Edit `src/watchlist.ts` with the libraries you depend on, and `src/team-profile.ts` with a few facts about your application.
-5. Run `npm ci && npm run build`. Then start the Worker with `node . worker` and the HTTP API with `node . web`.
+5. Write the runtime file both processes read; the repository's README shows it. Run `npm ci && npm run build`. Then start the Worker with `node . worker` and the HTTP API with `node . web`.
 6. Start a digest with `POST /api/digests`, reply in its thread, and watch `release-digest-<date>-run-1` in Dex Web.
 
 The repository lists the connection names, the Slack app's scopes, every setting, and how to run the same app on Dex Cloud.

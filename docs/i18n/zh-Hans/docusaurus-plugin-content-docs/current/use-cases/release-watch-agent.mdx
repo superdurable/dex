@@ -14,7 +14,7 @@ Release Watch 追踪你的应用依赖的库。每个工作日，它读取这些
 
 ## Agent 做什么 {#what-the-agent-does}
 
-1. 每个工作日洛杉矶时间 08:00，应用读取所有关注的来源：GitHub release 和 Hacker News 搜索。
+1. 每个工作日洛杉矶时间 08:00，应用读取所有关注的来源：GitHub release、Hacker News 搜索和 Web feed。
 2. 分析 Agent 评估新版本。它给每个版本定一个等级，并写明它对你的应用意味着什么。
 3. 应用把摘要发到一个 Slack channel：紧急的版本在前，其余的在 thread 中。
 4. 团队成员在 thread 中回复，比如 `track 1 P1`、`dismiss 2, we don't use that API` 或 `move 3 to must-fix`。
@@ -36,7 +36,7 @@ Release Watch 追踪你的应用依赖的库。每个工作日，它读取这些
 | Flow | ID | 做什么 |
 | --- | --- | --- |
 | `ReleaseWatchScheduleFlow` | `release-watch` | 每个工作日或按请求启动一份摘要。保存关注列表，以及之前的摘要已经发布过的版本。 |
-| `ReleaseDigestFlow` | `release-digest-<date>` | 读取来源、运行分析 Agent、发布摘要并创建 issue。 |
+| `ReleaseDigestFlow` | `release-digest-<date>`，手动启动的为 `release-digest-<date>-run-<n>` | 读取来源、运行分析 Agent、发布摘要并创建 issue。 |
 | `ReleaseAnalystAgentFlow` | `<digestId>-analyst` | 分析 Agent。评估候选版本并提交一份报告。 |
 | `ReleaseTriageAgentFlow` | `release-triage-<channel>-<thread>` | 分拣 Agent。每个摘要 thread 一个 Session。 |
 
@@ -70,7 +70,7 @@ outbox 是持久化的状态。如果 Worker 在处理中途停下，下一个 W
 2. 在 Dex Web 中打开 **Connectors**，添加应用使用的五个 connection：Slack、两个 GitHub connection（一个读取 release，一个创建 issue）、Hacker News 和 Web feed。然后添加 Slack 回复 binding，选定摘要 channel 和可以分拣的成员。
 3. 把设置写进一个本地文件：`ISSUE_REPOSITORY`（追踪版本的仓库）和模型设置。
 4. 在 `src/watchlist.ts` 中填写你依赖的库，在 `src/team-profile.ts` 中写几条关于你的应用的事实。
-5. 运行 `npm ci && npm run build`。然后用 `node . worker` 启动 Worker，用 `node . web` 启动 HTTP API。
+5. 写好两个进程都读取的 runtime 文件，内容见仓库的 README。运行 `npm ci && npm run build`。然后用 `node . worker` 启动 Worker，用 `node . web` 启动 HTTP API。
 6. 用 `POST /api/digests` 启动一份摘要，在它的 thread 中回复，并在 Dex Web 中查看 `release-digest-<date>-run-1`。
 
 仓库列出了 connection 名称、Slack app 需要的 scope、所有设置，以及如何在 Dex Cloud 上运行同一个应用。
