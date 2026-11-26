@@ -27,6 +27,10 @@ type Graph struct {
 	Diagnostics   []Diagnostic  `json:"diagnostics"`
 	Groups        []StepGroup   `json:"groups,omitempty"`
 	V2            *V2Definition `json:"v2,omitempty"`
+	// methodExternalCalls feeds locked_method_external_call; it is not serialized.
+	methodExternalCalls []methodExternalCalls
+	// undrawnLockEdges are resource_lock edges the analyzer knows but leaves out of the graph.
+	undrawnLockEdges []Edge
 }
 
 type StepGroup struct {

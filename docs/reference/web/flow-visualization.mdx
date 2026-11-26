@@ -533,6 +533,27 @@ The lock warnings **declared_lock_missing**, **declared_lock_unresolved**, and *
 
 For the declared requirement check, only registration locks count, as at run time. They are **StepOptions.WaitForLockAttributes** and **StepOptions.ExecuteLockAttributes** from **GetStepOptions** and **RPCOptions.LockAttributes** in Go, and **wait_for_lock_attributes**, **execute_lock_attributes**, and the outermost **@rpc(lock_attributes=...)** in Python. Locks passed with one movement or one RPC call do not count. Writes in Flow timeout handlers are not checked against declared requirements. A resource whose definition options the analyzer cannot read, such as unpacked options, is neither checked nor reported as undeclared. The Go analyzer follows writes in same-package helpers; the Python analyzer reads only the handler body.
 
+## Locks shared with RPCs {#locks-shared-with-rpcs}
+
+:::note Experimental
+The warning **locked_method_external_call** is experimental. It can report false positives, such as a call to a pure third-party library or a call through a function value. It never makes the graph invalid, and it never blocks the application. Review each warning as a prompt to check the code, not as proof of a bug. When you find a false positive, [open an issue](https://github.com/superdurable/dex/issues) with the warning and a minimal code sample.
+:::
+
+**Since dexcli 1.48.1.** An RPC never waits for a lock. While a Step holds a lock that the RPC also takes, the RPC fails with an RPC lock conflict; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). A Step method holds its locks until its logical call ends, through every retry and backoff. A call to an external system in that method keeps the RPC failing for the whole call, and for minutes while the system is down. Commit the decision in a short locked Step, then make the external call in the next Step, which takes no lock that an RPC takes. A lock that only Steps share may cover an external call, because those Steps run one at a time.
+
+- **locked_method_external_call** (warning): a **WaitFor** or **Execute** registers a lock that an RPC of the same Flow also registers, and the method may call an external system. The message names the method, the lock, the RPC, and the first possible external call. Only Go sources are checked today.
+
+The analyzer decides what counts as an external call with an allowlist, so it does not miss one. In Go, a call is allowed when it is one of these:
+
+- a call into the Dex SDK packages `sdk-go/dex` and `sdk-go/logging`, or a method of **context.Context**;
+- a built-in function or a type conversion;
+- a standard-library call that does no I/O, such as **strings**, **strconv**, **encoding/json**, **math**, **sort**, **slices**, **errors**, **time** formatting and arithmetic, **fmt.Sprintf** and **fmt.Errorf**, and **log** or **log/slog**. **fmt.Print**, **fmt.Fprint**, **json.NewEncoder**, **json.NewDecoder**, **time.Sleep**, and timers count as external calls;
+- a function or method of the Flow's package whose body, checked up to six helper levels deep, makes only allowed calls.
+
+Every other call counts as a possible external call: a method on an interface, such as an injected client; a call through a function value or a function-typed field; a function used as a value, such as a callback argument; a third-party package or another package of your module; and standard-library I/O such as **net/http**, **os**, and **database/sql**.
+
+Only registration locks count: **ExecuteLockAttributes** and **WaitForLockAttributes**, including the options a movement passes with **WithStepOptions**, and **RPCOptions.LockAttributes**. In Go, AttributeMap locks are compared by AttributeMap, so a lock on another instance also matches. Flow timeout handlers take their locks from the start options, so they are not checked.
+
 ## Application lints {#application-lints}
 
 **--lint app** adds checks for application mistakes that compile and pass the default analysis. The application checks below apply to Go. Python, TypeScript, Java, and Rust accept the flag and enforce the same FDG 2.0 group and explanation requirements. The state-load diagnostics above are reported in every mode.

@@ -77,6 +77,7 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 		graph.V2 = newEmptyV2Definition()
 	}
 	graph.Source.Path = filepath.ToSlash(filepath.Clean(sourcePath))
+	addLockedMethodExternalCallWarnings(graph)
 	graph.Normalize()
 	return graph, nil
 }

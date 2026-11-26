@@ -270,11 +270,18 @@ func (analyzer *goAnalyzer) reportStateLoadsAndApplicationLints(getSteps *ast.Fu
 	checker.report()
 	rpcLocks := &goRPCLockRecorder{analyzer: analyzer, evaluator: evaluator, sources: checker.sources}
 	rpcLocks.record()
+	stepLockEdges := analyzer.stepLockEdges(rpcLocks)
+	newGoExternalCallFinder(analyzer).record()
 	if scopeResources {
 		registered := analyzer.persistenceResources(flowName, evaluator)
-		analyzer.recordStepLocks(rpcLocks)
+		for _, edge := range stepLockEdges {
+			analyzer.graph.AddEdge(edge)
+		}
 		analyzer.excludedResources = analyzer.graph.retainFlowResources(registered, analyzer.diagnosticResourceIDs)
 		analyzer.analyzeVisualizationV2(flowName)
+	} else {
+		// Single-Flow graphs do not draw Step locks; the locked-method check still needs them.
+		analyzer.graph.undrawnLockEdges = stepLockEdges
 	}
 	rpcLocks.reportUnresolved()
 	newGoDeclaredLockChecker(analyzer, evaluator, checker.sources).report()
@@ -284,7 +291,9 @@ func (analyzer *goAnalyzer) reportStateLoadsAndApplicationLints(getSteps *ast.Fu
 	}
 }
 
-func (analyzer *goAnalyzer) recordStepLocks(locks *goRPCLockRecorder) {
+// stepLockEdges returns the resource_lock edges of every Step's registration and movement locks.
+func (analyzer *goAnalyzer) stepLockEdges(locks *goRPCLockRecorder) []Edge {
+	var edges []Edge
 	lockFields := []struct{ name, phase string }{
 		{"WaitForLockAttributes", "wait_for"},
 		{"ExecuteLockAttributes", "execute"},
@@ -303,12 +312,13 @@ func (analyzer *goAnalyzer) recordStepLocks(locks *goRPCLockRecorder) {
 			for _, lockList := range options.fields[field.name] {
 				for _, lock := range locks.evaluator.evaluateList(lockList).elements {
 					if resourceID := locks.lockedResource(lock); resourceID != "" {
-						analyzer.graph.AddEdge(Edge{Kind: "resource_lock", From: nodeID, To: resourceID, Label: "Lock", Span: analyzer.span(lock.expression), Metadata: map[string]any{"phase": field.phase}})
+						edges = append(edges, Edge{Kind: "resource_lock", From: nodeID, To: resourceID, Label: "Lock", Span: analyzer.span(lock.expression), Metadata: map[string]any{"phase": field.phase}})
 					}
 				}
 			}
 		}
 	}
+	return edges
 }
 
 func (analyzer *goAnalyzer) persistenceResources(flowName string, evaluator *goOptionsEvaluator) map[string]bool {

@@ -31,6 +31,8 @@ type scriptAnalysis struct {
 	StartInput             *v2StartInputFact    `json:"startInput,omitempty"`
 	PersistenceResourceIDs []string             `json:"persistenceResourceIds"`
 	DiagnosticResourceIDs  map[int]string       `json:"diagnosticResourceIds"`
+	// MethodExternalCalls feeds locked_method_external_call; see methodExternalCalls.
+	MethodExternalCalls []methodExternalCalls `json:"methodExternalCalls,omitempty"`
 }
 
 type scriptStepAnnotations struct {
@@ -129,6 +131,7 @@ func (analysis *scriptAnalysis) definition() *Graph {
 	}
 	analysis.applyV2Metadata()
 	analysis.applyActions()
+	graph.methodExternalCalls = analysis.MethodExternalCalls
 	return graph
 }
 
