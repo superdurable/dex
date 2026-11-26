@@ -11,7 +11,7 @@ Dex Web and `dexcli` read Flows through the same Dex Server API as your Workers.
 
 ## Find and read a Flow {#find-a-flow}
 
-In Dex Web, **Search** and **Summary** find Flows and show their state. A run's page shows its active Steps, Attributes, and Channels. Its **Timeline** lists each event of the run, with its inputs, outputs, and Attribute changes.
+Open **Flows** in Dex Web to find a Flow and see its status. In the run, open **State** to inspect active Steps, Attributes, and Channels. Open **Events** and choose **Timeline** to see events in order or **Graph** to follow Step executions.
 
 From a terminal, read the same run with its Flow ID and Run ID. These commands only read, and they print JSON:
 
@@ -37,9 +37,9 @@ After you fix the Worker, an active retry continues on its own. Do not restart o
 
 ## A Flow failed {#flow-failed}
 
-A Flow fails when a Step handler fails and its retries run out, or when its Flow timeout is set to fail it. By default, Step retries stop after 4 hours. In Dex Web, select the failed event in **Timeline**. Its **Failure** panel shows the attempt, the error, and the gRPC status. Expand **Stack trace** before you hand the failure to the team that owns the code.
+A Flow fails when a Step handler fails and its retries run out, or when its Flow timeout is set to fail it. By default, Step retries stop after 4 hours. In Dex Web, open **Events**, choose **Timeline**, and select the failed event. Its **Failure** panel shows the attempt, the error, and the gRPC status. Expand **Stack trace** before you hand the failure to the team that owns the code.
 
-[Troubleshoot a Flow run](/reference/web/debugging) has the full read-only workflow, with screenshots.
+[Troubleshoot a Flow run](/reference/web/debugging) has the full read-only workflow with screenshots.
 
 ## Recover a Flow with Time Travel {#time-travel}
 

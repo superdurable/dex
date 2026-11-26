@@ -11,7 +11,7 @@ Dex Web 和 `dexcli` 通过和 Worker 相同的 Dex Server API 读取 Flow。Dex
 
 ## 找到并查看 Flow {#find-a-flow}
 
-在 Dex Web 中，**Search** 和 **Summary** 查找 Flow 并显示它们的状态。一次 run 的页面显示它活动中的 Step、Attribute 和 Channel。它的 **Timeline** 列出这次 run 的每个事件，包括输入、输出和 Attribute 变化。
+在 Dex Web 中打开 **Flows**，查找 Flow 并查看其状态。打开一次运行后，选择 **State** 查看活动中的 Step、Attribute 和 Channel。打开 **Events**，选择 **Timeline** 按顺序查看事件，或选择 **Graph** 追踪 Step 执行。
 
 在终端里，用 Flow ID 和 Run ID 读取同一次 run。这些命令只读，输出 JSON：
 
@@ -37,7 +37,7 @@ dexcli flow history FLOW_ID --run-id RUN_ID --all
 
 ## Flow 失败了 {#flow-failed}
 
-Step handler 失败且重试用完，或者 Flow 的超时被设置为让它失败，Flow 就会失败。默认情况下，Step 的重试在 4 小时后停止。在 Dex Web 中，在 **Timeline** 里选中失败的事件。它的 **Failure** 面板显示尝试次数、错误和 gRPC 状态。把失败交给负责这段代码的团队之前，先展开 **Stack trace**。
+Step handler 失败且重试用完，或者 Flow 的超时被设置为让它失败，Flow 就会失败。默认情况下，Step 的重试在 4 小时后停止。在 Dex Web 中，打开 **Events**，选择 **Timeline**，再选中失败的事件。它的 **Failure** 面板显示尝试次数、错误和 gRPC 状态。把失败交给负责这段代码的团队之前，先展开 **Stack trace**。
 
 [Troubleshoot a Flow run](/reference/web/debugging)（英文）有完整的只读排查流程和截图。
 

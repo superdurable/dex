@@ -505,11 +505,13 @@ impl Step for UpdateLinkedInPosting {
 
 ## 演示
 
-[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。下面的运行接受了两次更新。执行图显示 Init Step、每个招聘网站的两个有序 execution，以及等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。这次运行接受了两次更新。执行图显示 Init Step、每个招聘网站的两个有序 execution，以及停止运行时仍在等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
 
-<a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="打开原始分辨率 Step graph">
-  <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="职位发布 Flow，其中 InitStep 为每个招聘网站启动两个有序的 Channel consumer execution" />
-</a>
+在 Dex Web 中打开 **Events**。选择 **Timeline**，按顺序查看两次更新。选择 **Graph**，查看每个招聘网站的有序执行，以及停止运行时被取消的 consumer 执行。
+
+[![Dex Web Timeline 展示两次职位发布更新](/img/use-cases/job-post-timeline.png)](/img/use-cases/job-post-timeline.png)
+
+[![Dex Web Graph 展示两次职位发布更新](/img/use-cases/job-post-graph.png)](/img/use-cases/job-post-graph.png)
 
 ## 下一步
 

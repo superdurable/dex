@@ -59,9 +59,9 @@ before you turn to raw JSON.
 
 ### 1. Select the relevant event
 
-Open the Flow by Flow ID and Run ID, choose **Timeline**, then select the
-Step event that is waiting, completed, or failed. On a wide screen, Timeline
-runs left to right, oldest first. Each event's icon shows its kind, and only
+Open the Flow by Flow ID and Run ID. Under **Events**, choose **Timeline**
+and select a waiting, completed, or failed Step event. On a wide screen,
+Timeline runs left to right, oldest first. Each event's icon shows its kind, and only
 waiting, failed, and canceled events are colored. The selected event panel
 below the Timeline shows the event's title and its event number.
 
@@ -89,10 +89,7 @@ link. "Not on this page" means Dex Web knows the related event exists
 but cannot locate it, so it offers no jump. The oldest retained page states
 which event numbers were removed.
 
-<img
-  src="/img/production/dex-web-timeline-step-input.png"
-  alt="Dex Web Timeline with a waiting WaitFor event selected and its Step input visible"
-/>
+![Dex Web Timeline with a waiting shipping Step selected and its input and wait conditions visible](/img/production/dex-web-events-waiting-step-input.png)
 
 ### 2. Read inputs, Attributes, conditions, and outputs
 
@@ -107,22 +104,16 @@ as the next Step type, its input, and its options; **Decision details** expands
 the rest. Attribute rows preview their values, and **Show all** opens a long
 one.
 
-<img
-  src="/img/production/dex-web-step-input-output.png"
-  alt="Dex Web Timeline with a completed Step selected and both input and output visible"
-/>
+![Dex Web Timeline with a completed shipping Step selected and its input and output visible](/img/production/dex-web-events-step-input-output.png)
 
 ### 3. Expand a failed Step's stack trace
 
-For a retrying or failed Step, select the failed event from **Timeline** or the
-failed node from **Graph**. Under **Failure**, compare the attempt, Worker
-error type, error detail, and gRPC status. Expand **Stack trace** before asking
-the owning team to investigate.
+Under **Events**, select the retrying or failed Step in **Timeline** or
+**Graph**. Under **Failure**, compare the attempt, Worker error type, error
+detail, and gRPC status. Expand **Stack trace** before asking
+the owning team to investigate. When a retry succeeds, look under **Last failure** in **Context** for the previous attempt.
 
-<img
-  src="/img/production/dex-web-failed-step-stack-trace.png"
-  alt="Dex Web failed Step details with Stack trace expanded"
-/>
+![Expanded stack trace from a failed payout attempt that timed out](/img/production/dex-web-events-failed-step-stack-trace.png)
 
 ### 4. Save auditable JSON with dexcli
 

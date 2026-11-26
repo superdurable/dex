@@ -1397,17 +1397,15 @@ curl -s 'http://127.0.0.1:8080/products/order-processing/start?testFailAtShippin
 curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID"
 ```
 
-状态是 **refunded**。在 Dex Web 里，Execution graph 显示 Charge、Ship，然后是 Refund。
+状态是 **refunded**。在 Dex Web 的 **Events** 下，**Graph** 显示 Charge、Ship，然后是 Refund。
 
 ## 6. Dex Web
 
-批准订单后，在 Dex Web 里打开这条 Flow。Execution graph 显示先 Charge、后 Ship：
+批准订单后，在 Dex Web 中打开这次运行，选择 **Events**。选择 **Timeline**，按顺序查看扣款、批准和发货。选中一个事件后，可在时间线下方读取它的输入和输出。选择 **Graph**，查看各 Step 如何衔接。
 
-![approve 之后的 Dex Web Execution graph](/img/order-processing/step-graph.png)
+[![Dex Web Timeline 展示订单从扣款、批准到发货的过程](/img/use-cases/order-processing-timeline.png)](/img/use-cases/order-processing-timeline.png)
 
-Timeline 标签页从左到右显示同一次 run 的事件。选中一个事件，就能在 Timeline 下方读取它的输入和输出：
-
-![approve 之后的 Dex Web Timeline](/img/order-processing/timeline.png)
+[![Dex Web Graph 展示订单从扣款、批准到发货的过程](/img/use-cases/order-processing-graph.png)](/img/use-cases/order-processing-graph.png)
 
 ## 下一步
 
