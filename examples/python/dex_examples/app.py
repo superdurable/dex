@@ -96,6 +96,9 @@ from dex_examples.patterns.parallel_subflows.wait_for_half_parent_flow import (
 )
 from dex_examples.patterns.polling.job_service import FakeJobService
 from dex_examples.patterns.polling.polling_flow import PollingFlow
+from dex_examples.patterns.polling_with_timer.polling_with_timer_flow import (
+    PollingWithTimerFlow,
+)
 from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
     ExpenseReimbursementFlow,
 )
@@ -222,6 +225,7 @@ class ExampleApp:
         )
         self.polling_jobs = FakeJobService()
         self.polling = PollingFlow(self.polling_jobs)
+        self.polling_with_timer = PollingWithTimerFlow(self.polling_jobs)
         self.failure_recovery = FailureRecoveryFlow()
         self.payment_provider = FakePaymentProvider()
         self.expense_reimbursement = ExpenseReimbursementFlow(self.payment_provider)
@@ -303,6 +307,7 @@ class ExampleApp:
             self.short_live_subflows,
             self.submit_subflow_request,
             self.polling,
+            self.polling_with_timer,
             self.failure_recovery,
             self.expense_reimbursement,
             self.reminder,

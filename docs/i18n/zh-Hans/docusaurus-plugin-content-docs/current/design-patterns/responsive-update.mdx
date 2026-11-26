@@ -4,7 +4,7 @@ title: 响应式更新
 
 # 响应式更新
 
-交互式调用方不应只能等整个 Flow 结束，或者轮询它的状态。使用响应式更新，调用方只等到自己需要的那个点。其余工作由 Flow 继续完成。如果是 Flow 自己在等待外部系统，请使用 [轮询](/design-patterns/durable-timer/polling)。
+交互式调用方不应只能等整个 Flow 结束，或者轮询它的状态。使用响应式更新，调用方只等到自己需要的那个点。其余工作由 Flow 继续完成。如果是 Flow 自己在等待外部系统，请使用 [用 WaitFor Timer 轮询](/design-patterns/durable-timer/polling-with-wait-for-timer) 或 [用长时间运行 Step 的 heartbeat 轮询](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat)。
 
 选择要等待的点：
 

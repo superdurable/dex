@@ -37,6 +37,8 @@ import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-resp
 import { ExpenseReimbursementFlow } from "../../src/patterns/fail-fast/expense-reimbursement-flow.js";
 import { FakePaymentProvider } from "../../src/patterns/fail-fast/fake-payment-provider.js";
 import { supportTicketFlow } from "../../src/patterns/inbound-event-loop/support-ticket-flow.js";
+import { FakeJobService } from "../../src/patterns/polling/fake-job-service.js";
+import { PollingWithTimerFlow } from "../../src/patterns/polling-with-timer/polling-with-timer-flow.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
@@ -64,6 +66,8 @@ const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 const paymentProvider = new FakePaymentProvider();
 const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
+const pollingJobs = new FakeJobService();
+const pollingWithTimerFlow = new PollingWithTimerFlow(pollingJobs);
 const shipmentFlow: ShipmentFlow = new ShipmentFlow(getClient, (): OrderFulfillmentFlow => orderFulfillmentFlow);
 const orderFulfillmentFlow: OrderFulfillmentFlow = new OrderFulfillmentFlow(getClient, shipmentFlow);
 
@@ -84,6 +88,8 @@ export interface IntegEnvironment {
   readonly loanApplicationFlow: typeof loanApplicationFlow;
   readonly expenseReimbursementFlow: ExpenseReimbursementFlow;
   readonly paymentProvider: FakePaymentProvider;
+  readonly pollingJobs: FakeJobService;
+  readonly pollingWithTimerFlow: PollingWithTimerFlow;
   readonly shipmentFlow: typeof shipmentFlow;
   readonly orderFulfillmentFlow: typeof orderFulfillmentFlow;
   readonly customerAccountFlow: typeof customerAccountFlow;
@@ -134,6 +140,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     creditCheckFlow,
     loanApplicationFlow,
     expenseReimbursementFlow,
+    pollingWithTimerFlow,
     shipmentFlow,
     orderFulfillmentFlow,
     customerAccountFlow,
@@ -175,6 +182,8 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     loanApplicationFlow,
     expenseReimbursementFlow,
     paymentProvider,
+    pollingJobs,
+    pollingWithTimerFlow,
     shipmentFlow,
     orderFulfillmentFlow,
     customerAccountFlow,

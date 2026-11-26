@@ -212,6 +212,7 @@ func runPatternScenarios(
 	}
 	cases := []caseFn{
 		{"pattern/polling", func() result { return verifyPolling(ctx, client, stamp) }},
+		{"pattern/polling-with-timer", func() result { return verifyPollingWithTimer(ctx, client, stamp) }},
 		{"pattern/control-long-running-work", func() result { return verifyControlLongRunningWork(ctx, client, stamp) }},
 		{"pattern/reminder", func() result { return verifyReminder(ctx, client, stamp) }},
 		{"pattern/entity-store", func() result { return verifyEntityStore(ctx, client, stamp) }},
@@ -638,6 +639,29 @@ func verifyPolling(ctx context.Context, client *dex.Client, stamp string) result
 		return fail(name, "output="+output, nil)
 	}
 	return pass(name, "AwaitJob polled the job until it succeeded")
+}
+
+func verifyPollingWithTimer(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/polling-with-timer"
+	flowID := "dv-polling-with-timer-" + stamp
+	_, err := client.StartFlow(
+		ctx, registry.PollingWithTimer, flowID, nil, hourStartOptions(),
+	)
+	if err != nil {
+		return fail(name, "", err)
+	}
+	wait, err := waitCompleted(ctx, client, flowID, 45*time.Second)
+	if err != nil {
+		return fail(name, "", err)
+	}
+	output, err := decodeStringCompletion(wait)
+	if err != nil {
+		return fail(name, "", err)
+	}
+	if output != "artifact for "+flowID {
+		return fail(name, "output="+output, nil)
+	}
+	return pass(name, "CheckJobStatus found the job finished when its Timer fired")
 }
 
 func verifyControlLongRunningWork(ctx context.Context, client *dex.Client, stamp string) result {

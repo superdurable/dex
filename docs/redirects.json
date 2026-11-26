@@ -37,35 +37,43 @@
   },
   {
     "from": "/design-patterns/polling/backoff",
-    "to": "/design-patterns/durable-timer/polling"
+    "to": "/design-patterns/durable-timer/polling-with-long-running-step-heartbeat"
   },
   {
     "from": "/zh-Hans/design-patterns/polling/backoff",
-    "to": "/zh-Hans/design-patterns/durable-timer/polling"
+    "to": "/zh-Hans/design-patterns/durable-timer/polling-with-long-running-step-heartbeat"
   },
   {
     "from": "/design-patterns/polling/timer",
-    "to": "/design-patterns/durable-timer/polling"
+    "to": "/design-patterns/durable-timer/polling-with-wait-for-timer"
   },
   {
     "from": "/zh-Hans/design-patterns/polling/timer",
-    "to": "/zh-Hans/design-patterns/durable-timer/polling"
+    "to": "/zh-Hans/design-patterns/durable-timer/polling-with-wait-for-timer"
   },
   {
     "from": "/design-patterns/polling/iteration",
-    "to": "/design-patterns/durable-timer/polling"
+    "to": "/design-patterns/durable-timer/polling-with-wait-for-timer"
   },
   {
     "from": "/zh-Hans/design-patterns/polling/iteration",
-    "to": "/zh-Hans/design-patterns/durable-timer/polling"
+    "to": "/zh-Hans/design-patterns/durable-timer/polling-with-wait-for-timer"
   },
   {
     "from": "/design-patterns/polling",
-    "to": "/design-patterns/durable-timer/polling"
+    "to": "/design-patterns/durable-timer/polling-with-long-running-step-heartbeat"
   },
   {
     "from": "/zh-Hans/design-patterns/polling",
-    "to": "/zh-Hans/design-patterns/durable-timer/polling"
+    "to": "/zh-Hans/design-patterns/durable-timer/polling-with-long-running-step-heartbeat"
+  },
+  {
+    "from": "/design-patterns/durable-timer/polling",
+    "to": "/design-patterns/durable-timer/polling-with-long-running-step-heartbeat"
+  },
+  {
+    "from": "/zh-Hans/design-patterns/durable-timer/polling",
+    "to": "/zh-Hans/design-patterns/durable-timer/polling-with-long-running-step-heartbeat"
   },
   {
     "from": "/design-patterns/critical-section",

@@ -36,7 +36,7 @@ Modeling:
 - [ ] Every top-level Flow boundary is justified; no pair of Flows calls each other on frequent events.
 - [ ] One owning Flow starts dependent work; the API handler never chains starts.
 - [ ] WaitFor mutates no external system; any provider call there is read-only, idempotent, and time-bounded. Provider mutations and Connector write operations are in Execute.
-- [ ] No external polling in WaitFor or through a Timer loop; external waits use the Polling pattern.
+- [ ] No external call in WaitFor; each external wait uses one of the two Polling shapes and is bounded.
 - [ ] No other Flow is started or mutated from WaitFor.
 - [ ] The Flow preferably owns the decisions and status of its process; the caller supplies facts, starts Flows, calls RPCs, and reads. See [client.md](client.md#the-flow-owns-decisions-and-status).
 - [ ] Business deadlines are durable Timers, never clock comparisons in a Step or an RPC. Idempotency keys and business IDs never derive from the current time. A decision with a deadline races its decision Channels and Timer in one waiting Step, and Execute checks which Condition fired; a deadline for the whole Flow uses the Flow timeout.

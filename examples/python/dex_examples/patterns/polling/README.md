@@ -26,5 +26,6 @@ detail.
 - `GET /patterns/polling/start?workflowId={workflowId}`
 - `GET /patterns/polling/complete-job?workflowId={workflowId}`
 
-See [Polling](https://docs.superdurable.io/design-patterns/polling) for the
-pattern rules.
+See [Polling with Long-Running Step Heartbeat](https://docs.superdurable.io/design-patterns/durable-timer/polling-with-long-running-step-heartbeat)
+for the pattern rules. [Polling with WaitFor Timer](../polling-with-timer)
+waits for the same job with one Step execution per round.

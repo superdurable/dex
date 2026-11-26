@@ -37,6 +37,7 @@ import { createParallelSubFlowsRouter } from "./patterns/parallel-subflows/contr
 import { createDeferredChoiceRouter } from "./patterns/deferred-choice/controller.js";
 import { createFailFastRouter } from "./patterns/fail-fast/controller.js";
 import { createPatternPollingRouter } from "./patterns/polling/controller.js";
+import { createPatternPollingWithTimerRouter } from "./patterns/polling-with-timer/controller.js";
 import { createRecoveryRouter } from "./patterns/recovery/controller.js";
 import { createRemindersRouter } from "./patterns/reminders/controller.js";
 import { createSequentiallyChunkedAttributeMapRouter } from "./patterns/sequentially-chunked-attribute-map/controller.js";
@@ -85,6 +86,7 @@ import {
   piOrderSupportFlow,
   pollingFlow,
   pollingJobs,
+  pollingWithTimerFlow,
   vercelAiOrderSupportFlow,
 } from "./registry.js";
 
@@ -137,6 +139,10 @@ export async function startSampleServer(refundLedgerDirectory?: string): Promise
   app.use("/products/agent-harnesses/mastra", createOrderSupportRouter(client, mastraOrderSupportFlow, agentSessionKey));
   app.use("/products/agent-harnesses/pi", createOrderSupportRouter(client, piOrderSupportFlow, agentSessionKey));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
+  app.use(
+    "/patterns/polling-with-timer",
+    createPatternPollingWithTimerRouter(client, pollingWithTimerFlow, pollingJobs),
+  );
   app.use("/patterns/deferred-choice", createDeferredChoiceRouter(client));
   app.use("/patterns/fail-fast", createFailFastRouter(client, expenseReimbursementFlow));
   app.use("/patterns/control-long-running-work", createControlLongRunningWorkRouter(client));

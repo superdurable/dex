@@ -1,50 +1,79 @@
 ---
-title: 轮询
-sidebar_label: 轮询
+title: Polling with Long-Running Step Heartbeat
+sidebar_label: Polling with Step Heartbeat
 ---
 
-import flowDefinition from '@site/src/data/flow-definitions/design-patterns/polling.json';
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/polling-with-long-running-step-heartbeat.json';
 
-# 轮询
+# Polling with Long-Running Step Heartbeat
 
-当 Flow 需要等待外部系统就绪或完成时，使用 Polling。例如云端构建、Kubernetes rollout、资源开通任务，或第三方 API 的状态。
+Polling with a long-running Step heartbeat waits for an external system inside one Step execution. Use it when a Flow waits for a cloud build, a Kubernetes rollout, a provisioning job, or the status of a third-party API, and you want the lightest polling loop.
 
-整个等待由一个 Step 负责。它的 `Execute` 调用外部 API，sleep，然后再次调用，直到工作进入终态。
+One Step owns the whole wait. Its `Execute` calls the external API, sleeps, and calls again until the work reaches a terminal state. [Polling with WaitFor Timer](/design-patterns/durable-timer/polling-with-wait-for-timer) waits for the same kind of system with one Step execution per round.
 
-Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling。用 `WaitFor` 等待它们。TTL、提醒、不活跃截止时间等业务 Timer 也使用 `WaitFor`；见 [持久化定时器](/design-patterns/durable-timer)。
+Business signals inside Dex, such as Channel messages and RPCs, are not polling. Wait for them with `WaitFor`. Business timers, such as a TTL, a reminder, or an inactivity deadline, also use `WaitFor`; see [Durable Timer](/design-patterns/durable-timer).
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-## 结构
+## Shape
 
-轮询 Step 重复以下步骤：
+The polling Step repeats these steps:
 
-1. 调用外部 API，并给这次调用设置自己的短超时，例如 10 秒。
-2. 遇到临时错误时，返回这个错误。重试策略会再次运行这个 Step。
-3. 遇到终态时，返回下一步的决定：成功或业务失败。
-4. 报告进度。状态变化时写一条 Stream 消息，否则带着 checkpoint 记录一次 heartbeat。
-5. 按轮询间隔 sleep，然后重新开始。
+1. Call the external API with its own short timeout, such as 10 seconds.
+2. On a transient error, return the error. The retry policy runs the Step again.
+3. On a terminal status, return the next decision: success or a business failure.
+4. Report progress. Write a Stream message when the status changes. Otherwise record a heartbeat with the checkpoint.
+5. Sleep for the polling interval, then start again.
 
-“尚未就绪”是循环里的正常分支，绝不是错误。
+"Not ready yet" is a normal branch of the loop. It is never an error.
 
-普通的 sleep 就够了。循环不需要监听取消。Dex 取消这次尝试时，会取消 Step 传给外部调用的 context，所以下一次调用会立即失败，循环随之结束。
+A plain sleep is enough. The loop does not need to watch for cancellation. When Dex cancels the attempt, it cancels the context that the Step passes to the external call, so the next call fails at once and the loop ends.
 
-## 规则 {#rules}
+## Rules {#rules}
 
-- <a id="interval-and-timeouts"></a>每一轮都要落在 heartbeat 窗口内；计算方法见 [Heartbeat](/reference/python/step-options#heartbeat)（英文）。用户正在等待时，间隔用几秒；构建这类长任务，用几十秒。
-- <a id="limits"></a>`ExecuteMethodTimeout` 和 `TotalDuration` 使用同一个最长等待时间。Dex 会强制执行这两个值，所以 Step 不需要自己计算截止时间。失败之后，`TotalDuration` 只决定是否安排下一次尝试。排队可能让已安排的尝试晚开始，进行中的尝试也不会被截断，所以整个等待可能比它晚很多才结束。Flow 的业务截止时间用下面的 watchdog。`ExecuteRetry` 使用少量带退避的尝试，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)（英文）。Polling Step 可以使用任一种 durability。
-- <a id="when-the-wait-expires"></a>等待超时后，Step 失败。用 `ExecuteFailure` 选项把这个失败路由到一个短 Step，由它记录业务失败；见 [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)。失败记录不包含最后的状态；从 Stream 或日志中读取它。
-- 其他业务条件仍然在循环中检查，例如由其他系统持有、可能过期的 lease。这些 timeout 只能限定固定时长。
-- <a id="deadline-watchdog"></a>业务截止时间比整个等待短，或者轮询 Step 为了提交每次状态变化而重新进入自身、Step options 无法守住截止时间时，使用 watchdog。watchdog 是一个与自己的 Timer 竞争的等待 Step。它和记录结果的 Step 声明同一个 Attribute lock。Timer 触发时，它在这个 lock 下读取状态，只有工作仍未完成时才判定超期。
-- <a id="checkpoint-and-progress"></a>从上一个 checkpoint 继续，用 `GetLastHeartbeatValue` 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以重试不会重复发送进度消息。
-- 只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从持久化状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。
-- <a id="locks"></a>由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中，这样 `ExecuteLockAttributes` 只会短暂持有。
+- <a id="interval-and-timeouts"></a>Keep each round inside the heartbeat
+  window; [Heartbeat](/reference/python/step-options#heartbeat) gives the
+  arithmetic. Use an interval of a few seconds when a user is watching, and
+  tens of seconds for long jobs such as builds.
+- <a id="limits"></a>Use one maximum-wait value for both `ExecuteMethodTimeout`
+  and `TotalDuration`. Dex enforces both, so the Step computes no deadline of
+  its own. After a failure, `TotalDuration` decides only whether to schedule
+  another attempt. Queueing can start a scheduled attempt late, and a running
+  attempt is never cut short, so the whole wait can end well after it. A
+  business deadline for the Flow uses the watchdog below. Give `ExecuteRetry` a few attempts with backoff for transient errors
+  and Worker crashes. See
+  [Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration).
+  The polling Step can use either durability.
+- <a id="when-the-wait-expires"></a>When the wait expires, the Step fails. Route
+  that failure with the `ExecuteFailure` option to a short Step that records
+  the business failure; see
+  [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+  The failure record omits the last status; read it from the Stream or the logs.
+- Check any other business condition inside the loop, such as a lease that
+  another system owns and that can expire. The timeouts bound only a fixed
+  duration.
+- <a id="deadline-watchdog"></a>Use a watchdog for a business deadline that is
+  shorter than the whole wait, or that the Step options cannot hold because the
+  polling Step re-enters itself to commit each status change. The watchdog is a
+  waiting Step that races its Timer. It declares the same Attribute lock as the
+  Step that records the result. When its Timer fires, it reads the status under
+  that lock and declares the work overdue only while the work is still
+  unfinished.
+- <a id="checkpoint-and-progress"></a>Resume from the last checkpoint, which
+  `GetLastHeartbeatValue` returns. In the example, the checkpoint is the last
+  reported job status, so a retry does not repeat a progress message.
+- Write a Stream message only when the observed status changes, and record a
+  heartbeat otherwise. Stream messages are best effort, so consumers recover
+  from durable state, such as Attributes, a read RPC, or the Flow result.
+- <a id="locks"></a>Return the result from the polling Step, and commit
+  anything that needs a lock in a short following Step, so
+  `ExecuteLockAttributes` is held only briefly.
 
-## 示例
+## Example
 
-`PollingFlow` 等待一个模拟的外部 job。`StartJob` 以 Flow ID 作为幂等 job ID 启动 job。`AwaitJob` 每两秒查询一次 job 状态。状态变化时写入一条 `JobProgress` Stream message，并以 job 结果完成。十分钟的最长等待时间到期时，`AwaitJob` 移动到 `RecordJobWaitFailure`。这个 Step 以恢复错误让 Flow 失败。
+`PollingFlow` waits for a simulated external job. `StartJob` starts the job with the Flow ID as an idempotent job ID. `AwaitJob` polls the job status every two seconds. It writes a `JobProgress` Stream message when the status changes and completes with the job result. When the ten-minute maximum wait expires, `AwaitJob` moves to `RecordJobWaitFailure`. That Step fails the Flow with the recovery error.
 
-模拟 job 先报告 QUEUED，然后是 RUNNING，启动六秒后成功。调用 complete-job endpoint 可以让它提前完成。
+The simulated job reports QUEUED, then RUNNING, and succeeds six seconds after it starts. Call the complete-job endpoint to finish it early.
 
 <SdkTabs
   examples={{
@@ -415,19 +444,34 @@ impl Step for RecordJobWaitFailure {
 </SdkSnippet>
 </SdkTabs>
 
-## 反模式
+## Compare the polling patterns {#compare}
 
-- Step 等待一个 Timer，再移动到自己来进行下一次 poll。
-- 把重试策略、backoff 或 `RetryAfter` 当作 polling 循环，把“尚未就绪”作为错误返回。
-- 长时间循环，既不记录 heartbeat，也不写进度。
-- 外部调用缺少自己的 timeout。
-- 手写一个截止时间，重复 `ExecuteMethodTimeout` 或 `TotalDuration` 已经提供的限制。
-- 每一页结果都启动一个新的 Flow。应该把 page token 留在循环里。
+The long-running Step with heartbeat is lighter. One Step execution holds the whole wait.
 
-## 下一步
+[Polling with WaitFor Timer](/design-patterns/durable-timer/polling-with-wait-for-timer) records every round in the Flow's history. You see each round clearly, and you can Time Travel back to a round. It is somewhat heavier.
 
-- [外部交互](/design-patterns/external-interaction)
+| Behavior | WaitFor Timer | Long-running Step heartbeat |
+| --- | --- | --- |
+| Each round | A new Step execution in the Flow's history | A heartbeat or Stream message inside one attempt |
+| Between rounds | No Worker task slot is held | The attempt holds a Worker task slot |
+| Dex Server failover | Fails only a check that is running | Fails the running attempt, which uses a retry |
+| Interval | Whole seconds | Any interval |
+
+Choose this pattern for short intervals or the lightest loop. Choose the Timer pattern for long intervals, to see each round, or to Time Travel to a round.
+
+## Anti-patterns
+
+- Using the retry policy, backoff, or `RetryAfter` as the polling loop, where "not ready" is returned as an error.
+- A long loop that never records a heartbeat or writes progress.
+- An external call without its own timeout.
+- A hand-written deadline that duplicates `ExecuteMethodTimeout` or `TotalDuration`.
+- Starting a new Flow for each page of results. Keep the page token in the loop instead.
+
+## Next
+
+- [External Interaction](/design-patterns/external-interaction)
+- [Polling with WaitFor Timer](/design-patterns/durable-timer/polling-with-wait-for-timer)
 - [Step options](/reference/python/step-options#timeouts-and-total-duration)
 - [Stream](/concepts/primitives/stream)
-- [失败处理](/design-patterns/failure-handling)
-- [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)
+- [Failure Handling](/design-patterns/failure-handling)
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)

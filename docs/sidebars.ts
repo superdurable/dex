@@ -124,7 +124,8 @@ const sidebars: SidebarsConfig = {
           items: [
             'design-patterns/durable-timer/cron',
             'design-patterns/durable-timer/reminder',
-            'design-patterns/durable-timer/polling',
+            'design-patterns/durable-timer/polling-with-wait-for-timer',
+            'design-patterns/durable-timer/polling-with-long-running-step-heartbeat',
           ],
         },
         {

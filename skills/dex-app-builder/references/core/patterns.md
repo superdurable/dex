@@ -289,9 +289,63 @@ Separate admission from processing and make admission durable.
 
 ## Polling
 
-Use this one pattern whenever a Flow waits for an external system to become ready or finish: a cloud build, a rollout, a provisioning job, a third-party status. Business signals inside Dex (Channels, RPCs) and business timers (TTL, reminders, inactivity) still use WaitFor; they are not polling. Go folder: `polling`.
+Use Polling whenever a Flow waits for an external system to become ready or finish: a cloud build, a rollout, a provisioning job, a third-party status. Business signals inside Dex (Channels, RPCs) and business timers (TTL, reminders, inactivity) still use WaitFor; they are not polling. Polling has two shapes. Choose one per wait:
 
-One long-running Execute owns the whole wait:
+| Question | [WaitFor Timer](#polling-with-waitfor-timer) | [Long-running Step heartbeat](#polling-with-long-running-step-heartbeat) |
+| --- | --- | --- |
+| What is one round? | A new Step execution, recorded in the Flow's history | A heartbeat or Stream frame inside one attempt |
+| Cost | Somewhat heavier: one history entry per round | Lighter: one Step execution for the whole wait |
+| Between rounds | No Worker task slot is held | The attempt holds a Worker task slot |
+| Dex Server failover | Fails only a check in progress | Fails the running attempt, which consumes a retry |
+| Interval | Whole seconds | Any interval |
+| Choose it for | Long intervals, seeing every round, Time Travel back to a round | Short intervals, the lightest loop |
+
+The Timer shape records every round in the Flow's history, so each round is visible and Time Travel can move the run back to a round inside its recent history window. The heartbeat shape is lighter.
+
+### Polling with WaitFor Timer
+
+Each round waits for a Timer in WaitFor, calls the provider once in Execute, and moves to itself while the work is not finished. Go folder: `polling-with-timer`.
+
+```text
+StartJob.execute(request)
+    jobId = provider.startJob(idempotencyKey = flowId, timeout = short)
+    return goTo(CheckJobStatus, {jobId, round = 1})
+
+CheckJobStatus options:
+    execute retry            = a few attempts with backoff
+    execute failure route    = RecordJobWaitFailure
+
+CheckJobStatus.waitFor(context, input)
+    return until(Timer(interval, conditionId = "poll-interval"))
+
+CheckJobStatus.execute(context, input)
+    status = provider.getStatus(input.jobId, timeout = short)   // error -> return error; retry policy re-runs
+    if status is succeeded: return gracefulComplete(result)
+    if status is failed:    return forceFail(reason)
+    if input.round >= maxRounds: return forceFail("did not finish")
+    return goTo(CheckJobStatus, {input.jobId, input.round + 1})
+```
+
+- "Not ready yet" is a normal decision: GoTo the same Step. Never an error.
+- Bound the loop. Carry a round number in the input and stop at a maximum, or keep a deadline in an Attribute. The interval times the maximum rounds bounds the whole wait.
+- Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
+- WaitFor only declares the Timer. The provider call runs in Execute.
+- The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
+- Timers count whole seconds. For a sub-second or few-second interval, use the heartbeat shape.
+- Give the Timer a condition ID. Tests skip it with SkipTimer; never shorten the interval for a test.
+
+Never:
+
+- Call the provider in WaitFor.
+- Use retry policy, backoff, or RetryAfter as the polling loop by returning "not ready" as an error.
+- Loop without a maximum round count or deadline.
+- Grow the Step input each round.
+- Call an external system without its own timeout.
+- Start a new Flow for each round or page.
+
+### Polling with long-running Step heartbeat
+
+One long-running Execute owns the whole wait. Go folder: `polling`.
 
 ```text
 StartJob.execute(request)
@@ -336,7 +390,6 @@ RecordJobWaitFailure.execute(context)
 
 Never:
 
-- WaitFor a Timer and GoTo the same Step to poll again.
 - Use retry policy, backoff, or RetryAfter as the polling loop by returning "not ready" as an error.
 - Run a long loop that never heartbeats or writes progress.
 - Call an external system without its own timeout.
@@ -590,7 +643,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Critical section across Steps | A Channel that holds one token message | A handoff Step takes the token with ForOne and does no protected work. The last Step of the section publishes the token back, and so does every other exit: the ExecuteFailure route, an early exit, and a WaitForFailure policy. Never cancel a Step that does protected work. |
 | Cancel one task | An RPC result or a decision cancels Steps by Step type and starts the replacement Step | A canceled Step is not retried, its failure route does not run, and Dex discards its later writes. Dex picks the Steps to cancel at commit time. |
 | Cancel the case and its child Flows | The Step that starts the SubFlow waits AnyOf(cancel Channel, SubFlow) and, on cancel, stops the child with Client StopFlow before ForceFail | List the cancel condition first in every wait. Every later waiting Step also waits for the cancel Channel. A closing parent never stops its children, so give every child its own Flow timeout. |
-| Loop | Execute returns GoTo to the same or an earlier Step with the next input | Each iteration is a new Step execution and a new commit. Bound the loop. Keep accumulated results in Attributes, not in a growing Step input. Wait between iterations with a Timer in WaitFor. Poll an external system inside one Execute instead. |
+| Loop | Execute returns GoTo to the same or an earlier Step with the next input | Each iteration is a new Step execution and a new commit. Bound the loop. Keep accumulated results in Attributes, not in a growing Step input. Wait between iterations with a Timer in WaitFor. To poll an external system, follow [Polling](#polling). |
 | Repeat on a schedule | A scheduler Step waits for a Timer to the next occurrence, then GoToMany starts the run Step and the next scheduler wait together | Starting the next wait with the run keeps a slow run from drifting the schedule. Make each run's external effect idempotent per occurrence. Stop the schedule with a Channel message or a closing decision. |
 | Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. When the Flow needs the results, fork a Join with one branch per item. A Join needs the instance count when it forks; instances added while others run need an explicit count and a loop. Use child Flows only for instances with their own lifecycle. |
 
@@ -942,4 +995,4 @@ Context rebuild after Worker replacement, compaction before deletion, approval a
 - Are side effects idempotent or compensated?
 - Is progress classified as durable or best effort?
 - Can a replacement Worker resume from durable state alone?
-- Is every external wait a Polling Step, never a Timer loop or a retry loop?
+- Is every external wait one of the two Polling shapes, bounded, and never a retry loop?

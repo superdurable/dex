@@ -14,7 +14,7 @@ When retries alone do not meet the requirement, choose one of these recovery pat
 - [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — Run your own handler when the whole Flow times out.
 - [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery) — When `WaitFor` still fails after its retries, handle the failure in Step code.
 
-To wait for an external system, use [Polling](/design-patterns/durable-timer/polling) instead.
+To wait for an external system, use [Polling with WaitFor Timer](/design-patterns/durable-timer/polling-with-wait-for-timer) or [Polling with Long-Running Step Heartbeat](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat) instead.
 
 ## Next
 

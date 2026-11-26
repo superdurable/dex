@@ -50,6 +50,10 @@ pub fn build_router(
         .merge(products::subscription::controller::mount(client.clone()))
         .merge(patterns::polling::controller::mount(
             client.clone(),
+            Arc::clone(&polling_jobs),
+        ))
+        .merge(patterns::polling_with_timer::controller::mount(
+            client.clone(),
             polling_jobs,
         ))
         .merge(control_patterns::fail_fast::controller::mount(

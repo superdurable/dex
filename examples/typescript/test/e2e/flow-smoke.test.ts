@@ -142,6 +142,14 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "patterns/polling-with-timer",
+      trigger: () =>
+        triggerGet(context, "/patterns/polling-with-timer/start", {
+          workflowId: newFlowId("pattern-polling-with-timer"),
+        }),
+      flags: defaultFlags(),
+    },
+    {
       name: "patterns/deferred-choice",
       trigger: async () => {
         const result = await triggerGet(context, "/patterns/deferred-choice/start", {

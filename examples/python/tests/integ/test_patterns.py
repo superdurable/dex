@@ -34,6 +34,9 @@ from dex_examples.patterns.fail_fast.expense_reimbursement_flow import (
 )
 from dex_examples.patterns.polling.job_service import JobState
 from dex_examples.patterns.polling.polling_flow import JOB_PROGRESS
+from dex_examples.patterns.polling_with_timer.polling_with_timer_flow import (
+    POLL_INTERVAL_TIMER_ID,
+)
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
@@ -54,11 +57,13 @@ from tests.integ.conftest import (
 from dex import (
     AsyncClient,
     Context,
+    DexServiceError,
     FlowConfig,
     FlowStatus,
     StartFlowOptions,
     StepDecision,
     StepExecutionId,
+    TimerId,
     WaitForStepCompletionOptions,
 )
 
@@ -193,6 +198,40 @@ async def test_polling_streams_job_progress_and_completes_with_job_result(
     assert running.value.state is JobState.RUNNING
 
     app.polling_jobs.complete_job(flow_id)
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert result.single_output(str) == f"artifact for {flow_id}"
+
+
+async def test_polling_with_timer_checks_the_job_when_the_interval_timer_fires(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("pattern-polling-with-timer")
+    await client.start_flow(app.polling_with_timer, flow_id, None, start_options())
+
+    async def is_job_completed() -> bool:
+        try:
+            app.polling_jobs.complete_job(flow_id)
+        except LookupError:
+            return False
+        return True
+
+    await wait_until("StartJob to start the job", is_job_completed)
+
+    async def is_interval_timer_skipped() -> bool:
+        try:
+            await client.skip_timer(
+                flow_id,
+                StepExecutionId("CheckJobStatus", 1),
+                TimerId(condition_id=POLL_INTERVAL_TIMER_ID),
+            )
+        except DexServiceError:
+            return False
+        return True
+
+    await wait_until("the first interval Timer to be skipped", is_interval_timer_skipped)
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status is FlowStatus.COMPLETED
     assert result.single_output(str) == f"artifact for {flow_id}"

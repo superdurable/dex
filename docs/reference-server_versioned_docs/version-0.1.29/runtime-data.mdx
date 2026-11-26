@@ -1523,7 +1523,7 @@ A direct Step write has these semantics:
 - A later Step failure does not roll the message back.
 - One method invocation can write any number of messages to the same or
   different Streams. Each write also counts as a heartbeat, and keeps the last
-  explicit heartbeat value. The [Polling](/design-patterns/durable-timer/polling) pattern uses
+  explicit heartbeat value. The [Polling](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat) pattern uses
   these writes to report progress.
 - The SDK confirms only that it encoded the message and handed it to the Worker
   output stream. If the Stream Store is disabled, unavailable, full, or rejects

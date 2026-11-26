@@ -209,6 +209,12 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "patterns/polling-with-timer",
+            path: "/patterns/polling-with-timer/start",
+            query: query(&client.new_flow_id("pattern-polling-with-timer")),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "patterns/fail-fast",
             path: "/patterns/fail-fast/start",
             query: HashMap::from([
@@ -524,6 +530,7 @@ dedicated_flow_smoke_entry_tests! {
     flow_smoke_products_money_transfer => "products/money-transfer",
     flow_smoke_products_order_processing => "products/order-processing",
     flow_smoke_patterns_polling => "patterns/polling",
+    flow_smoke_patterns_polling_with_timer => "patterns/polling-with-timer",
     flow_smoke_patterns_entity_store => "patterns/entity-store",
     flow_smoke_patterns_manual_recovery => "patterns/manual-recovery",
     flow_smoke_patterns_recovery => "patterns/recovery",

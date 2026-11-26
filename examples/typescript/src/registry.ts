@@ -49,6 +49,7 @@ import { ExpenseReimbursementFlow } from "./patterns/fail-fast/expense-reimburse
 import { FakePaymentProvider } from "./patterns/fail-fast/fake-payment-provider.js";
 import { FakeJobService } from "./patterns/polling/fake-job-service.js";
 import { PollingFlow } from "./patterns/polling/polling-flow.js";
+import { PollingWithTimerFlow } from "./patterns/polling-with-timer/polling-with-timer-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
 import { chunkedSubscriberFlow } from "./patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.js";
@@ -114,6 +115,7 @@ import { environmentOr } from "./config/env.js";
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
+const pollingWithTimerFlow = new PollingWithTimerFlow(pollingJobs);
 const paymentProvider = new FakePaymentProvider();
 const expenseReimbursementFlow = new ExpenseReimbursementFlow(paymentProvider);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
@@ -168,6 +170,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   advancedShortLiveParentFlow,
   submitRequestFlow,
   pollingFlow,
+  pollingWithTimerFlow,
   expenseReimbursementFlow,
   failureRecoveryFlow,
   reminderFlow,
@@ -245,6 +248,7 @@ export {
   submitRequestFlow,
   pollingFlow,
   pollingJobs,
+  pollingWithTimerFlow,
   expenseReimbursementFlow,
   failureRecoveryFlow,
   reminderFlow,

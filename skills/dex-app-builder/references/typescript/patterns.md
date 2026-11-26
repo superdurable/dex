@@ -14,7 +14,8 @@ application types.
 | Await all parallel Steps | `join.fork(...)` starts the branches and the waiter; each branch returns `join.endBranch(...)`; the waiter uses `join.forAllBranches(round)` | same file; [skeleton](#await-all-parallel-steps) |
 | First win | `withCancelingSiblingSteps(gracefulComplete(x), Work)` | same file |
 | Parallel SubFlows: basic, wait for half, long-lived and short-lived parent, partitioning, back pressure | `Wait.allOf(...SubFlow.run(...))`, quorum Channel, bounded request Channel | `patterns/parallel-subflows/parallel-subflows.ts` |
-| Polling | one async `execute` loop with heartbeats | `patterns/polling/polling-flow.ts`; [skeleton](#polling) |
+| Polling with WaitFor Timer | `waitFor` returns `Wait.until(Timer.byDuration(...))`; `execute` checks once and returns `goTo` to the same Step with the next round | `patterns/polling-with-timer/polling-with-timer-flow.ts` |
+| Polling with long-running Step heartbeat | one async `execute` loop with heartbeats | `patterns/polling/polling-flow.ts`; [skeleton](#polling) |
 | Cron | Timer raced with trigger and skip Channels | `patterns/cron/cron-schedule-flow.ts` |
 | Reminder | Timer raced with an opt-out Channel | `patterns/reminders/reminder-flow.ts` |
 | Idle Timer (Inactivity tracker) | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |

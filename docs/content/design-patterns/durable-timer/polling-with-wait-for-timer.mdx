@@ -1,0 +1,383 @@
+---
+title: Polling with WaitFor Timer
+sidebar_label: Polling with WaitFor Timer
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/polling-with-wait-for-timer.json';
+
+# Polling with WaitFor Timer
+
+Polling with a WaitFor Timer checks an external system once per round, and each round is a new Step execution. Use it when a Flow waits for a cloud build, a provisioning job, or a third-party status, and you want to see every round in the Flow's history.
+
+The polling Step waits for a Timer in `WaitFor`. Its `Execute` calls the external system once. While the work is not finished, the Step moves to itself for the next round.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## Shape {#shape}
+
+Each round of the polling Step runs these steps:
+
+1. `WaitFor` returns a Timer for the polling interval.
+2. When the Timer fires, `Execute` calls the external API once, with its own short timeout.
+3. On a transient error, `Execute` returns the error. The retry policy runs the round again.
+4. On a terminal status, `Execute` returns the next decision: success or a business failure.
+5. While the work is not finished, `Execute` returns `GoTo` to the same Step with the next round's input.
+
+"Not ready yet" is a normal decision. It is never an error.
+
+## Rules {#rules}
+
+- <a id="not-ready"></a>Return `GoTo` to the same Step when the work is not
+  ready. Each `GoTo` starts a new Step execution, which waits for a new Timer.
+- <a id="bound-the-loop"></a>Bound the loop. Carry a round number in the Step
+  input and stop at a maximum. The interval times the maximum rounds bounds
+  the whole wait. A deadline kept in an Attribute works the same way.
+- <a id="step-input"></a>Keep the Step input small and fixed in size, such as
+  the job ID and the round number. Keep accumulated state, such as collected
+  results, in Attributes, never in a growing Step input.
+- <a id="external-calls"></a>Call the external system only in `Execute`.
+  `WaitFor` only declares the Timer.
+- <a id="retries"></a>Give `ExecuteRetry` a few attempts with backoff for
+  transient errors. Route exhausted retries with the `ExecuteFailure` option
+  to a short Step that records the failure; see
+  [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+- <a id="interval"></a>Timers count whole seconds. For an interval below a
+  few seconds, use
+  [Polling with Long-Running Step Heartbeat](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat).
+- <a id="tests"></a>Give the Timer a condition ID. In tests, skip it with
+  `SkipTimer` instead of shortening the interval; see
+  [Skip a Timer](/concepts/primitives/timer#skip-a-timer).
+
+## Example
+
+`PollingWithTimerFlow` waits for the same simulated job as the [heartbeat example](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#example). `StartJob` starts the job with the Flow ID as an idempotent job ID. `CheckJobStatus` waits for a 10-second Timer, then reads the job status once. While the job runs, it moves to itself with the next round number. It stops after 60 rounds. When its retries run out, it moves to `RecordJobWaitFailure`, which fails the Flow with the recovery error.
+
+The simulated job succeeds six seconds after it starts, so the first round finds it finished. Call the complete-job endpoint to finish it early.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/polling-with-timer/polling_with_timer_flow.py',
+    go: 'examples/go/patterns/polling-with-timer/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/pollingwithtimer/PollingWithTimerFlow.java',
+    typescript: 'examples/typescript/src/patterns/polling-with-timer/polling-with-timer-flow.ts',
+    rust: 'examples/rust/src/patterns/polling_with_timer/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+# POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+POLL_INTERVAL = timedelta(seconds=10)
+POLL_INTERVAL_TIMER_ID = "poll-interval"
+MAX_POLL_ROUNDS = 60
+JOB_CALL_TIMEOUT = timedelta(seconds=10)
+
+
+@dataclass(frozen=True)
+class JobPollRound:
+    job_id: str
+    round_number: int
+
+
+class CheckJobStatus(Step[JobPollRound]):
+    def __init__(self, jobs: FakeJobService) -> None:
+        self.jobs = jobs
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                backoff_coefficient=2.0,
+                maximum_attempts=3,
+            ),
+        ).on_execute_failure_proceed_to(RecordJobWaitFailure)
+
+    def wait_for(self, context: Context, poll_round: JobPollRound) -> Wait:
+        return Wait.until(
+            Timer.by_duration(POLL_INTERVAL, condition_id=POLL_INTERVAL_TIMER_ID)
+        )
+
+    async def execute(
+        self, context: AsyncContext, poll_round: JobPollRound
+    ) -> StepDecision:
+        status = await asyncio.wait_for(
+            self.jobs.get_job_status(poll_round.job_id),
+            JOB_CALL_TIMEOUT.total_seconds(),
+        )
+        if status.state is JobState.SUCCEEDED:
+            return graceful_complete(status.result)
+        if status.state is JobState.FAILED:
+            return force_fail(f"job {poll_round.job_id} failed")
+        if poll_round.round_number >= MAX_POLL_ROUNDS:
+            return force_fail(
+                f"job {poll_round.job_id} did not finish in {MAX_POLL_ROUNDS} rounds"
+            )
+        next_round = JobPollRound(poll_round.job_id, poll_round.round_number + 1)
+        return go_to(CheckJobStatus, next_round)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// pollInterval * maxPollRounds bounds the whole wait.
+const (
+	pollInterval        = 10 * time.Second
+	PollIntervalTimerID = "poll-interval"
+	maxPollRounds       = 60
+	jobCallTimeout      = 10 * time.Second
+)
+
+type JobPollRound struct {
+	JobID       string `json:"jobId"`
+	RoundNumber int    `json:"roundNumber"`
+}
+
+type CheckJobStatus struct {
+	dex.StepDefaults
+	jobs *polling.FakeJobService
+}
+
+func (CheckJobStatus) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    3,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(RecordJobWaitFailure{}, nil),
+	}
+}
+
+func (CheckJobStatus) WaitFor(ctx dex.Context, _ JobPollRound) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(pollInterval, dex.WithConditionID(PollIntervalTimerID))), nil
+}
+
+func (step CheckJobStatus) Execute(ctx dex.Context, pollRound JobPollRound) (*dex.StepDecision, error) {
+	callCtx, cancel := context.WithTimeout(ctx, jobCallTimeout)
+	defer cancel()
+	status, err := step.jobs.GetJobStatus(callCtx, pollRound.JobID)
+	if err != nil {
+		return nil, dex.ErrorWithStack(err)
+	}
+	switch {
+	case status.State == polling.JobSucceeded:
+		return dex.GracefulComplete(status.Result), nil
+	case status.State == polling.JobFailed:
+		return dex.ForceFail("job " + pollRound.JobID + " failed"), nil
+	case pollRound.RoundNumber >= maxPollRounds:
+		return dex.ForceFail(fmt.Sprintf("job %s did not finish in %d rounds", pollRound.JobID, maxPollRounds)), nil
+	}
+	nextRound := JobPollRound{JobID: pollRound.JobID, RoundNumber: pollRound.RoundNumber + 1}
+	return dex.GoTo(CheckJobStatus{}, nextRound), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+// POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+private static final Duration POLL_INTERVAL = Duration.ofSeconds(10);
+public static final String POLL_INTERVAL_TIMER_ID = "poll-interval";
+private static final int MAX_POLL_ROUNDS = 60;
+private static final Duration JOB_CALL_TIMEOUT = Duration.ofSeconds(10);
+
+final class CheckJobStatus implements Step<JobPollRound> {
+    @Override
+    public Class<JobPollRound> getInputType() {
+        return JobPollRound.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder()
+                        .initialInterval(Duration.ofSeconds(1))
+                        .backoffCoefficient(2.0)
+                        .maximumAttempts(3)
+                        .build())
+                .onExecuteFailureProceedTo(RecordJobWaitFailure.class)
+                .build();
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final JobPollRound pollRound) {
+        return Wait.until(Timer.byDuration(POLL_INTERVAL, POLL_INTERVAL_TIMER_ID));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final JobPollRound pollRound) {
+        final JobStatus status = jobs.getJobStatus(pollRound.jobId(), JOB_CALL_TIMEOUT);
+        if (status.state() == JobState.SUCCEEDED) {
+            return StepDecision.gracefulComplete(status.result());
+        }
+        if (status.state() == JobState.FAILED) {
+            return StepDecision.forceFail("job " + pollRound.jobId() + " failed");
+        }
+        if (pollRound.roundNumber() >= MAX_POLL_ROUNDS) {
+            return StepDecision.forceFail("job " + pollRound.jobId()
+                    + " did not finish in " + MAX_POLL_ROUNDS + " rounds");
+        }
+        final JobPollRound nextRound =
+                new JobPollRound(pollRound.jobId(), pollRound.roundNumber() + 1);
+        return StepDecision.goTo(CheckJobStatus.class, nextRound);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// POLL_INTERVAL_MS * MAX_POLL_ROUNDS bounds the whole wait.
+const POLL_INTERVAL_MS = 10_000;
+export const POLL_INTERVAL_TIMER_ID = "poll-interval";
+const MAX_POLL_ROUNDS = 60;
+const JOB_CALL_TIMEOUT_MS = 10_000;
+
+class CheckJobStatus implements Step<JobPollRound> {
+  public readonly inputCodec = jobPollRoundCodec;
+
+  public constructor(private readonly jobs: FakeJobService) {}
+
+  public getStepType(): string {
+    return "CheckJobStatus";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: {
+        initialIntervalMs: 1_000,
+        backoffCoefficient: 2,
+        maximumAttempts: 3,
+      },
+      executeFailure: ExecuteFailure.proceedTo(RecordJobWaitFailure),
+    };
+  }
+
+  public waitFor(_context: Context, _pollRound: JobPollRound): Wait {
+    return Wait.until(Timer.byDuration(POLL_INTERVAL_MS, POLL_INTERVAL_TIMER_ID));
+  }
+
+  public async execute(_context: AsyncContext, pollRound: JobPollRound): Promise<StepDecision> {
+    const status = await this.jobs.getJobStatus(
+      pollRound.jobId,
+      AbortSignal.timeout(JOB_CALL_TIMEOUT_MS),
+    );
+    switch (status.state) {
+      case "SUCCEEDED":
+        return gracefulComplete(status.result);
+      case "FAILED":
+        return forceFail(`job ${pollRound.jobId} failed`);
+    }
+    if (pollRound.roundNumber >= MAX_POLL_ROUNDS) {
+      return forceFail(`job ${pollRound.jobId} did not finish in ${MAX_POLL_ROUNDS} rounds`);
+    }
+    const nextRound = { jobId: pollRound.jobId, roundNumber: pollRound.roundNumber + 1 };
+    return goTo(CheckJobStatus, nextRound);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+// POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+const POLL_INTERVAL: Duration = Duration::from_secs(10);
+pub const POLL_INTERVAL_TIMER_ID: &str = "poll-interval";
+const MAX_POLL_ROUNDS: u32 = 60;
+const JOB_CALL_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobPollRound {
+    pub job_id: String,
+    pub round_number: u32,
+}
+
+impl Step for CheckJobStatus {
+    type Input = JobPollRound;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .execute_retry(
+                RetryPolicy::new()
+                    .initial_interval(Duration::from_secs(1))
+                    .backoff_coefficient(2.0)
+                    .maximum_attempts(3),
+            )
+            .on_execute_failure_proceed_to(&RecordJobWaitFailure)
+    }
+
+    fn wait_for(&self, _context: &mut Context, _poll_round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(
+            Timer::by_duration(POLL_INTERVAL).with_id(POLL_INTERVAL_TIMER_ID),
+        ))
+    }
+
+    fn execute(
+        &self,
+        _context: &mut Context,
+        poll_round: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        let job_id = &poll_round.job_id;
+        let status = self
+            .jobs
+            .get_job_status(job_id, JOB_CALL_TIMEOUT)
+            .map_err(HandlerError::from_error)?;
+        match status.state {
+            JobState::Succeeded => return Ok(StepDecision::graceful_complete(status.result)),
+            JobState::Failed => {
+                return Ok(StepDecision::force_fail(format!("job {job_id} failed")));
+            }
+            JobState::Queued | JobState::Running => {}
+        }
+        if poll_round.round_number >= MAX_POLL_ROUNDS {
+            return Ok(StepDecision::force_fail(format!(
+                "job {job_id} did not finish in {MAX_POLL_ROUNDS} rounds"
+            )));
+        }
+        let next_round = JobPollRound {
+            job_id: poll_round.job_id.clone(),
+            round_number: poll_round.round_number + 1,
+        };
+        Ok(StepDecision::go_to(self, next_round))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Compare the polling patterns {#compare}
+
+Polling with WaitFor Timer records every round in the Flow's history. You see each round clearly, and you can Time Travel back to a round. It is somewhat heavier.
+
+[Polling with Long-Running Step Heartbeat](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat) is lighter. One Step execution holds the whole wait.
+
+| Behavior | WaitFor Timer | Long-running Step heartbeat |
+| --- | --- | --- |
+| Each round | A new Step execution in the Flow's history | A heartbeat or Stream message inside one attempt |
+| Between rounds | No Worker task slot is held | The attempt holds a Worker task slot |
+| Dex Server failover | Fails only a check that is running | Fails the running attempt, which uses a retry |
+| Interval | Whole seconds | Any interval |
+
+Choose this pattern for long intervals, to see each round, or to Time Travel to a round. Choose the heartbeat pattern for short intervals or the lightest loop. Time Travel reaches a round only inside the run's recent history window; see [Recover a Flow with Time Travel](/components/operate-and-debug#time-travel).
+
+## Anti-patterns
+
+- Calling the external system in `WaitFor`.
+- Using the retry policy, backoff, or `RetryAfter` as the polling loop, where "not ready" is returned as an error.
+- A loop without a maximum round count or deadline.
+- A Step input that grows each round, such as a list of every status seen.
+- An external call without its own timeout.
+- A shorter interval in tests instead of `SkipTimer`.
+- Starting a new Flow for each round or each page of results.
+
+## Next
+
+- [Polling with Long-Running Step Heartbeat](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat)
+- [Timer](/concepts/primitives/timer)
+- [Reminder](/design-patterns/durable-timer/reminder)
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)

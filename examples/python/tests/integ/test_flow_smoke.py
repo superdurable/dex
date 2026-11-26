@@ -147,6 +147,13 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "patterns/polling-with-timer",
+            lambda c: trigger_get(
+                "/patterns/polling-with-timer/start",
+                {"workflowId": new_id("pattern-polling-with-timer")},
+            ),
+        ),
+        FlowSmokeEntry(
             "patterns/fail-fast",
             lambda c: trigger_get(
                 "/patterns/fail-fast/start",

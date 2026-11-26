@@ -154,7 +154,7 @@ A **Flow** is one durable run of a business process, with a stable Flow ID. It i
 | [Channel](references/core/channel.md) | durable FIFO queue consumed by WaitFor | queued intent, not storage |
 | [RPC](references/core/rpc.md) | typed synchronous handler on a Flow | the only external write path for Flow state |
 | [Stream](references/core/stream.md) | best-effort, resumable messages | progress only; never the record |
-| [Timer](references/core/timer.md) | durable delay Condition | business delays and deadlines; never for polling |
+| [Timer](references/core/timer.md) | durable delay Condition | business delays, deadlines, and the interval of a Timer polling loop |
 | [SubFlow](references/core/subflow.md) | child Flow started from WaitFor | not in a first design; pass the evolution gate |
 | [Client](references/core/client.md) | the application's boundary to Dex | start, invoke, read, wait; no direct state write |
 | [Connector](references/core/connector.md) | released provider integration: ready-made Connector Steps (Query or Mutation) and Triggers | use released official modules only; credentials never enter Flow state |
@@ -173,7 +173,7 @@ Choose the mechanism:
 | Live progress | Stream, with durable state in Attributes |
 | Parallel work in one lifecycle | parallel Steps (GoToMany) |
 | Separate owner and lifecycle | another top-level Flow, started by a Step through a Client |
-| Wait for an external system | the Polling pattern |
+| Wait for an external system | a Polling pattern: WaitFor Timer or long-running Step heartbeat |
 
 ## Find the right reference version
 
@@ -243,7 +243,7 @@ Before you design a Flow, find its shape below and read the matching section of 
 | A collection that grows without bound | [Sequentially chunked AttributeMap](references/core/patterns.md#sequentially-chunked-attributemap) | Archive bounded chunks. An append loads only the current chunk and a read only the requested page, never the whole map. Bound the total: delete the oldest chunks by count or age, archiving them first when the business must keep them, and record the oldest retained token in the same commit. |
 | Keyed records with direct lookup | [Hash-partitioned AttributeMap](references/core/patterns.md#hash-partitioned-attributemap) | A stable hash of the key picks one of a fixed number of map instances; lock and load only that instance. |
 | Wait until a deadline that a provider supplies, such as a due date | [Timer](references/core/timer.md) | Read it in WaitFor with a read-only, idempotent, time-bounded call and return the Timer; the Timer is durable once WaitFor's result commits. Read it instead in the previous Step's Execute and pass it as the next Step's input when the value must be auditable or visible, or needs its own failure route. |
-| Wait for an external system to become ready or finish | [Polling](references/core/patterns.md#polling) | Poll inside one long-running Execute with short calls and heartbeats; never a Timer loop, a WaitFor, or retries as the loop. |
+| Wait for an external system to become ready or finish | [Polling](references/core/patterns.md#polling) | Either a bounded WaitFor Timer loop with one short provider call per Execute, which records each round in the history and is somewhat heavier, or one long-running Execute with short calls and heartbeats, which is lighter. Never call the provider in WaitFor or use retries as the loop. |
 | Recurring work, or reminders until the recipient opts out | [Cron schedule](references/core/patterns.md#cron-schedule), [Reminder](references/core/patterns.md#reminder) | Cron: start the run and the next Timer wait together. Reminder: race the Timer with opt-out, then rearm after sending. |
 | A failure that a person must resolve | [Manual recovery](references/core/patterns.md#manual-recovery) | The Execute failure route goes to a Step that waits on retry and skip Channels. |
 | Undo earlier Steps after a Step fails | [Execute failure recovery](references/core/patterns.md#execute-failure-recovery) | The failure route compensates, starting with the failed Step itself, because a Step whose retries ran out may still have taken effect. |
@@ -272,7 +272,7 @@ Before you design a Flow, find its shape below and read the matching section of 
 For non-trivial work, run the [design review](references/core/self-check.md#design-review), then write the Flow model before code. These rules apply everywhere:
 
 - **Names.** Name Flow and Step types after their domain, such as `ReserveStock`, never `Init`, `Start`, or `Process`. Give each fixed kind of work its own Step type, not a kind field. Start every RPC name with a concrete action verb and its subject, such as `getQueuedMessages`. Prefer complete, precise names to short or generic ones such as `Get`, `Update`, `Manager`, `Data`, or `Handler`.
-- **WaitFor versus Execute.** WaitFor sets up a durable wait; any provider call there is read-only, idempotent, and time-bounded. Provider writes run in Execute, as **Prefer calls that can fail in Execute** states. Keep every provider write idempotent or compensatable. Never poll a provider from WaitFor or with a Timer loop; use the [Polling pattern](references/core/patterns.md#polling).
+- **WaitFor versus Execute.** WaitFor sets up a durable wait; any provider call there is read-only, idempotent, and time-bounded. Provider writes run in Execute, as **Prefer calls that can fail in Execute** states. Keep every provider write idempotent or compensatable. Never poll a provider from WaitFor; use a [Polling pattern](references/core/patterns.md#polling).
 - **Commit boundaries.** Each WaitFor, Execute, and RPC call commits separately. Give a provider action its own Step when its success deserves its own checkpoint, retry policy, failure route, or audit boundary.
 - **Prefer that the Flow owns decisions and status.** Pass business facts as start input or initial Attributes and let Steps compute decisions and status. Then the rules live in one place, and status changes commit together with the Flow's progress. A caller that precomputes a decision, such as "needs a second approval", spreads the rule across two places. See [client.md](references/core/client.md#the-flow-owns-decisions-and-status).
 - **One owning Flow.** Start one domain-named Flow at the API boundary for a multi-step mutation. Never chain dependent starts in the API handler. See [flow.md](references/core/flow.md#own-downstream-starts-durably).
