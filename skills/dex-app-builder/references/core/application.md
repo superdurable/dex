@@ -142,6 +142,20 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 - Before removing a definition, search for Flows that can still reach it, including recoverable terminal Flows. For example: `dexcli flow search --query 'FlowType = "OldFlowType"'`. Keep the result with the change record.
 - During a rolling deployment that adds Step types or RPC names, start the new Workers first. Dex hands a Step only to a Worker that registers its Step type. A Step type that no connected Worker registers waits in the task queue without consuming an attempt, and an RPC name that no connected Worker registers fails. Old Workers still run every name they do register, so keep changed logic compatible.
 
+### Steps that already wait
+
+A deploy never changes the conditions of a Step that already waits. Dex stored its Wait when the Step started. New `WaitFor` code applies only to Step executions that start after the deploy. The new `Execute` code does run when the old conditions are met.
+
+| Change for Steps that already wait | Do this |
+| --- | --- |
+| End a Timer earlier, such as a shorter deadline | New Steps get the new duration from the new `WaitFor`. Skip each old Timer with the Client `SkipTimer` once its new deadline passes. |
+| Change what the Step waits for | Publish to the Channel it waits on. |
+| Neither is enough | Only then cancel and restart the Step, with user authorization. |
+
+- To shorten deadlines, run a periodic job or an operator action. It searches for open Flow runs in that Step, computes each new deadline from a start time the Flow recorded, and calls `SkipTimer` for the runs past it. Select the Timer by the Condition ID or index of the old `WaitFor`.
+- A skipped Timer reaches `Execute` exactly like a fired one, so the deadline branch needs no new code.
+- This needs no new Step type, no new RPC, and no direct call to the generated Server API.
+
 ### Incompatible changes
 
 Choose one explicit strategy: let old Flow runs finish on an old Worker pool, keep versioned handlers in one registry, migrate at a safe application boundary, or stop or recover selected executions with user authorization. Never add an unreviewed fallback that silently reads old data as the new type.

@@ -23,7 +23,9 @@ A Timer is a durable Dex Server timer used as a WaitFor Condition. It survives W
 
 ## Skip a Timer
 
-SkipTimer makes a pending Timer behave as fired. It selects the Step execution and either the Timer's Condition ID or its zero-based Condition index. Use it in tests and for authorized operations.
+SkipTimer makes a pending Timer behave as fired. It selects the Step execution and either the Timer's Condition ID or its zero-based Condition index. It works only on an active Flow. Use it in tests, and in production to end a waiting Timer early.
+
+- A deploy never changes a Timer that already waits. To shorten a deadline, new Steps use the new duration, and a periodic job or operator action calls SkipTimer on each old Timer once its new deadline passes. See [application.md](application.md#steps-that-already-wait).
 
 - Acceptance is not proof of execution. The Timer may fire on its own before the skip applies.
 - The Execute that follows runs asynchronously. Confirm it with a Step-completion wait or a business read.
