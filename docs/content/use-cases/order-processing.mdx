@@ -1399,17 +1399,11 @@ Approve it as before. The Ship Step fails and retries for 3 seconds; the example
 curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID"
 ```
 
-The status is **refunded**. In Dex Web, the Execution graph shows Charge, Ship, and then Refund.
+The status is **refunded**. In Dex Web, **Events** → **Graph** shows Charge, Ship, and then Refund.
 
 ## 6. Dex Web
 
-After you approve the order, open the Flow in Dex Web. The Execution graph shows Charge, then Ship:
-
-![Dex Web Execution graph after approve](/img/order-processing/step-graph.png)
-
-The Timeline tab shows the same run's events from left to right. Select an event to read its input and output below the Timeline:
-
-![Dex Web Timeline after approve](/img/order-processing/timeline.png)
+After you approve the order, open the run in Dex Web and select **Events**. Choose **Graph** to see Charge followed by Ship. Choose **Timeline** to see the events in order, and select an event to read its input and output below the timeline. See the [Deal DSL demo](/use-cases/deal-dsl#demo) for screenshots of both views.
 
 ## Next
 

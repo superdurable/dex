@@ -441,11 +441,9 @@ impl Step for WaitForDecision {
 
 ## 演示
 
-[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。下面使用 Go 示例：它初始化雇主和求职者、退订提醒、记录一次拒绝，随后接受机会。接受消息唤醒 `ProcessTimeout` 后，Flow 以 **done** 完成。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。这次演示使用 Go 示例：它初始化雇主和求职者、退订提醒、记录一次拒绝，随后接受机会。接受消息唤醒 `ProcessTimeout` 后，Flow 以 **done** 完成。
 
-<a href="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" target="_blank" rel="noreferrer">
-  <img src="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" alt="已完成的求职者沟通 Step execution graph" />
-</a>
+在 Dex Web 中打开 **Events**。选择 **Timeline**，找到接受机会的消息。选择 **Graph**，查看各个 Step 如何执行到 Flow 完成。 [Deal DSL 演示](/use-cases/deal-dsl#demo)提供了这两个视图的截图。
 
 ## Rust 示例 {#rust-example}
 

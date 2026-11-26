@@ -447,9 +447,9 @@ impl Step for CallApiThree {
 
 ## Demo
 
-[Run any example](/use-cases#run-any-example) starts the samples app. For the run below, the Flow started with **test initial data**, the **Swap** RPC replaced it with **updated in-flight data**, and a **Ready** message released the wait. `CallAPI1`, `CallAPI2`, and `CallAPI3` completed; `CallAPI4` did not run, because **Ready** arrived before the 24-hour Timer fired.
+[Run any example](/use-cases#run-any-example) starts the samples app. In this run, the Flow started with **test initial data**, the **Swap** RPC replaced it with **updated in-flight data**, and a **Ready** message released the wait. `CallAPI1`, `CallAPI2`, and `CallAPI3` completed; `CallAPI4` did not run, because **Ready** arrived before the 24-hour Timer fired.
 
-![Completed Microservice orchestration Step execution graph](/img/use-cases/microservice-orchestration-step-execution-graph.jpg)
+In Dex Web, open **Events** and choose **Timeline** to find the **Swap** RPC and the **Ready** message. Choose **Graph** to see which API call Steps ran. See the [Deal DSL demo](/use-cases/deal-dsl#demo) for screenshots of both views.
 
 ## Next
 

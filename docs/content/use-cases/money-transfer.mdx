@@ -409,9 +409,9 @@ fn transfer_retry() -> RetryPolicy {
 
 ## Demo
 
-[Run any example](/use-cases#run-any-example) starts the samples app. The screenshot shows one successful transfer with an amount of 42 units. The Flow debited **checking-account**, credited **savings-account**, and completed all five operations in order: balance check, debit memo, debit, credit memo, and credit.
+[Run any example](/use-cases#run-any-example) starts the samples app. In this run, the Flow transferred 42 units. The Flow debited **checking-account**, credited **savings-account**, and completed all five operations in order: balance check, debit memo, debit, credit memo, and credit.
 
-![Completed Money transfer Step execution graph](/img/use-cases/money-transfer-step-execution-graph.jpg)
+In Dex Web, open **Events** and choose **Timeline** to inspect the input and output of each operation. Choose **Graph** to follow the five Steps in order. See the [Deal DSL demo](/use-cases/deal-dsl#demo) for screenshots of both views.
 
 ## Rust example {#rust-example}
 

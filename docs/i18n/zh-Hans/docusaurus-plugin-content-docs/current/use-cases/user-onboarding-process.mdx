@@ -395,13 +395,7 @@ impl Step for AccomplishTask1 {
 
 [运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。在这次 Go 运行中，一个用户完成注册、验证邮箱，然后完成任务 1 和任务 2。每个阶段都是一个独立的已完成 Step。每个 Step 都显示了用户操作到达之前它在等待的 Timer 和 Channel。
 
-<a href="/img/use-cases/user-onboarding-process-step-execution-graph.png">
-  <img
-    src="/img/use-cases/user-onboarding-process-step-execution-graph.png"
-    alt="已完成的 UserOnboardingFlow Step execution graph"
-    style={{display: 'block', width: '100%', maxWidth: '420px', margin: '1rem auto'}}
-  />
-</a>
+在 Dex Web 中打开 **Events**。选择 **Timeline**，查看每次用户操作何时到达。选择 **Graph**，查看已完成的 Step 以及每个 Step 等待的 Timer 和 Channel。 [Deal DSL 演示](/use-cases/deal-dsl#demo)提供了这两个视图的截图。
 
 ## 下一步
 

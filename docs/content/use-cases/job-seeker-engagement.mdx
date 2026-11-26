@@ -443,11 +443,9 @@ impl Step for WaitForDecision {
 
 ## Demo
 
-[Run any example](/use-cases#run-any-example) starts the samples app. The demo below uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes `ProcessTimeout`.
+[Run any example](/use-cases#run-any-example) starts the samples app. This demo uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes `ProcessTimeout`.
 
-<a href="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" target="_blank" rel="noreferrer">
-  <img src="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" alt="Completed Job seeker engagement Step execution graph" />
-</a>
+In Dex Web, open **Events** and choose **Timeline** to find the acceptance message. Choose **Graph** to follow the Step executions through completion. See the [Deal DSL demo](/use-cases/deal-dsl#demo) for screenshots of both views.
 
 ## Rust example {#rust-example}
 

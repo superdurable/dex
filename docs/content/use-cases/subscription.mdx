@@ -320,13 +320,7 @@ impl Flow for SubscriptionFlow {
 
 [Run any example](/use-cases#run-any-example) starts the samples app. In this Go run, the Flow stored the subscription and started **Trial**, **Cancel**, and `UpdateChargeAmount`. It applied a price update, then completed when the subscription was canceled. Completed nodes are finished Step executions. Waiting nodes show what each Step was still waiting for when the cancellation ended the Flow.
 
-<a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
-  <img
-    src="/img/use-cases/subscription-step-execution-graph.jpg"
-    alt="Completed SubscriptionFlow Step execution graph"
-    style={{ display: 'block', margin: '0 auto', maxWidth: '100%', width: '100%' }}
-  />
-</a>
+In Dex Web, open **Events** and choose **Timeline** to find the price update and cancellation. Choose **Graph** to see which Steps completed and which were still waiting when the Flow ended. See the [Deal DSL demo](/use-cases/deal-dsl#demo) for screenshots of both views.
 
 ## Next
 

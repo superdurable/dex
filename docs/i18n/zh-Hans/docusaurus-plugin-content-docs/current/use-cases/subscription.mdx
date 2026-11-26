@@ -318,13 +318,7 @@ impl Flow for SubscriptionFlow {
 
 [运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。在这次 Go 运行中，Flow 保存了订阅，并启动 **Trial**、**Cancel** 和 `UpdateChargeAmount`。它应用了一次价格更新，随后因订阅被取消而完成。已完成的节点是执行完毕的 Step execution。等待中的节点显示取消结束 Flow 时，各 Step 仍在等待什么。
 
-<a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
-  <img
-    src="/img/use-cases/subscription-step-execution-graph.jpg"
-    alt="已完成的 SubscriptionFlow Step execution graph"
-    style={{ display: 'block', margin: '0 auto', maxWidth: '100%', width: '100%' }}
-  />
-</a>
+在 Dex Web 中打开 **Events**。选择 **Timeline**，找到价格更新和取消事件。选择 **Graph**，查看 Flow 结束时哪些 Step 已完成、哪些仍在等待。 [Deal DSL 演示](/use-cases/deal-dsl#demo)提供了这两个视图的截图。
 
 ## 下一步
 

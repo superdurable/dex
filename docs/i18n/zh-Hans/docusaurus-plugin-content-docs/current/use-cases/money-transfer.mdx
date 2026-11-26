@@ -406,9 +406,9 @@ fn transfer_retry() -> RetryPolicy {
 
 ## 演示
 
-[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。下面的截图展示了一笔金额为 42 个单位的成功转账。Flow 先从 **checking-account** 扣除 42，再向 **savings-account** 增加 42，并按顺序完成余额检查、创建借记 memo、借记、创建贷记 memo 和贷记五个操作。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。这次运行成功转账了 42 个单位。Flow 先从 **checking-account** 扣除 42，再向 **savings-account** 增加 42，并按顺序完成余额检查、创建借记 memo、借记、创建贷记 memo 和贷记五个操作。
 
-![已完成的 Money transfer Step 执行图](/img/use-cases/money-transfer-step-execution-graph.jpg)
+在 Dex Web 中打开 **Events**。选择 **Timeline**，查看每个操作的输入和输出。选择 **Graph**，按顺序查看五个 Step。 [Deal DSL 演示](/use-cases/deal-dsl#demo)提供了这两个视图的截图。
 
 ## Rust 示例 {#rust-example}
 
