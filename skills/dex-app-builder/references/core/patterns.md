@@ -329,7 +329,7 @@ CheckJobStatus.execute(context, input)
 - Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
 - WaitFor only declares the Timer. The provider call runs in Execute.
 - The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
-- For an interval of a few seconds or less, use the heartbeat shape. Timer precision is in each SDK's [API reference](https://docs.superdurable.io/reference/go/).
+- For an interval of a few seconds or less, use the heartbeat shape.
 - Give the Timer a condition ID. Tests skip it with SkipTimer; never shorten the interval for a test.
 
 Never:
