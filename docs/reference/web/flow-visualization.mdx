@@ -541,9 +541,13 @@ The warning **locked_method_external_call** is experimental. It can report false
 
 **Since dexcli 1.48.1.** An RPC never waits for a lock. While a Step holds a lock that the RPC also takes, the RPC fails with an RPC lock conflict; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). A Step method holds its locks until its logical call ends, through every retry and backoff. A call to an external system in that method keeps the RPC failing for the whole call, and for minutes while the system is down. Commit the decision in a short locked Step, then make the external call in the next Step, which takes no lock that an RPC takes. A lock that only Steps share may cover an external call, because those Steps run one at a time.
 
-- **locked_method_external_call** (warning): a **WaitFor** or **Execute** registers a lock that an RPC of the same Flow also registers, and the method may call an external system. The message names the method, the lock, the RPC, and the first possible external call. Only Go sources are checked today.
+- **locked_method_external_call** (warning): a **WaitFor** or **Execute** registers a lock that an RPC of the same Flow also registers, and the method may call an external system. The message names the method, the lock, the RPC, and the first possible external call. Go, TypeScript, Python, Java, and Rust sources are checked.
 
-The analyzer decides what counts as an external call with an allowlist, so it does not miss one. In Go, a call is allowed when it is one of these:
+The analyzer decides what counts as an external call with an allowlist, so it does not miss one. In every language, a same-file helper is followed up to six levels deep, and it is allowed only when it makes only allowed calls. A Dex client or Worker counts as an external call in every language, because it reaches the Dex server and another Flow is an external system.
+
+### Go allowlist {#locks-shared-with-rpcs-go}
+
+In Go, a call is allowed when it is one of these:
 
 - a call into the Dex SDK packages `sdk-go/dex` and `sdk-go/logging`, such as a method of the handler's **dex.Context** or an Attribute, or a method of **context.Context**. Methods of **dex.Client**, such as **StartFlow**, count as external calls, because they reach the Dex server and another Flow is an external system;
 - a built-in function or a type conversion;
@@ -552,7 +556,71 @@ The analyzer decides what counts as an external call with an allowlist, so it do
 
 Every other call counts as a possible external call: a method on an interface, such as an injected client; a call through a function value or a function-typed field; a function used as a value, such as a callback argument; a third-party package or another package of your module; and standard-library I/O such as **net/http**, **os**, and **database/sql**.
 
-Only registration locks count: **ExecuteLockAttributes** and **WaitForLockAttributes**, including the options a movement passes with **WithStepOptions**, and **RPCOptions.LockAttributes**. In Go, AttributeMap locks are compared by AttributeMap, so a lock on another instance also matches. Flow timeout handlers take their locks from the start options, so they are not checked.
+Go locks come from **ExecuteLockAttributes** and **WaitForLockAttributes**, including the options a movement passes with **WithStepOptions**, and from **RPCOptions.LockAttributes**.
+
+### TypeScript allowlist {#locks-shared-with-rpcs-typescript}
+
+In TypeScript, a call is allowed when it is one of these:
+
+- an export of `@superdurable/dex`, or a method of a value it returns, such as the handler's **Context** or an Attribute. **Client**, **Worker**, **PullWorker**, **openBlobCache**, and the credential and key-provider classes count as external calls;
+- a default-library call that does no I/O, such as **String**, **Array**, **Map**, **Set**, **Object**, **Math**, **JSON**, **Date**, **Promise**, **Intl**, **URL**, **TextEncoder**, **console**, and **parseInt**;
+- a Node call that computes in memory: **createHash**, **createHmac**, **randomUUID**, and **timingSafeEqual** of `crypto`, the path functions of `path`, and **format** and **isDeepStrictEqual** of `util`;
+- a function, a class constructor, or a method on `this` declared in the same file.
+
+Every other call counts, such as **fetch**, **setTimeout**, `fs`, `http`, a method of another object, and an import from another module.
+
+TypeScript locks come from **executeLockAttributes** and **waitForLockAttributes** in **getStepOptions**, and from the RPC's **lockAttributes**.
+
+### Python allowlist {#locks-shared-with-rpcs-python}
+
+In Python, a call is allowed when it is one of these:
+
+- a name from the `dex` package, or a method of a value it returns, such as the handler's context or an Attribute. **Client**, **AsyncClient**, **Worker**, **AsyncWorker**, **BlobCache**, **open_blob_cache**, and the credential and key-provider classes count as external calls;
+- a built-in function. **print**, **open**, **input**, **exec**, **eval**, **getattr**, **setattr**, and similar built-ins count as external calls;
+- a call into a standard-library module that does no I/O, such as **json**, **re**, **math**, **datetime**, **decimal**, **collections**, **itertools**, **functools**, **hashlib**, **uuid**, **time**, and **logging**. **json.load**, **json.dump**, **time.sleep**, and **uuid.uuid1** count as external calls;
+- **os.getenv**, **os.environ.get**, the **os.path** string functions, **io.BytesIO**, **io.StringIO**, and **asyncio.gather**;
+- a method of a built-in value, a date, or a **Decimal**;
+- a function, class, or method declared in the same module.
+
+Every other call counts, such as `requests`, `subprocess`, a method of an injected object, and an import from another module of your project.
+
+Python locks come from **execute_lock_attributes** and **wait_for_lock_attributes**, and from `@rpc(lock_attributes=...)`.
+
+### Java allowlist {#locks-shared-with-rpcs-java}
+
+In Java, a call is allowed when it is one of these:
+
+- a call into `io.superdurable.dex`, such as the handler's **Context** or an Attribute. **Client**, **Worker**, **PullWorker**, **WorkerDispatcher**, **BlobCache**, and **Registry** count as external calls;
+- a call into `org.slf4j`;
+- a JDK call that does no I/O: **String**, **StringBuilder**, **Math**, the boxed types, and exceptions in `java.lang`; `java.util`, except **Timer**, **TimerTask**, **Scanner**, and **ServiceLoader**; and `java.time`, `java.math`, `java.text`, `java.util.stream`, `java.util.regex`, `java.util.function`, and `java.util.logging`;
+- **System.currentTimeMillis**, **System.nanoTime**, **System.getenv**, and **System.getProperty**;
+- a method of the same file, or an implicit member of a record or enum in another file of the same package.
+
+Every other call counts, such as **System.out.println**, `java.io`, `java.net` connections, reflection, **Object.wait**, and a method of an injected interface.
+
+Java locks come from **StepOptions.Builder.addExecuteLock** and **addWaitForLock**, including the options a movement passes, and from the `@RPC` **lockAttributes** and **lockAttributeMaps**.
+
+### Rust allowlist {#locks-shared-with-rpcs-rust}
+
+In Rust, a call is allowed when it is one of these:
+
+- an item of `dex_sdk`, or a method of a value it returns, such as the handler's context or an Attribute. **Client**, **Worker**, **BlobCache**, and **FileCredential** count as external calls;
+- a standard-library item that does no I/O, such as `collections`, `fmt`, `string`, `iter`, `cmp`, `time`, and `sync`. `sync::mpsc`, **Barrier**, and **Condvar** count as external calls;
+- `serde`, and `serde_json` except **from_reader**, **to_writer**, and **to_writer_pretty**;
+- a macro that does no I/O, such as `format!`, `vec!`, `json!`, and `assert!`; a `tracing` or `log` macro; and `write!` or `writeln!` into a **String** or a **Formatter**;
+- a function, type, or method declared in the same file.
+
+Every other call counts, such as `println!`, `std::fs`, `std::net`, `tokio::time::sleep`, a trait method on a generic value, and an item from another module of your crate.
+
+Rust locks come from **StepOptions::execute_lock** and **StepOptions::wait_for_lock** in the Step's **options** method, and from **Rpc::lock**.
+
+### Lock instances and limits {#locks-shared-with-rpcs-limits}
+
+Only registration locks count. Flow timeout handlers take their locks from the start options, so they are not checked.
+
+Java compares AttributeMap locks by instance when both sides name a constant instance. A computed instance matches every instance. Go, TypeScript, Python, and Rust compare AttributeMap locks by AttributeMap, so a lock on another instance also matches.
+
+TypeScript, Python, and Rust analyze one file at a time. A function or type that another file of your project declares counts as an external call. Java reads only the records and enums of sibling files.
 
 ## Application lints {#application-lints}
 
