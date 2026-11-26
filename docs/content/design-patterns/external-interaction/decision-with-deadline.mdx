@@ -32,8 +32,8 @@ Only one Condition wins, so only one branch ever starts.
 ## Rules
 
 - `AnyOf` consumes a message only from the Condition that wins. A response that lost stays pending in its Channel.
-- A response that is already queued when the Step starts waiting wins at once. Otherwise the event that commits first wins.
-- Channel priority follows declaration order. Declare the Channels in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
+- When the wait is evaluated, Dex selects one ready Condition. A ready Timer comes first. Otherwise Dex selects the first ready Channel in declaration order. When Conditions become ready at different times, the first event to satisfy the wait triggers the Step. See the [Waits reference](/reference/go/waits).
+- Declare the Channels in business priority order. The example's window admits at most one response. Without that window, an acceptance and a rejection that are both pending would select the acceptance.
 - In `Execute`, check which Condition fired: `HasTimerFired` for the Timer, and the Channel results for the responses. A Channel that lost returns no results. Do not treat a missing response as expiry.
 - The Timer starts when the Step starts waiting. It survives Worker and Server restarts. While the Step waits, it holds no Worker.
 - Every response gets a clear answer. The first one is recorded and decides the offer. Every later one gets "window closed". After the Flow closes, Dex rejects the RPC before its handler runs, so the HTTP route reads the closed Flow and answers "window closed" too. A Flow that never existed gets `404`.
@@ -67,6 +67,30 @@ Keep these rules when you use the window:
 - Give the locked `Execute` an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The example uses an initial retry interval of 1 second, at most 3 attempts, a total budget of 1 minute, and 10 seconds for each attempt. See the [StepOptions reference](/reference/go/step-options#defaults).
 - Make the response idempotent, so a retried call is safe.
 - To wait again, reopen the window under the same lock, in the `Execute` that starts the next wait.
+
+## Arbitrate by business priority {#arbitrate-by-business-priority}
+
+Some processes rank events against each other. For example, a withdrawal wins over a decision. "Arrives at the same moment" is not a boundary Dex can enforce. A lower-ranked event that commits first satisfies the wait before a higher-ranked one commits. So name the boundary explicitly:
+
+- **Events ready when the wait is evaluated.** Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued.
+- **Every event admitted before the decision.** Keep each round's candidates in Attributes keyed by round, as described below.
+- **The first response wins.** This is the response window above, a different, valid policy.
+
+For the second policy, each round has a round ID that is never reused. Two AttributeMaps are keyed by it: the round's window and the round's candidates. Every RPC and Step that touches a round locks that round's instances of both maps.
+
+A Step opens the round under its locks, then moves to the arbitration Step for that round.
+
+Each event's RPC names its target round. Under the round's locks, it accepts only while that round's window is open. A late RPC for a closed round gets "closed" and never reaches a newer round. The RPC appends its candidate: a key of round ID, event type, and event ID, a payload reference, the rank, and the admission order. It answers "received". The receipt confirms admission only. The arbitration Step decides the outcome. A retried RPC finds its key already in the set and adds nothing.
+
+When the round's candidate set goes from empty to non-empty, the same RPC commit publishes one wake-up. Later admissions only append. The wake-up carries no data, and its ChannelMap key is the round ID. Never read a wake-up to decide candidates or the outcome. When the Timer wins, one wake-up may stay pending. A long-running Flow that must reclaim state deletes it with the round's other state.
+
+The arbitration Step waits on `AnyOf` of the deadline Timer and the round's wake-up. Start only one such wait per round. Its `Execute` takes the round's locks. If the round is closed or missing, it ends the branch normally with a dead end (`DeadEnd`), with no decision and no business route. Otherwise it closes the round, reads the candidates, and picks the highest rank. Admission order breaks a tie. It records the decision and routes. With no candidate, it takes the deadline branch.
+
+The decision derives only from the round's Attribute state, so a retried `Execute` reaches the same decision. `Execute` holds the locks through its retries and backoff, so no candidate joins meanwhile. The successful locked close is the cutoff, not the Timer. A candidate admitted before it is eligible, even after the Timer fired.
+
+When `Execute` exhausts its retries, neither the close nor the decision commits. Give `Execute` a short retry budget and a failure route. The recovery Step takes the same locks and rechecks the window. A closed or missing round ends the branch with a dead end. Otherwise, in one commit, it either arbitrates again from the stored candidates, or closes the round, records the failure, and answers every admitted sender through an idempotent path. It never relies on the wake-up. Without a failure route, the Flow fails, and senders learn the outcome from its terminal state.
+
+Losing candidates stay in the record. Answer their senders through an idempotent path keyed by the candidate key. Lock order is commit order, not business priority, so a locked RPC never decides between ranked events.
 
 ## Related shapes
 

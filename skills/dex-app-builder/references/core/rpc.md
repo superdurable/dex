@@ -20,6 +20,7 @@ Name every RPC with a concrete action verb and its subject, such as `getQueuedMe
 - External API calls in a handler are outside that boundary.
 - An RPC result can return output, update or delete Attributes, publish, delete, or move pending messages, start new Steps, and cancel running Steps.
 - An RPC has no WaitFor. It never waits for a Condition.
+- When the business ranks events against each other, each event's RPC validates, records its candidate, and answers "received"; an arbitration Step decides. Lock order is commit order, not business priority. See [Arbitrate by business priority](patterns.md#arbitrate-by-business-priority).
 
 ## Execution modes
 

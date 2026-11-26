@@ -6,7 +6,9 @@ slug: /concepts/client
 
 # Client
 
-**Client** 是应用在 Worker 之外与 Dex 交互的方式。HTTP handler、后台任务或脚本都通过它调用 Dex。Client 把请求发给 Dex Server。它不运行 Flow 代码，Flow 代码由 Worker 运行。
+**Client** 向 Dex Server 发送请求。HTTP handler、后台任务或脚本都通过它调用 Dex。它不运行 Flow 代码，Flow 代码由 Worker 运行。
+
+Step 的 `Execute` 也可以用 Client 操作另一个 Flow。Step 读写自己所在的 Flow 时，通过 handler Context。
 
 ## 什么时候用 Client
 
