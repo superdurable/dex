@@ -114,18 +114,22 @@ EXTRA_SOURCE
 `
 
 type goDeclaredLocksCase struct {
-	extraSource    string
-	totalOptions   string
-	itemsOptions   string
-	repliesOptions string
-	rpcOptions     string
-	moveOptions    string
-	stepOptions    string
-	rpcBody        string
-	timeoutBody    string
-	waitBody       string
-	executeBody    string
+	extraSource string
+	// movementPackage, when set, is the source of package declaredlocks/movement, which workflow.go imports.
+	movementPackage string
+	totalOptions    string
+	itemsOptions    string
+	repliesOptions  string
+	rpcOptions      string
+	moveOptions     string
+	stepOptions     string
+	rpcBody         string
+	timeoutBody     string
+	waitBody        string
+	executeBody     string
 }
+
+const goReadThenWriteTotal = "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+2)"
 
 func goExecuteLocks(locks string) string {
 	return "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{" + locks + "}}\n}"
@@ -218,14 +222,17 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			diagnostics: []string{"warning declared_lock_unresolved"},
 		},
 		"two writers without declaration": {
-			source:          goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
+			source:          goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute",
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep Execute, at least one of them reads it, and no exact registration lock is held by every writer",
+		},
+		"blind writers are not nudged": {
+			source: goDeclaredLocksCase{rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
 		},
 		"read then write without declaration": {
 			source:          goDeclaredLocksCase{rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written without its lock by RPC Reply",
+			messageFragment: "is both read and written by RPC Reply without an exact registration lock",
 		},
 		"read then write under own lock without declaration": {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
@@ -234,20 +241,192 @@ func TestGoDeclaredLockDiagnostics(t *testing.T) {
 			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), stepOptions: goExecuteLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
 		},
 		"one unlocked writer of two without declaration": {
-			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: "_ = total.Set(ctx, 2)"},
+			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and Step AddItemStep Execute registers no lock of it",
+			messageFragment: "and no exact registration lock is held by every writer",
 		},
 		"step writers alone are not nudged": {
 			source: goDeclaredLocksCase{waitBody: "_ = total.Set(ctx, 1)", executeBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
 		},
-		"dynamic locks count as held for the nudge": {
+		"writers share another attribute's lock": {
+			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
+		},
+		"writers share one constant map instance lock": {
+			source: goDeclaredLocksCase{rpcOptions: goRPCLocks(`dex.LockAttributeMap(items, "cart")`), stepOptions: goExecuteLocks(`dex.LockAttributeMap(items, "cart")`), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
+		},
+		"writers hold locks of different map instances": {
+			source:      goDeclaredLocksCase{rpcOptions: goRPCLocks(`dex.LockAttributeMap(items, "rpc")`), stepOptions: goExecuteLocks(`dex.LockAttributeMap(items, "step")`), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"writers hold different locks": {
+			source:          goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), stepOptions: goExecuteLocks("dex.LockAttribute(total)"), rpcBody: "_ = total.Set(ctx, 1)", executeBody: goReadThenWriteTotal},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "and no exact registration lock is held by every writer",
+		},
+		"read in a helper counts as a read": {
+			source: goDeclaredLocksCase{
+				extraSource: "func readTotal(ctx dex.Context) int {\n\tvalue, _ := total.Get(ctx)\n\treturn value\n}",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "_ = total.Set(ctx, readTotal(ctx)+1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"read in WaitFor and write in Execute under the same lock": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{\n\t\tWaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t\tExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t}\n}",
+				waitBody:    "value, _ := total.Get(ctx)\n\t_ = spare.Set(ctx, value)",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "snapshot, _ := spare.Get(ctx)\n\t_ = total.Set(ctx, snapshot+1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"timeout writer with unknown locks keeps the warning": {
+			source:      goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)", timeoutBody: "_ = total.Set(ctx, 0)"},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"call-time lock in another argument does not count": {
+			source: goDeclaredLocksCase{
+				extraSource: "func keyFor(key string, _ dex.AttributeLock) string { return key }\n\nfunc invokeReply(client *dex.Client, flow *CartFlow, key string) error {\n\tvar output string\n\treturn client.InvokeRPCWithOptions(nil, \"cart\", flow.Reply, keyFor(key, dex.LockAttributeMap(items, key)), &output, dex.RPCInvokeOptions{\n\t\tLoadAttributeMapInstances: []dex.AttributeMapLoad{items.Load(key)},\n\t})\n}",
+				rpcBody:     "value, _ := items.Get(ctx, input)\n\t_ = items.Set(ctx, input, value+1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"single read-writer under another attribute's lock": {
+			source: goDeclaredLocksCase{rpcOptions: goRPCLocks("dex.LockAttribute(cartLock)"), rpcBody: "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)"},
+		},
+		"call-time locks do not count, even when every call passes one": {
+			source: goDeclaredLocksCase{
+				extraSource: "func invokeReply(client *dex.Client, flow *CartFlow, key string) error {\n\tvar output string\n\treturn client.InvokeRPCWithOptions(nil, \"cart\", flow.Reply, key, &output, dex.RPCInvokeOptions{\n\t\tLockAttributeMapInstances: []dex.AttributeLock{dex.LockAttributeMap(items, key)},\n\t\tLoadAttributeMapInstances: []dex.AttributeMapLoad{items.Load(key)},\n\t})\n}",
+				rpcBody:     "value, _ := items.Get(ctx, input)\n\t_ = items.Set(ctx, input, value+1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"aliased call of the RPC method value without a lock": {
+			source: goDeclaredLocksCase{
+				extraSource: "func invokeReply(client *dex.Client, flow *CartFlow, key string) error {\n\tvar output string\n\tif err := client.InvokeRPCWithOptions(nil, \"cart\", flow.Reply, key, &output, dex.RPCInvokeOptions{\n\t\tLockAttributeMapInstances: []dex.AttributeLock{dex.LockAttributeMap(items, key)},\n\t\tLoadAttributeMapInstances: []dex.AttributeMapLoad{items.Load(key)},\n\t}); err != nil {\n\t\treturn err\n\t}\n\treply := flow.Reply\n\treturn client.InvokeRPCWithOptions(nil, \"cart\", reply, key, &output, dex.RPCInvokeOptions{})\n}",
+				rpcBody:     "value, _ := items.Get(ctx, input)\n\t_ = items.Set(ctx, input, value+1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"reads in both phases under the same lock": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{\n\t\tWaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t\tExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t}\n}",
+				waitBody:    "value, _ := total.Get(ctx)\n\t_ = spare.Set(ctx, value)",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "current, _ := total.Get(ctx)\n\tsnapshot, _ := spare.Get(ctx)\n\tif current >= 0 {\n\t\t_ = total.Set(ctx, snapshot+1)\n\t}",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"step options from a branching helper": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "var useLock bool\n\nfunc stepOptionsFor(locked bool) *dex.StepOptions {\n\tif locked {\n\t\treturn &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)}}\n\t}\n\treturn nil\n}",
+				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn stepOptionsFor(useLock)\n}",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"rpc options from a branching helper": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  "rpcOptionsFor(useLock)",
+				extraSource: "var useLock bool\n\nfunc rpcOptionsFor(locked bool) *dex.RPCOptions {\n\tif locked {\n\t\treturn &dex.RPCOptions{LockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)}}\n\t}\n\treturn nil\n}",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)",
+				executeBody: "_ = total.Set(ctx, 2)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"movement options passed through a variable": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "var overrideOption = dex.WithStepOptions(&dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(spare)}})",
+				moveOptions: ", overrideOption",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"rpc registered through an alias": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "func (flow *CartFlow) alternateRPCs() []dex.RPCDef {\n\treply := flow.Reply\n\treturn []dex.RPCDef{dex.DefineRPC(reply, nil)}\n}",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"rpc registered through a DefineRPC function value": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				extraSource: "var defineReply = dex.DefineRPC[string, string]\n\nfunc (flow *CartFlow) unlockedRPCs() []dex.RPCDef {\n\treturn []dex.RPCDef{defineReply(flow.Reply, nil)}\n}",
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "value, _ := total.Get(ctx)\n\t_ = total.Set(ctx, value+1)",
+				executeBody: "_ = total.Set(ctx, 2)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "dexcli cannot prove that the writes are blind or share one exact registration lock",
+		},
+		"cross-phase read is named in the warning": {
+			source: goDeclaredLocksCase{
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{\n\t\tWaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t\tExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(cartLock)},\n\t}\n}",
+				waitBody:    "value, _ := total.Get(ctx)\n\t_ = spare.Set(ctx, value)",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "snapshot, _ := spare.Get(ctx)\n\t_ = total.Set(ctx, snapshot+1)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "a Step reads it in its other phase, which holds its locks separately",
+		},
+		"movement from a helper in another package": {
+			source: goDeclaredLocksCase{
+				movementPackage: "package movement\n\nimport \"github.com/superdurable/dex/sdk-go/dex\"\n\nfunc Configured[IN any](step dex.Step[IN], input IN) dex.StepMovement {\n\treturn dex.MovementOf(step, input, dex.WithStepOptions(&dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{}}))\n}",
+				extraSource:     "func fanOut(input string) *dex.StepDecision {\n\tmovements := []dex.StepMovement{dex.MovementOf(AddItemStep{}, input)}\n\tmovements = append(movements, movement.Configured(AddItemStep{}, input))\n\treturn dex.GoToMany(movements...)\n}",
+				rpcOptions:      goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions:     goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:         "_ = total.Set(ctx, 1)",
+				executeBody:     goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"movement from a MovementOf function value": {
+			source: goDeclaredLocksCase{
+				extraSource: "var buildMovement = dex.MovementOf[string]\n\nfunc fanOut(input string) *dex.StepDecision {\n\treturn dex.GoToMany(buildMovement(AddItemStep{}, input))\n}",
+				rpcOptions:  goRPCLocks("dex.LockAttribute(cartLock)"),
+				stepOptions: goExecuteLocks("dex.LockAttribute(cartLock)"),
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: goReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"single RPC with only a possible read": {
+			source: goDeclaredLocksCase{
+				extraSource: "func audit(ctx dex.Context) { _ = ctx }",
+				rpcBody:     "audit(ctx)\n\t_ = total.Set(ctx, 1)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "is written by RPC Reply, and dexcli cannot prove that the write is blind or protected by an exact registration lock",
+		},
+		"context passed to a helper keeps the warning": {
+			source: goDeclaredLocksCase{
+				extraSource: "func audit(ctx dex.Context) { _ = ctx }",
+				rpcBody:     "_ = total.Set(ctx, 1)",
+				executeBody: "audit(ctx)\n\t_ = total.Set(ctx, 2)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"unknown locks keep the warning": {
 			source: goDeclaredLocksCase{
 				rpcOptions:  goRPCLocks("dex.LockAttribute(total)"),
 				stepOptions: "func (AddItemStep) GetStepOptions() *dex.StepOptions {\n\treturn &dex.StepOptions{ExecuteLockAttributes: lockTable[\"total\"]}\n}",
 				rpcBody:     "_ = total.Set(ctx, 1)",
-				executeBody: "_ = total.Set(ctx, 2)",
+				executeBody: goReadThenWriteTotal,
 			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"last lock option wins": {
 			source: goDeclaredLocksCase{
@@ -398,7 +577,13 @@ func analyzeGoDeclaredLocksSource(t *testing.T, source goDeclaredLocksCase) *Gra
 	module := "module declaredlocks\n\ngo 1.26.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.ToSlash(sdkDirectory) + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0o644))
 	sourcePath := filepath.Join(directory, "workflow.go")
-	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(goDeclaredLocksSource)), 0o644))
+	contents := replacer.Replace(goDeclaredLocksSource)
+	if source.movementPackage != "" {
+		require.NoError(t, os.MkdirAll(filepath.Join(directory, "movement"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "movement", "movement.go"), []byte(source.movementPackage), 0o644))
+		contents = strings.Replace(contents, `import "github.com/superdurable/dex/sdk-go/dex"`, "import (\n\t\"declaredlocks/movement\"\n\n\t\"github.com/superdurable/dex/sdk-go/dex\"\n)", 1)
+	}
+	require.NoError(t, os.WriteFile(sourcePath, []byte(contents), 0o644))
 	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "CartFlow"})
 	require.NoError(t, err)
 	return graph

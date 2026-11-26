@@ -80,7 +80,7 @@ STEP_OPTIONS
         WAIT_BODY
         return Wait.skip_immediately()
 
-    def execute(self, context: Context, input: str) -> StepDecision:
+    EXECUTE_SIGNATURE
         EXECUTE_BODY
         return graceful_complete(input)
 
@@ -93,17 +93,23 @@ type pythonDeclaredLocksCase struct {
 	modulePrelude  string
 	classExtra     string
 	moduleExtra    string
-	totalOptions   string
-	itemsOptions   string
-	repliesOptions string
-	rpcLocks       string
-	moveOptions    string
-	stepOptions    string
-	rpcBody        string
-	timeoutBody    string
-	waitBody       string
-	executeBody    string
+	// executeSignature replaces the AddItemStep execute signature line, for example with a staticmethod.
+	executeSignature string
+	totalOptions     string
+	itemsOptions     string
+	repliesOptions   string
+	rpcLocks         string
+	moveOptions      string
+	stepOptions      string
+	rpcBody          string
+	timeoutBody      string
+	waitBody         string
+	executeBody      string
 }
+
+const pythonBothPhaseCartLock = "    def get_step_options(self):\n        return StepOptions(wait_for_lock_attributes=(CartFlow.cart_lock.lock(),), execute_lock_attributes=(CartFlow.cart_lock.lock(),))\n"
+
+const pythonReadThenWriteTotal = "CartFlow.total.set(context, CartFlow.total.get(context) + 2)"
 
 func pythonStepLocks(field string, locks string) string {
 	return "    def get_step_options(self):\n        return StepOptions(" + field + "=(" + locks + ",))\n"
@@ -190,14 +196,17 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 			diagnostics: []string{"warning declared_lock_unresolved"},
 		},
 		"two writers without declaration": {
-			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
+			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep execute",
+			messageFragment: "attribute total is written by RPC Reply, Step AddItemStep execute, at least one of them reads it, and no exact registration lock is held by every writer",
+		},
+		"blind writers are not nudged": {
+			source: pythonDeclaredLocksCase{rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
 		},
 		"read then write without declaration": {
 			source:          pythonDeclaredLocksCase{rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is both read and written without its lock by RPC Reply",
+			messageFragment: "is both read and written by RPC Reply without an exact registration lock",
 		},
 		"read then write under own lock without declaration": {
 			source: pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
@@ -206,20 +215,283 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 			source: pythonDeclaredLocksCase{rpcLocks: "total.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
 		},
 		"one unlocked writer of two without declaration": {
-			source:          pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, 1)", executeBody: "CartFlow.total.set(context, 2)"},
+			source:          pythonDeclaredLocksCase{rpcLocks: "total.lock()", rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "and Step AddItemStep execute registers no lock of it",
+			messageFragment: "and no exact registration lock is held by every writer",
 		},
 		"step writers alone are not nudged": {
 			source: pythonDeclaredLocksCase{waitBody: "CartFlow.total.set(context, 1)", executeBody: "CartFlow.total.set(context, CartFlow.total.get(context) + 1)"},
 		},
-		"dynamic locks count as held for the nudge": {
+		"writers share another attribute's lock": {
+			source: pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
+		},
+		"writers share one constant map instance lock": {
+			source: pythonDeclaredLocksCase{rpcLocks: `items.lock("cart")`, stepOptions: pythonStepLocks("execute_lock_attributes", `CartFlow.items.lock("cart")`), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
+		},
+		"writers hold locks of different map instances": {
+			source:      pythonDeclaredLocksCase{rpcLocks: `items.lock("rpc")`, stepOptions: pythonStepLocks("execute_lock_attributes", `CartFlow.items.lock("step")`), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"writers hold different locks": {
+			source:          pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.total.lock()"), rpcBody: "self.total.set(context, 1)", executeBody: pythonReadThenWriteTotal},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "and no exact registration lock is held by every writer",
+		},
+		"read in a helper counts as a read": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def read_total(context):\n    return CartFlow.total.get(context)",
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   "CartFlow.total.set(context, read_total(context) + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"context passed to an unknown call may read": {
+			source: pythonDeclaredLocksCase{
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "CartFlow.total.set(context, compute(context))",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"read in wait_for and write in execute under the same lock": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: "    def get_step_options(self):\n        return StepOptions(wait_for_lock_attributes=(CartFlow.cart_lock.lock(),), execute_lock_attributes=(CartFlow.cart_lock.lock(),))\n",
+				waitBody:    "CartFlow.items.set(context, \"snapshot\", CartFlow.total.get(context))",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "CartFlow.total.set(context, CartFlow.items.get(context, \"snapshot\") + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"reads in both phases under the same lock": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonBothPhaseCartLock,
+				waitBody:    "CartFlow.items.set(context, \"snapshot\", CartFlow.total.get(context))",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "if CartFlow.total.get(context) >= 0:\n            CartFlow.total.set(context, CartFlow.items.get(context, \"snapshot\") + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"unknown read in wait_for and write in execute": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonBothPhaseCartLock,
+				waitBody:    "CartFlow.items.set(context, \"snapshot\", compute(context))",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: "CartFlow.total.set(context, CartFlow.items.get(context, \"snapshot\"))",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"helper that calls another helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def outer(context):\n    return inner(context)\n\n\ndef inner(context):\n    return CartFlow.total.get(context)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   "CartFlow.total.set(context, outer(context) + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"mutable named lock list": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "STEP_LOCKS = [Attribute(\"cart-lock\", bool).lock()]",
+				moduleExtra:   "STEP_LOCKS.clear()",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=STEP_LOCKS)\n",
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"movement options through a Step alias": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "ALIAS = AddItemStep\n\n\ndef move(value):\n    return StepMovement.of(ALIAS, value, options=StepOptions())",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"positional-only context passed to a helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def read_total(context):\n    return CartFlow.total.get(context)",
+				classExtra:    "@rpc(name=\"Bump\")\n    def bump(self, context: Context, /, input: str) -> RPCResult[str]:\n        self.total.set(context, read_total(context) + 1)\n        return RPCResult(input)",
+				rpcBody:       "self.total.set(context, 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"positional-only context with SDK calls under one lock": {
+			source: pythonDeclaredLocksCase{
+				classExtra: "@rpc(name=\"Bump\", lock_attributes=(cart_lock.lock(),))\n    def bump(self, context: Context, /, input: str) -> RPCResult[str]:\n        self.total.set(context, self.total.get(context) + 1)\n        return RPCResult(input)",
+				rpcLocks:   "cart_lock.lock()",
+				rpcBody:    "self.total.set(context, self.total.get(context) + 2)",
+			},
+		},
+		"movement options from a call": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "def move(value):\n    return StepMovement.of(AddItemStep, value, options=AddItemStep().get_step_options())",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"failure route inside get_step_options": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=(CartFlow.cart_lock.lock(),)).on_execute_failure_proceed_to(AddItemStep, StepOptions())\n",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"StepOptions alias": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "MovementOptions = StepOptions",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"movement from a helper in another module": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from movement_helpers import configured_movement",
+				moduleExtra:   "def fan_out(value):\n    movements = [StepMovement.of(AddItemStep, value)]\n    movements.append(configured_movement(AddItemStep, value))\n    return go_to_many(*movements)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"local movement list built only from StepMovement.of": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "def fan_out(value):\n    movements = [StepMovement.of(AddItemStep, value)]\n    movements.append(StepMovement.of(AddItemStep, value))\n    return go_to_many(*movements)",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+		},
+		"annotated movement list with a helper movement": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from movement_helpers import configured_movement",
+				moduleExtra:   "def fan_out(value):\n    movements: list[StepMovement] = [StepMovement.of(AddItemStep, value), configured_movement(AddItemStep, value)]\n    return go_to_many(*movements)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"annotated movement list built only from StepMovement.of": {
+			source: pythonDeclaredLocksCase{
+				moduleExtra: "def fan_out(value):\n    movements: list[StepMovement] = [StepMovement.of(AddItemStep, value)]\n    return go_to_many(*movements)",
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+		},
+		"conditional completion fallback from a helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from dex import force_complete_if_channels_empty\nfrom movement_helpers import configured_movement",
+				moduleExtra:   "def finish(value):\n    return force_complete_if_channels_empty(value, configured_movement(AddItemStep, value), CartFlow.replies)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"conditional completion fallback from StepMovement.of": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from dex import force_complete_if_channels_empty",
+				moduleExtra:   "def finish(value):\n    return force_complete_if_channels_empty(value, StepMovement.of(AddItemStep, value), CartFlow.replies)",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+		},
+		"single RPC with only a possible read": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "def audit(context):\n    return None",
+				rpcBody:       "audit(context)\n        self.total.set(context, 1)",
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "is written by RPC Reply, and dexcli cannot prove that the write is blind or protected by an exact registration lock",
+		},
+		"RPCResult built from an unpacked helper result": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from movement_helpers import reply_result",
+				moduleExtra:   "def reply_with_moves(value):\n    return RPCResult(*reply_result(AddItemStep, value))",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"handler returns a decision from a helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from movement_helpers import configured_decision",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				waitBody:      "return configured_decision()",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"staticmethod Step passes its context to a helper": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude:    "def read_total(context):\n    return CartFlow.total.get(context)",
+				executeSignature: "@staticmethod\n    def execute(context: Context, input: str) -> StepDecision:",
+				rpcBody:          "self.total.set(context, 1)",
+				executeBody:      "CartFlow.total.set(context, read_total(context) + 1)",
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"staticmethod Step with SDK calls under one lock": {
+			source: pythonDeclaredLocksCase{
+				executeSignature: "@staticmethod\n    def execute(context: Context, input: str) -> StepDecision:",
+				rpcLocks:         "cart_lock.lock()",
+				stepOptions:      pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:          "self.total.set(context, 1)",
+				executeBody:      pythonReadThenWriteTotal,
+			},
+		},
+		"helper reading only context fields is not called a cross-phase read": {
+			source: pythonDeclaredLocksCase{
+				rpcLocks:    "cart_lock.lock()",
+				stepOptions: pythonBothPhaseCartLock,
+				waitBody:    "log_flow(context)",
+				rpcBody:     "self.total.set(context, 1)",
+				executeBody: pythonReadThenWriteTotal,
+			},
+			diagnostics:     []string{"warning lock_requirement_not_declared"},
+			messageFragment: "dexcli cannot prove that the writes are blind or share one exact registration lock",
+		},
+		"timeout writer with unknown locks keeps the warning": {
+			source:      pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)", timeoutBody: "self.total.set(context, 0)"},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
+		},
+		"single read-writer under another attribute's lock": {
+			source: pythonDeclaredLocksCase{rpcLocks: "cart_lock.lock()", rpcBody: "self.total.set(context, self.total.get(context) + 1)"},
+		},
+		"unknown locks keep the warning": {
 			source: pythonDeclaredLocksCase{
 				rpcLocks:    "total.lock()",
 				stepOptions: "    def get_step_options(self):\n        return StepOptions(execute_lock_attributes=LOCK_TABLE[\"total\"])\n",
 				rpcBody:     "self.total.set(context, 1)",
-				executeBody: "CartFlow.total.set(context, 2)",
+				executeBody: pythonReadThenWriteTotal,
 			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"local lock list shadows the module list": {
 			source: pythonDeclaredLocksCase{
@@ -341,6 +613,10 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 
 func analyzePythonDeclaredLocksSource(t *testing.T, source pythonDeclaredLocksCase) *Graph {
 	t.Helper()
+	executeSignature := source.executeSignature
+	if executeSignature == "" {
+		executeSignature = "def execute(self, context: Context, input: str) -> StepDecision:"
+	}
 	rpcOptions := ""
 	if source.rpcLocks != "" {
 		rpcOptions = ", lock_attributes=(" + source.rpcLocks + ",)"
@@ -376,6 +652,7 @@ func analyzePythonDeclaredLocksSource(t *testing.T, source pythonDeclaredLocksCa
 		"TIMEOUT_BODY", statement(source.timeoutBody),
 		"WAIT_BODY", statement(source.waitBody),
 		"EXECUTE_BODY", statement(source.executeBody),
+		"EXECUTE_SIGNATURE", executeSignature,
 	)
 	sourcePath := filepath.Join(t.TempDir(), "workflow.py")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(pythonDeclaredLocksSource)), 0o644))

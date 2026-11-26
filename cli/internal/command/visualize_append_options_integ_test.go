@@ -61,6 +61,7 @@ func TestVisualizeHandlesAppendOptionCycles(t *testing.T) {
 			require.Equal(t, 1, ExitCode(err))
 			var graph flowviz.Graph
 			require.NoError(t, json.Unmarshal(output.Bytes(), &graph))
+			graph.Diagnostics = withoutLockNudge(graph.Diagnostics)
 			require.False(t, graph.Valid)
 			require.Equal(t, []string{"attribute_map_enumeration_not_loaded"}, sortedDiagnosticCodes(graph.Diagnostics), "%+v", graph.Diagnostics)
 			require.Contains(t, graph.Diagnostics[0].Message, `"missing"`)
@@ -68,8 +69,21 @@ func TestVisualizeHandlesAppendOptionCycles(t *testing.T) {
 			output.Reset()
 			require.NoError(t, app.Execute(context.Background(), arguments))
 			require.NoError(t, json.Unmarshal(output.Bytes(), &graph))
+			graph.Diagnostics = withoutLockNudge(graph.Diagnostics)
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 			require.Empty(t, graph.Diagnostics)
 		})
 	}
+}
+
+// withoutLockNudge drops lock_requirement_not_declared: these fixtures test option evaluation, and their computed
+// lock lists keep that warning by design.
+func withoutLockNudge(diagnostics []flowviz.Diagnostic) []flowviz.Diagnostic {
+	var kept []flowviz.Diagnostic
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code != "lock_requirement_not_declared" {
+			kept = append(kept, diagnostic)
+		}
+	}
+	return kept
 }

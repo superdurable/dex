@@ -242,7 +242,7 @@ func TestVisualizeRecordsGoRPCLocksForDexWeb(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []flowviz.Diagnostic{
 		{Severity: "error", Code: "v2_view_rpc", Message: "Flow must define GetDexDisplay"},
-	}, graph.Diagnostics)
+	}, withoutLockNudge(graph.Diagnostics))
 
 	locks := make([]string, 0)
 	for _, edge := range graph.Edges {
@@ -265,7 +265,7 @@ func TestVisualizeReportsUnresolvedGoRPCLocksOnlyForDexWebRPCs(t *testing.T) {
 	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
 	require.NoError(t, err)
 	require.False(t, graph.Valid)
-	require.Equal(t, []string{"rpc_lock_unresolved"}, sortedDiagnosticCodes(graph.Diagnostics))
+	require.Equal(t, []string{"rpc_lock_unresolved"}, sortedDiagnosticCodes(withoutLockNudge(graph.Diagnostics)))
 	unresolved := diagnosticWithCode(t, graph, "rpc_lock_unresolved", "RPC AssignOwner")
 	require.Equal(t, "error", unresolved.Severity)
 	require.Contains(t, unresolved.Message, "(dex.LockAttribute(attribute) at workflow.go:")
