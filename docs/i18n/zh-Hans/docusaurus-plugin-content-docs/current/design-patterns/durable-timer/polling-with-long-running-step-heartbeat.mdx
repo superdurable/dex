@@ -438,14 +438,6 @@ impl Step for RecordJobWaitFailure {
 
 间隔短、或者要最轻量的循环时，选这个模式。间隔长、要看到每一轮、或者要用 Time Travel 回到某一轮时，选 Timer 模式。Time Travel 只能回到运行近期历史窗口内的轮次；见 [用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)。
 
-## 反模式
-
-- 把重试策略、backoff 或 `RetryAfter` 当作 polling 循环，把“尚未就绪”作为错误返回。
-- 长时间循环，既不记录 heartbeat，也不写进度。
-- 外部调用缺少自己的 timeout。
-- 手写一个截止时间，重复 `ExecuteMethodTimeout` 或 `TotalDuration` 已经提供的限制。
-- 每一页结果都启动一个新的 Flow。应该把 page token 留在循环里。
-
 ## 下一步
 
 - [外部交互](/design-patterns/external-interaction)

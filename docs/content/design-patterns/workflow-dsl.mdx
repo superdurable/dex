@@ -463,12 +463,6 @@ impl Step for ExecuteDealAction {
 
 If a state can open several branches, start them with `GoToMany` and keep each branch's position in its own Step input. Bring them together at a Join. Use an Attribute lock for concurrent writes to shared state, or let each branch write its own data and merge it after the Join. See [Parallel Steps](/design-patterns/parallel) and [Critical Section](/design-patterns/parallel/critical-section).
 
-## Anti-patterns {#anti-patterns}
-
-- **One Channel per condition.** The persistence schema is declared in code before the workflow supplies its condition names. Declare one `ChannelMap` and use a key for each condition.
-- **Actions or state changes inside an RPC.** Keep the RPC to validation and publishing. Run actions and update state in the interpreter Steps.
-- **Flow ID and action name as the key for a repeated action.** In a request-documents loop, `claim-77/send-letter` gives both letters the same key. The provider drops the second letter as a repeat. Use the Flow ID and `StepExecutionID`, as in `claim-77/ExecuteClaimAction-5`. Each round gets a new execution ID, and retries of that round keep it. See [Idempotency keys](/concepts/step#idempotency-keys).
-
 ## Next {#next}
 
 - [Parallel Steps](/design-patterns/parallel)

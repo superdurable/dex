@@ -463,12 +463,6 @@ impl Step for ExecuteDealAction {
 
 如果一个状态可以开启多个分支，用 `GoToMany` 启动它们。每个分支在自己的 Step 输入中保存位置，最后在 Join 汇合。并发写入共享状态时使用 Attribute 锁。也可以让各分支分别写入自己的数据，在 Join 之后合并。参见 [并行 Step](/design-patterns/parallel)和[临界区](/design-patterns/parallel/critical-section)。
 
-## 反模式 {#anti-patterns}
-
-- **每个条件声明一个 Channel。** 持久化 schema 在代码中提前声明，条件名称由工作流定义在运行时提供。声明一个 `ChannelMap`，为每个条件使用一个键。
-- **在 RPC 中执行动作或更改状态数据。** RPC 只负责校验和发布。由解释器的 Step 执行动作并更新状态。
-- **用 Flow ID 和动作名称作为重复动作的幂等键。** 在重复索取材料的流程中，两封信都使用 `claim-77/send-letter` 作为幂等键。服务商会把第二封当作重复请求丢弃。用 Flow ID 和 `StepExecutionID` 组成幂等键，例如 `claim-77/ExecuteClaimAction-5`。每轮使用新的执行 ID，同一轮的重试继续使用这个 ID。参见[幂等键](/concepts/step#idempotency-keys)。
-
 ## 下一步 {#next}
 
 - [并行 Step](/design-patterns/parallel)

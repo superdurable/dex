@@ -752,12 +752,6 @@ impl Step for RouteResponseBeforeExpiry {
 </SdkSnippet>
 </SdkTabs>
 
-## 反模式
-
-- 为每个事件启动一个并行 Step，先完成的取消其余 Step。一个 `AnyOf` 等待就能做出选择，分支之间没有竞争。
-- 用 Timer 循环检查某个 Attribute，看客户是否已回应。
-- 用单独的 Flow、cron 任务或数据库任务执行截止时间。
-
 ## 下一步
 
 - [空闲定时器](/design-patterns/external-interaction/idle-timer)
