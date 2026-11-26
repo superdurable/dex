@@ -424,7 +424,18 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 				rpcBody:       "audit(context)\n        self.total.set(context, 1)",
 			},
 			diagnostics:     []string{"warning lock_requirement_not_declared"},
-			messageFragment: "is written by RPC Reply, and dexcli cannot prove that it does not read it under one exact registration lock",
+			messageFragment: "is written by RPC Reply, and dexcli cannot prove that the write is blind or protected by an exact registration lock",
+		},
+		"RPCResult built from an unpacked helper result": {
+			source: pythonDeclaredLocksCase{
+				modulePrelude: "from movement_helpers import reply_result",
+				moduleExtra:   "def reply_with_moves(value):\n    return RPCResult(*reply_result(AddItemStep, value))",
+				rpcLocks:      "cart_lock.lock()",
+				stepOptions:   pythonStepLocks("execute_lock_attributes", "CartFlow.cart_lock.lock()"),
+				rpcBody:       "self.total.set(context, 1)",
+				executeBody:   pythonReadThenWriteTotal,
+			},
+			diagnostics: []string{"warning lock_requirement_not_declared"},
 		},
 		"handler returns a decision from a helper": {
 			source: pythonDeclaredLocksCase{

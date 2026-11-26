@@ -1289,7 +1289,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 if any(resource_id in facts["reads"] for facts in rpc_read_facts[resource_id]):
                     reason = "is both read and written by " + labels + cause(resource_id, " without an exact registration lock")
                 else:
-                    reason = "is written by " + labels + ", and dexcli cannot prove that it does not read it under one exact registration lock"
+                    reason = "is written by " + labels + ", and dexcli cannot prove that the write is blind or protected by an exact registration lock"
             else:
                 continue
             call, _ = self.resource_declarations[resource_id]
@@ -1414,7 +1414,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                     return False
             elif self.is_dex_reference(node.func, "RPCResult"):
                 movements = [keyword.value for keyword in node.keywords if keyword.arg == "next_steps"] + node.args[1:]
-                if any(keyword.arg is None for keyword in node.keywords) or not all(is_allowed_argument(movement) for movement in movements):
+                if (any(keyword.arg is None for keyword in node.keywords) or any(isinstance(argument, ast.Starred) for argument in node.args)
+                        or not all(is_allowed_argument(movement) for movement in movements)):
                     return False
             elif self.is_dex_reference(node.func, "force_complete_if_channels_empty"):
                 fallbacks = [keyword.value for keyword in node.keywords if keyword.arg == "fallback"] + node.args[1:2]

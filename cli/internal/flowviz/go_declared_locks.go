@@ -754,7 +754,7 @@ func (checker *goDeclaredLockChecker) reportUndeclaredRequirements(requirements 
 		case len(rpcReadWriters[resourceID]) > 0:
 			// The read is only possible through the context, so the message does not name it.
 			reason = "is written by " + strings.Join(sortedLabels(rpcReadWriters[resourceID]), ", ") +
-				", and dexcli cannot prove that it does not read it under one exact registration lock"
+				", and dexcli cannot prove that the write is blind or protected by an exact registration lock"
 		default:
 			continue
 		}
