@@ -46,15 +46,21 @@ type JobStatus struct {
 
 // FakeJobService stands in for an external job API, such as a cloud build service.
 type FakeJobService struct {
-	mutex        sync.Mutex
-	startedAt    map[string]time.Time
-	completedIDs map[string]bool
+	mutex                sync.Mutex
+	startedAt            map[string]time.Time
+	completedIDs         map[string]bool
+	keptRunningIDs       map[string]bool
+	pendingCheckFailures map[string]int
+	statusChecks         map[string]int
 }
 
 func NewFakeJobService() *FakeJobService {
 	return &FakeJobService{
-		startedAt:    map[string]time.Time{},
-		completedIDs: map[string]bool{},
+		startedAt:            map[string]time.Time{},
+		completedIDs:         map[string]bool{},
+		keptRunningIDs:       map[string]bool{},
+		pendingCheckFailures: map[string]int{},
+		statusChecks:         map[string]int{},
 	}
 }
 
@@ -77,13 +83,19 @@ func (service *FakeJobService) GetJobStatus(ctx context.Context, jobID string) (
 	}
 	service.mutex.Lock()
 	defer service.mutex.Unlock()
+	service.statusChecks[jobID]++
+	if service.pendingCheckFailures[jobID] > 0 {
+		service.pendingCheckFailures[jobID]--
+		return JobStatus{}, fmt.Errorf("job service is unavailable for job %s", jobID)
+	}
 	startedAt, found := service.startedAt[jobID]
 	if !found {
 		return JobStatus{}, fmt.Errorf("job %s not found", jobID)
 	}
 	elapsed := time.Since(startedAt)
+	finishedOnItsOwn := !service.keptRunningIDs[jobID] && elapsed >= fakeJobDuration
 	switch {
-	case service.completedIDs[jobID] || elapsed >= fakeJobDuration:
+	case service.completedIDs[jobID] || finishedOnItsOwn:
 		return JobStatus{JobID: jobID, State: JobSucceeded, Result: "artifact for " + jobID}, nil
 	case elapsed >= fakeJobDuration/3:
 		return JobStatus{JobID: jobID, State: JobRunning}, nil
@@ -101,4 +113,25 @@ func (service *FakeJobService) CompleteJob(jobID string) error {
 	}
 	service.completedIDs[jobID] = true
 	return nil
+}
+
+// KeepJobRunning makes a job stay unfinished until CompleteJob. Call it before the job starts.
+func (service *FakeJobService) KeepJobRunning(jobID string) {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
+	service.keptRunningIDs[jobID] = true
+}
+
+// FailNextStatusChecks makes the next count status checks of a job fail with a transient error.
+func (service *FakeJobService) FailNextStatusChecks(jobID string, count int) {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
+	service.pendingCheckFailures[jobID] += count
+}
+
+// CountStatusChecks returns how many status checks of a job ran, including failed ones.
+func (service *FakeJobService) CountStatusChecks(jobID string) int {
+	service.mutex.Lock()
+	defer service.mutex.Unlock()
+	return service.statusChecks[jobID]
 }

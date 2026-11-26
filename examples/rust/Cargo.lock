@@ -261,6 +261,7 @@ name = "dex-examples-rust"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "dex-examples-rust",
  "dex-sdk",
  "fastrand",
  "reqwest",

@@ -21,6 +21,7 @@
 package integ
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -31,36 +32,100 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-func TestPollingWithTimerChecksTheJobWhenTheIntervalTimerFires(t *testing.T) {
+// pollingWithTimerMaxRounds mirrors the example's unexported round limit.
+const pollingWithTimerMaxRounds = 60
+
+func TestPollingWithTimerMovesToTheNextRoundWhileTheJobRuns(t *testing.T) {
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "pattern-polling-with-timer")
+	registry.PollingJobs.KeepJobRunning(flowID)
 	_, err := integClient.StartFlow(ctx, registry.PollingWithTimer, flowID, nil, dex.StartFlowOptions{})
 	require.NoError(t, err)
 
+	skipPollIntervalTimer(t, flowID, 1)
+	require.Eventually(t, func() bool {
+		return registry.PollingJobs.CountStatusChecks(flowID) == 1
+	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "round 1 must check the running job")
+
 	completeJobURL := examplesAPIURL + "/patterns/polling-with-timer/complete-job?" + url.Values{"workflowId": {flowID}}.Encode()
-	require.Eventually(t, func() bool {
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, completeJobURL, nil)
-		require.NoError(t, err)
-		response, err := http.DefaultClient.Do(request)
-		require.NoError(t, err)
-		require.NoError(t, response.Body.Close())
-		return response.StatusCode == http.StatusOK
-	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "StartJob must start the job")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, completeJobURL, nil)
+	require.NoError(t, err)
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
-	firstRound := int32(1)
-	require.Eventually(t, func() bool {
-		return integClient.SkipTimer(
-			ctx,
-			flowID,
-			dex.StepExecutionID{StepType: "CheckJobStatus", ExecutionNumber: &firstRound},
-			dex.TimerID{ConditionID: pollingwithtimer.PollIntervalTimerID},
-		) == nil
-	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "the first interval Timer must be skipped")
-
+	skipPollIntervalTimer(t, flowID, 2)
 	result := waitForFlow(t, flowID)
-	require.Equal(t, dex.FlowCompleted, result.Status)
+	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
 	require.Len(t, result.Completions, 1)
 	var output string
 	require.NoError(t, result.Completions[0].Output.Decode(&output))
 	require.Equal(t, "artifact for "+flowID, output)
+	require.Equal(t, 2, registry.PollingJobs.CountStatusChecks(flowID))
+}
+
+func TestPollingWithTimerFailsAfterTheMaximumRounds(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "pattern-polling-with-timer-rounds")
+	registry.PollingJobs.KeepJobRunning(flowID)
+	_, err := integClient.StartFlow(ctx, registry.PollingWithTimer, flowID, nil, dex.StartFlowOptions{})
+	require.NoError(t, err)
+
+	for round := 1; round <= pollingWithTimerMaxRounds; round++ {
+		skipPollIntervalTimer(t, flowID, round)
+	}
+	result := waitForFlow(t, flowID)
+	require.Equal(t, dex.FlowFailed, result.Status, result.ErrorMessage)
+	require.Contains(t, result.ErrorMessage, fmt.Sprintf("did not finish in %d rounds", pollingWithTimerMaxRounds))
+	require.Equal(t, pollingWithTimerMaxRounds, registry.PollingJobs.CountStatusChecks(flowID))
+}
+
+func TestPollingWithTimerRetriesATransientStatusFailure(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "pattern-polling-with-timer-retry")
+	registry.PollingJobs.FailNextStatusChecks(flowID, 1)
+	_, err := integClient.StartFlow(ctx, registry.PollingWithTimer, flowID, nil, dex.StartFlowOptions{})
+	require.NoError(t, err)
+	completeJobWhenStarted(t, flowID)
+
+	skipPollIntervalTimer(t, flowID, 1)
+	result := waitForFlow(t, flowID)
+	require.Equal(t, dex.FlowCompleted, result.Status, result.ErrorMessage)
+	require.Equal(t, 2, registry.PollingJobs.CountStatusChecks(flowID))
+}
+
+func TestPollingWithTimerRecordsTheFailureWhenRetriesRunOut(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "pattern-polling-with-timer-recovery")
+	registry.PollingJobs.FailNextStatusChecks(flowID, 3)
+	_, err := integClient.StartFlow(ctx, registry.PollingWithTimer, flowID, nil, dex.StartFlowOptions{})
+	require.NoError(t, err)
+	completeJobWhenStarted(t, flowID)
+
+	skipPollIntervalTimer(t, flowID, 1)
+	result := waitForFlow(t, flowID)
+	require.Equal(t, dex.FlowFailed, result.Status, result.ErrorMessage)
+	require.Contains(t, result.ErrorMessage, "checking job "+flowID+" failed")
+	require.Equal(t, 3, registry.PollingJobs.CountStatusChecks(flowID))
+}
+
+func completeJobWhenStarted(t *testing.T, flowID string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return registry.PollingJobs.CompleteJob(flowID) == nil
+	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "StartJob must start the job")
+}
+
+func skipPollIntervalTimer(t *testing.T, flowID string, round int) {
+	t.Helper()
+	executionNumber := int32(round)
+	require.Eventually(t, func() bool {
+		return integClient.SkipTimer(
+			integrationContext(t),
+			flowID,
+			dex.StepExecutionID{StepType: "CheckJobStatus", ExecutionNumber: &executionNumber},
+			dex.TimerID{ConditionID: pollingwithtimer.PollIntervalTimerID},
+		) == nil
+	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "the interval Timer of round %d must be skipped", round)
 }

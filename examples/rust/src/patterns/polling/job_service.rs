@@ -63,6 +63,9 @@ pub struct FakeJobService {
 struct JobRecords {
     started_at: HashMap<String, Instant>,
     completed_job_ids: HashSet<String>,
+    kept_running_job_ids: HashSet<String>,
+    pending_check_failures: HashMap<String, u32>,
+    status_checks: HashMap<String, u32>,
 }
 
 impl FakeJobService {
@@ -80,20 +83,30 @@ impl FakeJobService {
         job_id: &str,
         _timeout: Duration,
     ) -> Result<JobStatus, JobServiceError> {
-        let records = self.lock_records();
+        let mut records = self.lock_records();
+        *records.status_checks.entry(job_id.to_string()).or_default() += 1;
+        if let Some(pending_failures) = records.pending_check_failures.get_mut(job_id)
+            && *pending_failures > 0
+        {
+            *pending_failures -= 1;
+            return Err(JobServiceError {
+                message: format!("job service is unavailable for job {job_id}"),
+            });
+        }
         let started_at = records
             .started_at
             .get(job_id)
             .ok_or_else(|| job_not_found(job_id))?;
         let elapsed = started_at.elapsed();
-        let (state, result) =
-            if records.completed_job_ids.contains(job_id) || elapsed >= FAKE_JOB_DURATION {
-                (JobState::Succeeded, format!("artifact for {job_id}"))
-            } else if elapsed >= FAKE_JOB_DURATION / 3 {
-                (JobState::Running, String::new())
-            } else {
-                (JobState::Queued, String::new())
-            };
+        let finished_on_its_own =
+            !records.kept_running_job_ids.contains(job_id) && elapsed >= FAKE_JOB_DURATION;
+        let (state, result) = if records.completed_job_ids.contains(job_id) || finished_on_its_own {
+            (JobState::Succeeded, format!("artifact for {job_id}"))
+        } else if elapsed >= FAKE_JOB_DURATION / 3 {
+            (JobState::Running, String::new())
+        } else {
+            (JobState::Queued, String::new())
+        };
         Ok(JobStatus {
             job_id: job_id.to_string(),
             state,
@@ -109,6 +122,34 @@ impl FakeJobService {
         }
         records.completed_job_ids.insert(job_id.to_string());
         Ok(())
+    }
+
+    /// Keeps a job unfinished until `complete_job`. Call it before the job starts.
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn keep_job_running_for_test(&self, job_id: &str) {
+        self.lock_records()
+            .kept_running_job_ids
+            .insert(job_id.to_string());
+    }
+
+    /// Makes the next `count` status checks of a job fail with a transient error.
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn fail_next_status_checks_for_test(&self, job_id: &str, count: u32) {
+        *self
+            .lock_records()
+            .pending_check_failures
+            .entry(job_id.to_string())
+            .or_default() += count;
+    }
+
+    /// Returns how many status checks of a job ran, including failed ones.
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn count_status_checks_for_test(&self, job_id: &str) -> u32 {
+        self.lock_records()
+            .status_checks
+            .get(job_id)
+            .copied()
+            .unwrap_or_default()
     }
 
     fn lock_records(&self) -> MutexGuard<'_, JobRecords> {

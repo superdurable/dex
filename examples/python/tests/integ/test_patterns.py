@@ -203,14 +203,28 @@ async def test_polling_streams_job_progress_and_completes_with_job_result(
     assert result.single_output(str) == f"artifact for {flow_id}"
 
 
-async def test_polling_with_timer_checks_the_job_when_the_interval_timer_fires(
-    app: ExampleApp,
-    client: AsyncClient,
-    new_flow_id: Callable[[str], str],
-) -> None:
-    flow_id = new_flow_id("pattern-polling-with-timer")
-    await client.start_flow(app.polling_with_timer, flow_id, None, start_options())
+# Mirrors the example's round limit.
+POLLING_WITH_TIMER_MAX_ROUNDS = 60
 
+
+async def skip_poll_interval_timer(client: AsyncClient, flow_id: str, round_number: int) -> None:
+    async def is_interval_timer_skipped() -> bool:
+        try:
+            await client.skip_timer(
+                flow_id,
+                StepExecutionId("CheckJobStatus", round_number),
+                TimerId(condition_id=POLL_INTERVAL_TIMER_ID),
+            )
+        except DexServiceError:
+            return False
+        return True
+
+    await wait_until(
+        f"the interval Timer of round {round_number} to be skipped", is_interval_timer_skipped
+    )
+
+
+async def complete_job_when_started(app: ExampleApp, flow_id: str) -> None:
     async def is_job_completed() -> bool:
         try:
             app.polling_jobs.complete_job(flow_id)
@@ -220,21 +234,82 @@ async def test_polling_with_timer_checks_the_job_when_the_interval_timer_fires(
 
     await wait_until("StartJob to start the job", is_job_completed)
 
-    async def is_interval_timer_skipped() -> bool:
-        try:
-            await client.skip_timer(
-                flow_id,
-                StepExecutionId("CheckJobStatus", 1),
-                TimerId(condition_id=POLL_INTERVAL_TIMER_ID),
-            )
-        except DexServiceError:
-            return False
-        return True
 
-    await wait_until("the first interval Timer to be skipped", is_interval_timer_skipped)
+async def test_polling_with_timer_moves_to_the_next_round_while_the_job_runs(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("pattern-polling-with-timer")
+    app.polling_jobs.keep_job_running(flow_id)
+    await client.start_flow(app.polling_with_timer, flow_id, None, start_options())
+
+    await skip_poll_interval_timer(client, flow_id, 1)
+
+    async def is_first_round_checked() -> bool:
+        return app.polling_jobs.count_status_checks(flow_id) == 1
+
+    await wait_until("round 1 to check the running job", is_first_round_checked)
+    app.polling_jobs.complete_job(flow_id)
+    await skip_poll_interval_timer(client, flow_id, 2)
+
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status is FlowStatus.COMPLETED
     assert result.single_output(str) == f"artifact for {flow_id}"
+    assert app.polling_jobs.count_status_checks(flow_id) == 2
+
+
+async def test_polling_with_timer_fails_after_the_maximum_rounds(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("pattern-polling-with-timer-rounds")
+    app.polling_jobs.keep_job_running(flow_id)
+    await client.start_flow(app.polling_with_timer, flow_id, None, start_options())
+
+    for round_number in range(1, POLLING_WITH_TIMER_MAX_ROUNDS + 1):
+        await skip_poll_interval_timer(client, flow_id, round_number)
+
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.FAILED
+    assert f"did not finish in {POLLING_WITH_TIMER_MAX_ROUNDS} rounds" in (
+        result.error_message or ""
+    )
+    assert app.polling_jobs.count_status_checks(flow_id) == POLLING_WITH_TIMER_MAX_ROUNDS
+
+
+async def test_polling_with_timer_retries_a_transient_status_failure(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("pattern-polling-with-timer-retry")
+    app.polling_jobs.fail_next_status_checks(flow_id, 1)
+    await client.start_flow(app.polling_with_timer, flow_id, None, start_options())
+    await complete_job_when_started(app, flow_id)
+
+    await skip_poll_interval_timer(client, flow_id, 1)
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.COMPLETED
+    assert app.polling_jobs.count_status_checks(flow_id) == 2
+
+
+async def test_polling_with_timer_records_the_failure_when_retries_run_out(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("pattern-polling-with-timer-recovery")
+    app.polling_jobs.fail_next_status_checks(flow_id, 3)
+    await client.start_flow(app.polling_with_timer, flow_id, None, start_options())
+    await complete_job_when_started(app, flow_id)
+
+    await skip_poll_interval_timer(client, flow_id, 1)
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.FAILED
+    assert f"checking job {flow_id} failed" in (result.error_message or "")
+    assert app.polling_jobs.count_status_checks(flow_id) == 3
 
 
 async def test_failure_recovery(

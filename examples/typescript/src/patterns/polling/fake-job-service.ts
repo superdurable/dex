@@ -35,6 +35,9 @@ export class JobNotFoundError extends Error {
 export class FakeJobService {
   private readonly startedAtMsByJobId = new Map<string, number>();
   private readonly completedJobIds = new Set<string>();
+  private readonly keptRunningJobIds = new Set<string>();
+  private readonly pendingCheckFailuresByJobId = new Map<string, number>();
+  private readonly statusChecksByJobId = new Map<string, number>();
 
   // startJob is idempotent per job ID, so a retried Step does not start a second job.
   public async startJob(jobId: string, signal: AbortSignal): Promise<void> {
@@ -46,12 +49,19 @@ export class FakeJobService {
 
   public async getJobStatus(jobId: string, signal: AbortSignal): Promise<JobStatus> {
     signal.throwIfAborted();
+    this.statusChecksByJobId.set(jobId, this.countStatusChecks(jobId) + 1);
+    const pendingCheckFailures = this.pendingCheckFailuresByJobId.get(jobId) ?? 0;
+    if (pendingCheckFailures > 0) {
+      this.pendingCheckFailuresByJobId.set(jobId, pendingCheckFailures - 1);
+      throw new Error(`job service is unavailable for job ${jobId}`);
+    }
     const startedAtMs = this.startedAtMsByJobId.get(jobId);
     if (startedAtMs === undefined) {
       throw new JobNotFoundError(jobId);
     }
     const elapsedMs = Date.now() - startedAtMs;
-    if (this.completedJobIds.has(jobId) || elapsedMs >= FAKE_JOB_DURATION_MS) {
+    const finishedOnItsOwn = !this.keptRunningJobIds.has(jobId) && elapsedMs >= FAKE_JOB_DURATION_MS;
+    if (this.completedJobIds.has(jobId) || finishedOnItsOwn) {
       return { jobId, state: "SUCCEEDED", result: `artifact for ${jobId}` };
     }
     if (elapsedMs >= FAKE_JOB_DURATION_MS / 3) {
@@ -66,5 +76,20 @@ export class FakeJobService {
       throw new JobNotFoundError(jobId);
     }
     this.completedJobIds.add(jobId);
+  }
+
+  // keepJobRunning keeps a job unfinished until completeJob. Call it before the job starts.
+  public keepJobRunning(jobId: string): void {
+    this.keptRunningJobIds.add(jobId);
+  }
+
+  // failNextStatusChecks makes the next count status checks of a job fail with a transient error.
+  public failNextStatusChecks(jobId: string, count: number): void {
+    this.pendingCheckFailuresByJobId.set(jobId, (this.pendingCheckFailuresByJobId.get(jobId) ?? 0) + count);
+  }
+
+  // countStatusChecks returns how many status checks of a job ran, including failed ones.
+  public countStatusChecks(jobId: string): number {
+    return this.statusChecksByJobId.get(jobId) ?? 0;
   }
 }

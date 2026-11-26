@@ -20,10 +20,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
-use dex_examples_rust::patterns::polling::{FakeJobService, JOB_PROGRESS, JobState, PollingFlow};
 use dex_examples_rust::patterns::polling::timer::{
     CheckJobStatus, POLL_INTERVAL_TIMER_ID, PollingWithTimerFlow,
 };
+use dex_examples_rust::patterns::polling::{FakeJobService, JOB_PROGRESS, JobState, PollingFlow};
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
 use dex_examples_rust::primitives::channel::flow::{
     ChannelFlow, DELETE_QUEUED_MESSAGE, ENQUEUE_CHANNEL_MESSAGE, GET_PRIORITIZED_MESSAGES,
@@ -73,8 +73,8 @@ use dex_examples_rust::products::subscription::{
 use dex_examples_rust::server::helpers::invoke_retrying_lock_conflict;
 use dex_examples_rust::shared::example_pull_worker_options;
 use dex_sdk::{
-    AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkError,
-    SdkResult, StepExecutionId, StopFlowOptions, TimerId, WaitForAttributeOptions,
+    AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowResult, FlowStatus,
+    SdkError, SdkResult, StepExecutionId, StopFlowOptions, TimerId, WaitForAttributeOptions,
     WaitForStepCompletionOptions, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
@@ -1144,52 +1144,166 @@ fn polling_streams_job_progress_and_completes_with_job_result() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn polling_with_timer_checks_the_job_when_the_interval_timer_fires() {
+fn polling_with_timer_moves_to_the_next_round_while_the_job_runs() {
     let environment = DexEnvironment::start();
-    let flow = PollingWithTimerFlow::new(Arc::clone(&environment.polling_jobs));
     let flow_id = unique_flow_id("pattern-polling-with-timer");
+    environment.polling_jobs.keep_job_running_for_test(&flow_id);
+    start_polling_with_timer(&environment, &flow_id);
+
+    skip_poll_interval_timer(&environment, &flow_id, 1);
+    let deadline = Instant::now() + POLLING_WITH_TIMER_WAIT;
+    while environment
+        .polling_jobs
+        .count_status_checks_for_test(&flow_id)
+        != 1
+    {
+        assert!(
+            Instant::now() < deadline,
+            "round 1 did not check the running job"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
     environment
-        .client
-        .start_flow(&flow, &flow_id, ())
-        .expect("start Rust Polling with Timer Flow");
+        .polling_jobs
+        .complete_job(&flow_id)
+        .expect("complete the running job");
+    skip_poll_interval_timer(&environment, &flow_id, 2);
 
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while environment.polling_jobs.complete_job(&flow_id).is_err() {
-        assert!(Instant::now() < deadline, "StartJob did not start the job");
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    let check_job_status = CheckJobStatus::new(Arc::clone(&environment.polling_jobs));
-    let deadline = Instant::now() + Duration::from_secs(15);
-    let mut last_error = None;
-    while Instant::now() < deadline {
-        match environment.client.skip_timer(
-            &flow_id,
-            StepExecutionId::of(&check_job_status),
-            TimerId::by_condition_id(POLL_INTERVAL_TIMER_ID),
-        ) {
-            Ok(()) => {
-                last_error = None;
-                break;
-            }
-            Err(error) => last_error = Some(error),
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-    assert!(
-        last_error.is_none(),
-        "skip timer did not succeed: {last_error:?}"
-    );
-
-    let result = environment
-        .client
-        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .expect("complete Rust Polling with Timer Flow");
+    let result = wait_for_polling_with_timer(&environment, &flow_id);
     assert_eq!(result.status(), FlowStatus::Completed);
     let output: String = result
         .single_output()
         .expect("decode Rust Polling with Timer output");
     assert_eq!(output, format!("artifact for {flow_id}"));
+    assert_eq!(
+        environment
+            .polling_jobs
+            .count_status_checks_for_test(&flow_id),
+        2
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn polling_with_timer_fails_after_the_maximum_rounds() {
+    let environment = DexEnvironment::start();
+    let flow_id = unique_flow_id("pattern-polling-with-timer-rounds");
+    environment.polling_jobs.keep_job_running_for_test(&flow_id);
+    start_polling_with_timer(&environment, &flow_id);
+
+    for round in 1..=POLLING_WITH_TIMER_MAX_ROUNDS {
+        skip_poll_interval_timer(&environment, &flow_id, round);
+    }
+
+    let result = wait_for_polling_with_timer(&environment, &flow_id);
+    assert_eq!(result.status(), FlowStatus::Failed);
+    let message = result.error_message().unwrap_or_default();
+    assert!(
+        message.contains(&format!(
+            "did not finish in {POLLING_WITH_TIMER_MAX_ROUNDS} rounds"
+        )),
+        "unexpected failure: {message}"
+    );
+    assert_eq!(
+        environment
+            .polling_jobs
+            .count_status_checks_for_test(&flow_id),
+        POLLING_WITH_TIMER_MAX_ROUNDS
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn polling_with_timer_retries_a_transient_status_failure() {
+    let environment = DexEnvironment::start();
+    let flow_id = unique_flow_id("pattern-polling-with-timer-retry");
+    environment
+        .polling_jobs
+        .fail_next_status_checks_for_test(&flow_id, 1);
+    start_polling_with_timer(&environment, &flow_id);
+    complete_job_when_started(&environment, &flow_id);
+
+    skip_poll_interval_timer(&environment, &flow_id, 1);
+    let result = wait_for_polling_with_timer(&environment, &flow_id);
+    assert_eq!(result.status(), FlowStatus::Completed);
+    assert_eq!(
+        environment
+            .polling_jobs
+            .count_status_checks_for_test(&flow_id),
+        2
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn polling_with_timer_records_the_failure_when_retries_run_out() {
+    let environment = DexEnvironment::start();
+    let flow_id = unique_flow_id("pattern-polling-with-timer-recovery");
+    environment
+        .polling_jobs
+        .fail_next_status_checks_for_test(&flow_id, 3);
+    start_polling_with_timer(&environment, &flow_id);
+    complete_job_when_started(&environment, &flow_id);
+
+    skip_poll_interval_timer(&environment, &flow_id, 1);
+    let result = wait_for_polling_with_timer(&environment, &flow_id);
+    assert_eq!(result.status(), FlowStatus::Failed);
+    let message = result.error_message().unwrap_or_default();
+    assert!(
+        message.contains(&format!("checking job {flow_id} failed")),
+        "unexpected failure: {message}"
+    );
+    assert_eq!(
+        environment
+            .polling_jobs
+            .count_status_checks_for_test(&flow_id),
+        3
+    );
+}
+
+// Mirrors the example's round limit.
+const POLLING_WITH_TIMER_MAX_ROUNDS: u32 = 60;
+const POLLING_WITH_TIMER_WAIT: Duration = Duration::from_secs(45);
+
+fn start_polling_with_timer(environment: &DexEnvironment, flow_id: &str) {
+    let flow = PollingWithTimerFlow::new(Arc::clone(&environment.polling_jobs));
+    environment
+        .client
+        .start_flow(&flow, flow_id, ())
+        .expect("start Rust Polling with Timer Flow");
+}
+
+fn complete_job_when_started(environment: &DexEnvironment, flow_id: &str) {
+    let deadline = Instant::now() + POLLING_WITH_TIMER_WAIT;
+    while environment.polling_jobs.complete_job(flow_id).is_err() {
+        assert!(Instant::now() < deadline, "StartJob did not start the job");
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn skip_poll_interval_timer(environment: &DexEnvironment, flow_id: &str, round: u32) {
+    let check_job_status = CheckJobStatus::new(Arc::clone(&environment.polling_jobs));
+    let deadline = Instant::now() + POLLING_WITH_TIMER_WAIT;
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        match environment.client.skip_timer(
+            flow_id,
+            StepExecutionId::of(&check_job_status).execution_number(round),
+            TimerId::by_condition_id(POLL_INTERVAL_TIMER_ID),
+        ) {
+            Ok(()) => return,
+            Err(error) => last_error = Some(error),
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("skip timer of round {round} did not succeed: {last_error:?}");
+}
+
+fn wait_for_polling_with_timer(environment: &DexEnvironment, flow_id: &str) -> FlowResult {
+    environment
+        .client
+        .wait_for_flow_with_timeout(flow_id, POLLING_WITH_TIMER_WAIT)
+        .expect("close Rust Polling with Timer Flow")
 }
 
 fn attribute_wait_options(seconds: u64) -> WaitForAttributeOptions {

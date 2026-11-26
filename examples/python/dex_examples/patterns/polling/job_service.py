@@ -43,6 +43,9 @@ class FakeJobService:
         self._lock = threading.Lock()
         self._started_at: dict[str, float] = {}
         self._completed_ids: set[str] = set()
+        self._kept_running_ids: set[str] = set()
+        self._pending_check_failures: dict[str, int] = {}
+        self._status_checks: dict[str, int] = {}
 
     async def start_job(self, job_id: str) -> None:
         """Starts a job once per job ID, so a retried Step does not start a second job."""
@@ -51,11 +54,18 @@ class FakeJobService:
 
     async def get_job_status(self, job_id: str) -> JobStatus:
         with self._lock:
+            self._status_checks[job_id] = self._status_checks.get(job_id, 0) + 1
+            if self._pending_check_failures.get(job_id, 0) > 0:
+                self._pending_check_failures[job_id] -= 1
+                raise ConnectionError(f"job service is unavailable for job {job_id}")
             started_at = self._started_at.get(job_id)
             if started_at is None:
                 raise LookupError(f"job {job_id} not found")
             elapsed = time.monotonic() - started_at
-            if job_id in self._completed_ids or elapsed >= FAKE_JOB_DURATION_SECONDS:
+            finished_on_its_own = (
+                job_id not in self._kept_running_ids and elapsed >= FAKE_JOB_DURATION_SECONDS
+            )
+            if job_id in self._completed_ids or finished_on_its_own:
                 return JobStatus(job_id, JobState.SUCCEEDED, f"artifact for {job_id}")
             if elapsed >= FAKE_JOB_DURATION_SECONDS / 3:
                 return JobStatus(job_id, JobState.RUNNING)
@@ -67,3 +77,20 @@ class FakeJobService:
             if job_id not in self._started_at:
                 raise LookupError(f"job {job_id} not found")
             self._completed_ids.add(job_id)
+
+    def keep_job_running(self, job_id: str) -> None:
+        """Keeps a job unfinished until complete_job. Call it before the job starts."""
+        with self._lock:
+            self._kept_running_ids.add(job_id)
+
+    def fail_next_status_checks(self, job_id: str, count: int) -> None:
+        """Makes the next count status checks of a job fail with a transient error."""
+        with self._lock:
+            self._pending_check_failures[job_id] = (
+                self._pending_check_failures.get(job_id, 0) + count
+            )
+
+    def count_status_checks(self, job_id: str) -> int:
+        """Returns how many status checks of a job ran, including failed ones."""
+        with self._lock:
+            return self._status_checks.get(job_id, 0)
