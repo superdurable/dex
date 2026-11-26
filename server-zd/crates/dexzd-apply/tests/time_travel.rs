@@ -543,6 +543,7 @@ fn settings() -> RunSettings {
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
         max_channel_messages: 0,
+        enforce_active_step_limit: false,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,
@@ -5382,4 +5383,80 @@ fn time_travel_rebuilds_messages_requeued_by_a_cancel() {
         });
         assert_eq!(harness.attempt_rows(), rows, "state at seq {seq}");
     }
+}
+
+#[test]
+fn reapplied_client_publications_keep_every_message_over_the_channel_limit() {
+    let mut harness = Harness::with_settings(RunSettings {
+        max_channel_messages: 2,
+        ..settings()
+    });
+    harness.start(start_request());
+    harness.publish("orders", "m1");
+    harness.publish("orders", "m2");
+    wait_for_orders(&mut harness, "ChargeStep-1", 2);
+    assert_eq!(harness.channel_message_count(), 0);
+    harness.publish("orders", "m3");
+    harness.publish("orders", "m4");
+    // Reapplying the four accepted publications skips the consumption between them.
+    harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
+    assert_eq!(pending_order_ids(&harness), ["m1", "m2", "m3", "m4"]);
+    assert_channel_publish_is_limited(&mut harness);
+}
+
+#[test]
+fn reapplied_rpc_publications_keep_every_message_over_the_channel_limit() {
+    let mut harness = Harness::with_settings(RunSettings {
+        max_channel_messages: 2,
+        ..settings()
+    });
+    harness.start(start_request());
+    harness.publish("orders", "m1");
+    harness.publish("orders", "m2");
+    wait_for_orders(&mut harness, "ChargeStep-1", 2);
+    commit_rpc(
+        &mut harness,
+        "publish-m3-m4",
+        InvokeWorkerRpcResponse {
+            publish_to_channel: ["m3", "m4"]
+                .into_iter()
+                .map(|message_id| ChannelMessage {
+                    channel_name: "orders".to_owned(),
+                    message_id: message_id.to_owned(),
+                    value: Some(string_value(message_id)),
+                })
+                .collect(),
+            ..InvokeWorkerRpcResponse::default()
+        },
+        false,
+    );
+    harness.travel_to(reapplying(reset(FlowResetType::Beginning)));
+    assert_eq!(pending_order_ids(&harness), ["m1", "m2", "m3", "m4"]);
+    assert_channel_publish_is_limited(&mut harness);
+}
+
+/// Checks that an ordinary publish to the full `orders` Channel still fails.
+fn assert_channel_publish_is_limited(harness: &mut Harness) {
+    let outcome = harness.apply(Command::ChannelPublish(ChannelPublishCommand {
+        request: Some(PublishToChannelRequest {
+            messages: vec![ChannelMessage {
+                channel_name: "orders".to_owned(),
+                message_id: "m5".to_owned(),
+                value: Some(string_value("m5")),
+            }],
+            ..PublishToChannelRequest::default()
+        }),
+    }));
+    let Some(command_reply::Reply::Error(error)) = &outcome.reply.reply else {
+        panic!(
+            "expected the full Channel to reject, got {:?}",
+            outcome.reply
+        );
+    };
+    assert_eq!(error.grpc_code, 8, "{:?}", error.message);
+    assert!(
+        error.message.contains("limits.maxChannelMessages"),
+        "{:?}",
+        error.message
+    );
 }

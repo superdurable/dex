@@ -30,15 +30,18 @@ pub(crate) fn should_enforce_active_step_limit(body: &Command) -> bool {
 /// the run record that the command wrote.
 ///
 /// Returns the failure detail when the command raised the count and left it above the run's
-/// `max_active_step_executions`, or `None` otherwise. A zero maximum sets no limit.
+/// `max_active_step_executions`, or `None` otherwise. A run that does not record
+/// `enforce_active_step_limit`, or records a zero maximum, has no limit.
 pub(crate) fn active_step_limit_violation(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
     record: &RunRecord,
 ) -> Result<Option<String>, ApplyError> {
+    // Older binaries recorded a maximum without enforcing it, so their log replays unchanged.
     let max_active_step_executions = record
         .settings
         .as_ref()
+        .filter(|settings| settings.enforce_active_step_limit)
         .map_or(0, |settings| settings.max_active_step_executions);
     if max_active_step_executions == 0 {
         return Ok(None);

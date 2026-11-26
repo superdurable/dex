@@ -117,11 +117,15 @@ pub(crate) fn apply_rpc_committed(
         Err(rejection) => return Ok(HandlerResult::from(rejection)),
     };
     apply_channel_deletions(transaction, &mut cursor, &response.delete_from_channel)?;
-    let published =
-        match apply_channel_publications(transaction, &mut cursor, &response.publish_to_channel)? {
-            Ok(published) => published,
-            Err(rejection) => return Ok(reject_value(rejection)),
-        };
+    let published = match apply_channel_publications(
+        transaction,
+        &mut cursor,
+        scope,
+        &response.publish_to_channel,
+    )? {
+        Ok(published) => published,
+        Err(rejection) => return Ok(reject_value(rejection)),
+    };
     let effect_references = EffectValueReferences {
         attributes: attribute_references,
         publications: published.value_references,

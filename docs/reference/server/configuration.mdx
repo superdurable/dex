@@ -928,8 +928,8 @@ describes which repeats run the handler again and which RPCs keep no request ID.
 | **api.grpcMaxMessageBytes** | 33554432 (32 MiB) | Largest incoming or outgoing gRPC message. Must exceed **values.maxValueBytes**. Since 0.1.21, a GetHistoryEvents page ends before an event that would make the response larger, and its next page token continues the read. A single event larger than this limit fails the read with RESOURCE_EXHAUSTED and names the event ID. |
 | **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Active state budget of one Flow run. A command that grows a run over budget fails. See [Flow state budget](#flow-state-budget). |
 | **limits.maxChildFlowResultBytes** | 16777216 (16 MiB) | Largest total size of the result outputs that a child Flow delivers to its parent. A Step completion that would make a child Flow's collected outputs larger fails the attempt without retry. Unless the Step's failure policy recovers, the child Flow fails, and the parent receives that failure. A Flow without a parent has no such limit. |
-| **limits.maxConcurrentStepsPerFlow** | 1000 | Most active Step executions in one Flow run. See [Step and Channel message limits](#step-and-channel-limits). Changed in 0.1.38: server-zd enforces it. Before, a Flow run could start more Steps. |
-| **limits.maxChannelMessages** | 1000 | Most pending messages in one Channel of a Flow run. See [Step and Channel message limits](#step-and-channel-limits). Changed in 0.1.38: server-zd enforces it, and the default was 10000. Before, a Channel could hold more messages. |
+| **limits.maxConcurrentStepsPerFlow** | 1000 | Most active Step executions in one Flow run. See [Step and Channel message limits](#step-and-channel-limits). Changed in 0.1.38: server-zd enforces it for Flow runs that start on 0.1.38 or later. Earlier Flow runs have no Step limit. |
+| **limits.maxChannelMessages** | 1000 | Most pending messages in one Channel of a Flow run. See [Step and Channel message limits](#step-and-channel-limits). Changed in 0.1.38: server-zd enforces it for Flow runs that start on 0.1.38 or later, and the default was 10000. Earlier Flow runs have no Channel message limit. |
 | **limits.maxFlowIdBytes** | 1000 | Longest Flow ID, in UTF-8 bytes. |
 | **limits.maxRequestIdsPerRun** | 1000 | Newest request IDs that one run keeps for deduplication. A retry with an older request ID runs as a new request. |
 | **limits.maxLongPollWaitersPerFlow** | 1000 | Most concurrent waits on one Flow, such as WaitForStepCompletion and WaitForAttributeMatch calls. A wait beyond it fails with RESOURCE_EXHAUSTED. |
@@ -962,7 +962,9 @@ it. server-zd checks the limit when a Client publish, an RPC, or a Step result
 publishes messages. A publish fails when it would leave a Channel with more
 pending messages than the limit. A request that publishes several messages
 fails as a whole. Messages that a canceled Step returns to its Channel never
-fail.
+fail. A time travel that reapplies accepted writes keeps every reapplied
+message, even when a Channel then holds more than the limit. Later publishes
+to that Channel fail until Steps consume messages or you delete them.
 
 When a limit is reached:
 
@@ -977,11 +979,12 @@ To run more work than one Flow run allows, split it across child Flows; see
 messages to make room for new ones.
 
 Changed in 0.1.38: both limits are enforced, and **limits.maxChannelMessages**
-defaults to 1000. Child Flows now record both configured limits; before, they
-recorded a Step limit of 10000. Flow runs that started earlier keep the Step
-limit they recorded: the configured value, 1000 by default, or 10000 for a
-child Flow. They recorded no Channel message limit, so their Channels stay
-unlimited.
+defaults to 1000. Only Flow runs that start on 0.1.38 or later are limited.
+This includes child Flows and clones, which record the configured values of the
+node that starts them. A Flow run that started on an earlier release keeps no
+Step limit and no Channel message limit for its whole life, even after the
+upgrade. Earlier releases recorded a Step limit value without enforcing it, so
+0.1.38 does not enforce it either.
 
 ### Flow state budget {#flow-state-budget}
 

@@ -605,6 +605,7 @@ fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfil
         // The earlier default and zero (no limit) keep the pinned canonical command bytes too.
         max_active_step_executions: 10_000,
         max_channel_messages: 0,
+        enforce_active_step_limit: false,
         ..default_run_settings()
     };
     if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {

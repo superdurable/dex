@@ -714,8 +714,8 @@ pub struct LimitsConfig {
     ///
     /// A Flow start or RPC that would raise the count above it is rejected with
     /// RESOURCE_EXHAUSTED; such a Step result fails its Step attempt without retry. A command that
-    /// does not raise the count is never rejected. Each run records it at start. Must be at
-    /// least 1.
+    /// does not raise the count is never rejected. Each run records it at start; runs that started
+    /// before it was enforced have no limit. Must be at least 1.
     pub max_concurrent_steps_per_flow: u32,
     /// Defaults to 256; most uncommitted speculative commands retained for one Flow.
     pub max_speculative_commands_per_flow: u32,

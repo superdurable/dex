@@ -2358,6 +2358,7 @@ fn workload_run_limits() -> RunSettings {
     RunSettings {
         max_active_step_executions: 10_000,
         max_channel_messages: 0,
+        enforce_active_step_limit: false,
         ..default_run_settings()
     }
 }

@@ -178,6 +178,8 @@ fn step_and_channel_limits_reach_run_and_child_settings() {
     ] {
         assert_eq!(settings.max_active_step_executions, 1_000);
         assert_eq!(settings.max_channel_messages, 1_000);
+        // New top-level and child runs record that the Step limit is enforced.
+        assert!(settings.enforce_active_step_limit);
     }
     let parsed =
         Config::parse_yaml("limits:\n  maxConcurrentStepsPerFlow: 7\n  maxChannelMessages: 9\n")

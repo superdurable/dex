@@ -63,6 +63,17 @@ impl Harness {
     fn start_step_limit_flow(&mut self, max_active_step_executions: u32) {
         self.start_count_limit_flow(RunSettings {
             max_active_step_executions,
+            enforce_active_step_limit: true,
+            ..settings()
+        });
+    }
+
+    /// Starts a run as older binaries recorded it: a Step maximum without the enforcement flag.
+    fn start_older_binary_flow(&mut self, max_active_step_executions: u32) {
+        self.start_count_limit_flow(RunSettings {
+            max_active_step_executions,
+            enforce_active_step_limit: false,
+            max_channel_messages: 0,
             ..settings()
         });
     }
@@ -193,6 +204,36 @@ fn step_limit_zero_sets_no_limit() {
     harness.complete_execute("WorkStep-1", 1, go_to_work_steps(5));
     assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
     harness.step_execution("WorkStep-6");
+}
+
+/// Older binaries recorded 1000 for top-level runs and 10000 for child Flows without enforcing it.
+#[test]
+fn runs_recorded_by_older_binaries_apply_commands_over_their_step_maximum_as_before() {
+    for recorded_maximum in [1_000_usize, 10_000] {
+        let mut rpc_harness = Harness::new("order-1");
+        rpc_harness.start_older_binary_flow(recorded_maximum as u32);
+        let accepted = rpc_harness.commit_count_limit_rpc(
+            "rpc-over-recorded-maximum",
+            InvokeWorkerRpcResponse {
+                step_decision: Some(go_to_work_steps(recorded_maximum)),
+                ..InvokeWorkerRpcResponse::default()
+            },
+        );
+        assert!(
+            matches!(accepted.reply.reply, Some(command_reply::Reply::Rpc(_))),
+            "{:?}",
+            accepted.reply
+        );
+        rpc_harness.step_execution(&format!("WorkStep-{}", recorded_maximum + 1));
+
+        let mut step_harness = Harness::new("order-1");
+        step_harness.start_older_binary_flow(recorded_maximum as u32);
+        step_harness.complete_execute("WorkStep-1", 1, go_to_work_steps(recorded_maximum + 1));
+        assert_eq!(step_harness.run_record().status, FlowStatus::Running as i32);
+        step_harness.step_execution(&format!("WorkStep-{}", recorded_maximum + 2));
+        let accepted_publish = step_harness.publish_messages(messages("orders", 5));
+        assert!(!is_error(&accepted_publish.reply, RESOURCE_EXHAUSTED));
+    }
 }
 
 #[test]

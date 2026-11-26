@@ -15,18 +15,19 @@ use dexzd_engine::{
     CommitUrgency, DeterministicCommandApplier, EngineCommandAndEffectHooks, EngineNode,
     EngineNodeConfig, EngineNodeDependencies, EngineServices, LocalStoreConfig, NodeStopReason,
 };
-use dexzd_keyspace::row_keys::{checkpoint_key, history_record_key};
-use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, TenantId};
+use dexzd_keyspace::row_keys::{checkpoint_key, history_record_key, run_named_key};
+use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId};
 use dexzd_object_store::{
     FaultAction, FaultInjector, InMemoryObjectStore, ObjectStore, ObjectStoreOperation,
     WriteCondition,
 };
 use dexzd_protocol::dex::{
-    FlowResetType, FlowTimeoutPolicy, ResetFlowRequest, StartFlowRequest, WorkerTarget,
+    FlowResetType, FlowTimeoutPolicy, InvokeRpcRequest, InvokeWorkerRpcResponse, ResetFlowRequest,
+    StartFlowRequest, StepDecision, StepMovement, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, FlowCommand, FlowStartCommand, HistoryRecord, RunSettings, SnapshotManifest,
-    TimeTravelCommand, command_reply, flow_command::Command,
+    CheckpointRecord, FlowCommand, FlowStartCommand, HistoryRecord, RpcCommittedCommand,
+    RunSettings, SnapshotManifest, TimeTravelCommand, command_reply, flow_command::Command,
 };
 use dexzd_storage::{
     LocalReadView, LocalStore, RestoredLocalStore, RocksDbStoreOptions, WriteBatch,
@@ -81,6 +82,38 @@ pub(crate) async fn start_deterministic_node(
 }
 
 async fn commit_flow_start(node: &EngineNode, hasher: &PartitionHasher, flow_id: &str) -> RunId {
+    commit_flow_start_with_settings(node, hasher, flow_id, replay_run_settings()).await
+}
+
+fn replay_run_settings() -> RunSettings {
+    RunSettings {
+        history_window_events: 10_000,
+        history_prune_chunk_events: 1000,
+        max_retained_superseded_bytes: 256 << 20,
+        retention_after_close_micros: 7 * 24 * 3600 * 1_000_000,
+        wire_inline_threshold_bytes: 100,
+        max_value_bytes: 16 << 20,
+        checkpoint_row_write_bytes_threshold: 1 << 20,
+        checkpoint_command_threshold: 10_000,
+        request_dedup_capacity: 1000,
+        max_run_state_bytes: 1 << 30,
+        max_active_step_executions: 10_000,
+        max_channel_messages: 0,
+        enforce_active_step_limit: false,
+        max_child_flow_result_bytes: 16 << 20,
+        history_segment_target_bytes: 4 << 20,
+        delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
+        offload_history: None,
+    }
+}
+
+async fn commit_flow_start_with_settings(
+    node: &EngineNode,
+    hasher: &PartitionHasher,
+    flow_id: &str,
+    settings: RunSettings,
+) -> RunId {
     let flow_hash = hasher.flow_hash(TenantId::DEFAULT, flow_id);
     let context = dexzd_apply::ApplyContext {
         partition: hasher.partition_of(flow_hash),
@@ -98,25 +131,7 @@ async fn commit_flow_start(node: &EngineNode, hasher: &PartitionHasher, flow_id:
                 request_id: "start-replay-flow".to_owned(),
                 ..StartFlowRequest::default()
             }),
-            settings: Some(RunSettings {
-                history_window_events: 10_000,
-                history_prune_chunk_events: 1000,
-                max_retained_superseded_bytes: 256 << 20,
-                retention_after_close_micros: 7 * 24 * 3600 * 1_000_000,
-                wire_inline_threshold_bytes: 100,
-                max_value_bytes: 16 << 20,
-                checkpoint_row_write_bytes_threshold: 1 << 20,
-                checkpoint_command_threshold: 10_000,
-                request_dedup_capacity: 1000,
-                max_run_state_bytes: 1 << 30,
-                max_active_step_executions: 10_000,
-                max_channel_messages: 0,
-                max_child_flow_result_bytes: 16 << 20,
-                history_segment_target_bytes: 4 << 20,
-                delete_expired_history_objects: false,
-                superseded_value_grace_micros: 0,
-                offload_history: None,
-            }),
+            settings: Some(settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
             worker_target: Some(WorkerTarget {
                 is_pull_mode: true,
@@ -482,6 +497,141 @@ async fn snapshot_tail_replay_detects_a_corrupted_time_travel_rebuild() {
     assert_eq!(second.time_travel_verification_counts(), (1, 0));
     assert!(!command.command_id.is_empty());
     second.shutdown().await.expect("lease released");
+}
+
+/// Older binaries recorded a Step maximum of 1000 for top-level runs and 10000 for child Flows
+/// without enforcing it; recovery must reapply their accepted commands unchanged.
+#[tokio::test(start_paused = true)]
+async fn older_binary_runs_recover_commands_over_their_step_maximum_from_snapshot_or_log() {
+    for recorded_maximum in [1_000_usize, 10_000] {
+        for is_snapshot_restore in [true, false] {
+            let cluster = TestCluster::new();
+            let config = cluster.config(LocalStoreConfig::InMemory);
+            let (first, _, hasher, _) = start_deterministic_node(&cluster, &config).await;
+            let run_id = commit_flow_start_with_settings(
+                &first,
+                &hasher,
+                "older-binary-flow",
+                RunSettings {
+                    max_active_step_executions: recorded_maximum as u32,
+                    ..replay_run_settings()
+                },
+            )
+            .await;
+            if is_snapshot_restore {
+                first.take_snapshot().await.expect("snapshot succeeds");
+            }
+            commit_rpc_starting_steps(
+                &first,
+                &hasher,
+                "older-binary-flow",
+                run_id,
+                recorded_maximum,
+            )
+            .await;
+            let continuous = first
+                .committer()
+                .committed_view()
+                .expect("continuous state view");
+            drop(first);
+
+            let (second, store, hasher, _) = start_deterministic_node(&cluster, &config).await;
+            let recovered = second
+                .committer()
+                .committed_view()
+                .expect("recovered state view");
+            dexzd_storage::compare_store_views(
+                &continuous,
+                &recovered,
+                &[
+                    // Restoring a snapshot starts a new local store lineage.
+                    dexzd_storage::CanonicalizedStoreField::NodeLineageId,
+                    // The restored store starts a new snapshot sequence.
+                    dexzd_storage::CanonicalizedStoreField::NodeLastSnapshotNumber,
+                    // Recovery records progress under its new writer epoch.
+                    dexzd_storage::CanonicalizedStoreField::PartitionApplied,
+                    // Recovery acquires a new writer epoch.
+                    dexzd_storage::CanonicalizedStoreField::PartitionAppliedEpoch,
+                ],
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "recovery differs for a recorded maximum of {recorded_maximum} \
+                     (snapshot restore: {is_snapshot_restore}): {error}"
+                )
+            });
+            let flow_hash = hasher.flow_hash(TenantId::DEFAULT, "older-binary-flow");
+            let last_step_key = run_named_key(
+                flow_hash,
+                run_id,
+                RunTable::StepExecution,
+                &format!("WorkStep-{recorded_maximum}"),
+            );
+            assert!(
+                store
+                    .get(ColumnFamily::Flow, &last_step_key)
+                    .expect("read the last started Step")
+                    .is_some(),
+                "recovery kept every Step over the recorded maximum"
+            );
+            second.shutdown().await.expect("lease released");
+        }
+    }
+}
+
+/// Commits an RPC that starts `step_count` Steps and checks that it applied.
+async fn commit_rpc_starting_steps(
+    node: &EngineNode,
+    hasher: &PartitionHasher,
+    flow_id: &str,
+    run_id: RunId,
+    step_count: usize,
+) {
+    let flow_hash = hasher.flow_hash(TenantId::DEFAULT, flow_id);
+    let context = dexzd_apply::ApplyContext {
+        partition: hasher.partition_of(flow_hash),
+        flow_hash,
+    };
+    let command = FlowCommand {
+        flow_id: flow_id.to_owned(),
+        run_id: run_id.0.to_vec(),
+        command: Some(Command::RpcCommitted(RpcCommittedCommand {
+            request: Some(InvokeRpcRequest {
+                flow_id: flow_id.to_owned(),
+                rpc_name: "startWork".to_owned(),
+                request_id: "start-work".to_owned(),
+                ..InvokeRpcRequest::default()
+            }),
+            response: Some(InvokeWorkerRpcResponse {
+                step_decision: Some(StepDecision {
+                    next_steps: (0..step_count)
+                        .map(|_| StepMovement {
+                            step_type: "WorkStep".to_owned(),
+                            ..StepMovement::default()
+                        })
+                        .collect(),
+                    ..StepDecision::default()
+                }),
+                ..InvokeWorkerRpcResponse::default()
+            }),
+            app_worker_id: "worker-rpc".to_owned(),
+            ..RpcCommittedCommand::default()
+        })),
+        ..FlowCommand::default()
+    };
+    let (_, ticket) = node
+        .committer()
+        .submit(context, command, CommitUrgency::Prompt)
+        .expect("RPC submitted");
+    let committed = ticket.wait().await.expect("RPC committed");
+    assert!(
+        matches!(
+            committed.outcome.reply.reply,
+            Some(command_reply::Reply::Rpc(_))
+        ),
+        "{:?}",
+        committed.outcome.reply
+    );
 }
 
 #[tokio::test(start_paused = true)]

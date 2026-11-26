@@ -518,10 +518,11 @@ fn remove_pending_message(
 }
 
 /// Appends messages to their channels in list order. Returns the channels that changed with
-/// each message's value reference, or the first value the caller must reject.
+/// each message's value reference, or the first value or Channel limit the caller must reject.
 pub(crate) fn apply_channel_publications(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
     messages: &[ChannelMessage],
 ) -> Result<Result<PublishedMessages, ValueRejection>, ApplyError> {
     let mut changed_channels: Vec<String> = Vec::new();
@@ -575,7 +576,11 @@ pub(crate) fn apply_channel_publications(
             .settings
             .unwrap_or_default()
             .max_channel_messages;
-        if max_channel_messages > 0 && meta.pending_count > u64::from(max_channel_messages) {
+        // A replay keeps every accepted publication, even without the consumption between them.
+        if !scope.is_replay
+            && max_channel_messages > 0
+            && meta.pending_count > u64::from(max_channel_messages)
+        {
             return Ok(Err(ValueRejection::ChannelMessageLimitExceeded {
                 channel_name: message.channel_name.clone(),
                 max_channel_messages,
@@ -637,10 +642,11 @@ pub(crate) fn apply_method_effects(
         Err(rejection) => return Ok(Err(rejection)),
     };
     apply_channel_deletions(transaction, cursor, effects.deletions)?;
-    let published = match apply_channel_publications(transaction, cursor, effects.publications)? {
-        Ok(published) => published,
-        Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
-    };
+    let published =
+        match apply_channel_publications(transaction, cursor, scope, effects.publications)? {
+            Ok(published) => published,
+            Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
+        };
     let mut locals = Vec::with_capacity(effects.locals.len());
     for local in effects.locals {
         let holder = ValueHolder::StepLocal {

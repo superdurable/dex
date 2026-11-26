@@ -122,5 +122,6 @@ pub fn default_run_settings() -> RunSettings {
         superseded_value_grace_micros: 10 * 60 * 1_000_000,
         offload_history: Some(true),
         max_channel_messages: 1_000,
+        enforce_active_step_limit: true,
     }
 }
