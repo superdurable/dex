@@ -18,7 +18,7 @@ use syn::{Block, Expr, FnArg, Generics, Item, Pat, ReturnType, Signature, Type};
 use crate::expressions::{peel, source_text};
 use crate::external_call_macros::macro_argument_expressions;
 use crate::external_call_targets::{
-    Certainty, DATA_PURE_METHOD_NAMES, LOG_MACROS, PRINT_MACROS, PURE_MACROS, PathTarget,
+    Certainty, DATA_PURE_METHOD_NAMES, DataType, LOG_MACROS, PRINT_MACROS, PURE_MACROS, PathTarget,
     TypeScope, ValueOrigin, WRITE_MACROS,
 };
 use crate::{RustFlowGraph, RustFlowSource, impl_method, source_span};
@@ -492,27 +492,154 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         if !helpers.is_empty() {
             return self.helper_verdict(helpers);
         }
-        if DEX_TRAIT_DEFAULT_METHODS.contains(&method)
-            || self.finder.source.derives_method(owner, method)
-        {
-            CallVerdict::Allowed
-        } else {
-            CallVerdict::External(Certainty::Possible)
+        if DEX_TRAIT_DEFAULT_METHODS.contains(&method) {
+            return CallVerdict::Allowed;
         }
+        if self.finder.source.derives_method(owner, method) {
+            return self.derived_method_verdict(owner, method, &mut BTreeSet::new());
+        }
+        CallVerdict::External(Certainty::Possible)
     }
 
-    /// Checks a method on deserialized data: same-file methods, then standard-like pure methods.
-    fn data_method_verdict(&mut self, owner: Option<&str>, method: &str) -> CallVerdict {
-        if let Some(owner) = owner
-            && !self.finder.file_methods(owner, method).is_empty()
-        {
-            return self.file_type_method_verdict(owner, method);
+    /// Checks a derived Clone or Default, which calls the same method of every field type.
+    fn derived_method_verdict(
+        &mut self,
+        owner: &str,
+        method: &str,
+        visited: &mut BTreeSet<String>,
+    ) -> CallVerdict {
+        if !visited.insert(owner.to_owned()) {
+            // A recursive type is checked by the outer call.
+            return CallVerdict::Allowed;
         }
-        if DATA_PURE_METHOD_NAMES.contains(&method) {
-            CallVerdict::Allowed
-        } else {
-            // Another file's data type may define an I/O method with this name.
-            CallVerdict::External(Certainty::Possible)
+        if visited.len() > MAXIMUM_HELPER_DEPTH {
+            let deep = "a derived field chain deeper than dexcli follows".to_owned();
+            return CallVerdict::ThroughHelper(deep, Certainty::Possible);
+        }
+        let source = self.finder.source;
+        let Some((fields, generics)) = source.declared_field_types(owner) else {
+            return CallVerdict::External(Certainty::Possible);
+        };
+        let scope = TypeScope::new(owner, [generics]);
+        for field in fields {
+            let verdict = self.field_trait_verdict(field, method, &scope, visited);
+            if !matches!(verdict, CallVerdict::Allowed) {
+                return verdict;
+            }
+        }
+        CallVerdict::Allowed
+    }
+
+    /// Checks the Clone or Default method that a derived impl calls for one field type.
+    fn field_trait_verdict(
+        &mut self,
+        field: &Type,
+        method: &str,
+        scope: &TypeScope,
+        visited: &mut BTreeSet<String>,
+    ) -> CallVerdict {
+        let unresolved = || {
+            let callee = format!("{}::{method}", source_text(field));
+            CallVerdict::ThroughHelper(callee, Certainty::Possible)
+        };
+        let elements: Vec<&Type> = match field {
+            Type::Reference(_) => return CallVerdict::Allowed,
+            Type::Paren(inner) => vec![&inner.elem],
+            Type::Group(inner) => vec![&inner.elem],
+            Type::Array(array) => vec![&array.elem],
+            Type::Slice(slice) => vec![&slice.elem],
+            Type::Tuple(tuple) => tuple.elems.iter().collect(),
+            Type::Path(path) if path.qself.is_none() => {
+                let segments = path_segments(&path.path);
+                let last = segments.last().cloned().unwrap_or_default();
+                let source = self.finder.source;
+                match source.path_target(&segments, scope) {
+                    // Cloning an Arc or Rc only counts a reference.
+                    PathTarget::PureStandardLibrary
+                        if method == "clone" && matches!(last.as_str(), "Arc" | "Rc") =>
+                    {
+                        return CallVerdict::Allowed;
+                    }
+                    // Option, collections, and similar types default to empty without calling T::default.
+                    PathTarget::PureStandardLibrary
+                        if method == "default"
+                            && !matches!(
+                                last.as_str(),
+                                "Arc"
+                                    | "Box"
+                                    | "Cell"
+                                    | "Cow"
+                                    | "Mutex"
+                                    | "Rc"
+                                    | "RefCell"
+                                    | "RwLock"
+                            ) =>
+                    {
+                        return CallVerdict::Allowed;
+                    }
+                    PathTarget::PureStandardLibrary | PathTarget::DexSdk => {
+                        type_arguments(&path.path)
+                    }
+                    PathTarget::FileItem(name) => match source.declarations.get(&name) {
+                        Some(Item::Type(alias)) => vec![alias.ty.as_ref()],
+                        Some(Item::Struct(_) | Item::Enum(_)) => {
+                            return self.type_trait_verdict(&name, method, visited);
+                        }
+                        _ => return unresolved(),
+                    },
+                    PathTarget::SelfType => {
+                        let owner = scope.owner.clone();
+                        return self.type_trait_verdict(&owner, method, visited);
+                    }
+                    PathTarget::DexSdkExternal
+                    | PathTarget::ExternalStandardLibrary
+                    | PathTarget::External => return unresolved(),
+                }
+            }
+            _ => return unresolved(),
+        };
+        for element in elements {
+            let verdict = self.field_trait_verdict(element, method, scope, visited);
+            if !matches!(verdict, CallVerdict::Allowed) {
+                return verdict;
+            }
+        }
+        CallVerdict::Allowed
+    }
+
+    /// Checks a same-file type's Clone or Default: its explicit impl, or its derived fields.
+    fn type_trait_verdict(
+        &mut self,
+        owner: &str,
+        method: &str,
+        visited: &mut BTreeSet<String>,
+    ) -> CallVerdict {
+        let helpers = self.finder.file_methods(owner, method);
+        if !helpers.is_empty() {
+            return match self.helper_verdict(helpers) {
+                CallVerdict::ThroughHelper(inner, certainty) => CallVerdict::ThroughHelper(
+                    format!("{owner}::{method} (calls {inner})"),
+                    certainty,
+                ),
+                verdict => verdict,
+            };
+        }
+        if self.finder.source.derives_method(owner, method) {
+            return self.derived_method_verdict(owner, method, visited);
+        }
+        CallVerdict::ThroughHelper(format!("{owner}::{method}"), Certainty::Possible)
+    }
+
+    /// Checks a method on deserialized data, according to how well its type is known.
+    fn data_method_verdict(&mut self, data_type: &DataType, method: &str) -> CallVerdict {
+        match data_type {
+            DataType::FileType(owner) => self.file_type_method_verdict(owner, method),
+            // Another file's data type may define an I/O method with any name.
+            DataType::Custom => CallVerdict::External(Certainty::Possible),
+            DataType::Unresolved if DATA_PURE_METHOD_NAMES.contains(&method) => {
+                CallVerdict::Allowed
+            }
+            DataType::Unresolved => CallVerdict::External(Certainty::Possible),
         }
     }
 
@@ -577,7 +704,7 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
             }
             ValueOrigin::External(certainty) => CallVerdict::External(certainty),
             ValueOrigin::FileType(owner) => self.file_type_method_verdict(&owner, &method),
-            ValueOrigin::Data(owner) => self.data_method_verdict(owner.as_deref(), &method),
+            ValueOrigin::Data(data_type) => self.data_method_verdict(&data_type, &method),
             ValueOrigin::Unknown => CallVerdict::External(Certainty::Possible),
         }
     }
@@ -749,5 +876,22 @@ pub(crate) fn path_segments(path: &syn::Path) -> Vec<String> {
     path.segments
         .iter()
         .map(|segment| segment.ident.to_string())
+        .collect()
+}
+
+/// Returns the type arguments of a path's last segment, such as T in `Vec<T>`.
+fn type_arguments(path: &syn::Path) -> Vec<&Type> {
+    let Some(syn::PathArguments::AngleBracketed(arguments)) =
+        path.segments.last().map(|segment| &segment.arguments)
+    else {
+        return Vec::new();
+    };
+    arguments
+        .args
+        .iter()
+        .filter_map(|argument| match argument {
+            syn::GenericArgument::Type(argument) => Some(argument),
+            _ => None,
+        })
         .collect()
 }

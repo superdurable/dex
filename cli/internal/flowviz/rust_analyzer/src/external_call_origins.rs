@@ -9,7 +9,7 @@
 use syn::{Block, Expr, Item};
 
 use crate::expressions::{block_tail, peel};
-use crate::external_call_targets::{Certainty, PathTarget, TypeScope, ValueOrigin};
+use crate::external_call_targets::{Certainty, DataType, PathTarget, TypeScope, ValueOrigin};
 use crate::external_calls::{BindingSource, DEX_TRAIT_DEFAULT_METHODS, MethodScan, path_segments};
 
 /// Collection methods that return one element, wrapped in an Option.
@@ -117,7 +117,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
             }
             BindingSource::Destructured(value) => match self.expression_origin(value, depth + 1) {
                 external @ ValueOrigin::External(_) => external,
-                ValueOrigin::Data(_) => ValueOrigin::Data(None),
+                ValueOrigin::Data(_) => ValueOrigin::Data(DataType::Unresolved),
                 _ => ValueOrigin::Unknown,
             },
             BindingSource::Untyped => ValueOrigin::Unknown,
@@ -237,8 +237,9 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
     fn field_origin(&self, field: &syn::ExprField, depth: usize) -> ValueOrigin {
         let (owner, is_data) = match self.expression_origin(&field.base, depth + 1) {
             ValueOrigin::FileType(owner) => (owner, false),
-            ValueOrigin::Data(Some(owner)) => (owner, true),
-            ValueOrigin::Data(None) => return ValueOrigin::Data(None),
+            ValueOrigin::Data(DataType::FileType(owner)) => (owner, true),
+            // A field of data whose declaration dexcli cannot read has an unresolved type.
+            ValueOrigin::Data(_) => return ValueOrigin::Data(DataType::Unresolved),
             external @ ValueOrigin::External(_) => return external,
             ValueOrigin::DexSdk => return ValueOrigin::DexSdk,
             ValueOrigin::PureStandardLibrary => return ValueOrigin::PureStandardLibrary,
@@ -348,7 +349,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
         }
         let value = source
             .resource_value_type(&name)
-            .map_or(ValueOrigin::Data(None), |declared| {
+            .map_or(ValueOrigin::Data(DataType::Unresolved), |declared| {
                 source.type_origin(declared, &self.scope, 0).into_data()
             });
         let wrapped = |origin| ValueOrigin::Optional(Box::new(origin));
@@ -359,7 +360,9 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
             | "condition_results"
             | "branch_results"
             | "remaining_branch_results" => Some(wrapped(ValueOrigin::collection(value))),
-            "find_pending_message" => Some(wrapped(wrapped(ValueOrigin::Data(None)))),
+            "find_pending_message" => {
+                Some(wrapped(wrapped(ValueOrigin::Data(DataType::Unresolved))))
+            }
             _ => None,
         }
     }
@@ -373,16 +376,16 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
         let method = method.as_str();
         match receiver {
             ValueOrigin::FileType(owner) => self.associated_result_origin(&owner, method),
-            ValueOrigin::Data(owner) => {
-                if let Some(owner) = &owner
+            ValueOrigin::Data(data_type) => {
+                if let DataType::FileType(owner) = &data_type
                     && !self.finder.file_methods(owner, method).is_empty()
                 {
                     return self.associated_result_origin(owner, method);
                 }
                 if matches!(method, "clone" | "to_owned" | "as_ref" | "borrow") {
-                    ValueOrigin::Data(owner)
+                    ValueOrigin::Data(data_type)
                 } else {
-                    ValueOrigin::Data(None)
+                    ValueOrigin::Data(DataType::Unresolved)
                 }
             }
             ValueOrigin::Collection(element) => {
@@ -393,7 +396,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
                 } else if COLLECTION_PURE_RESULT_METHODS.contains(&method) {
                     ValueOrigin::PureStandardLibrary
                 } else if matches!(*element, ValueOrigin::Data(_)) {
-                    ValueOrigin::Data(None)
+                    ValueOrigin::Data(DataType::Unresolved)
                 } else {
                     ValueOrigin::Unknown
                 }
@@ -408,7 +411,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
                 } else if matches!(method, "map" | "and_then") {
                     ValueOrigin::Optional(Box::new(ValueOrigin::Unknown))
                 } else if matches!(*payload, ValueOrigin::Data(_)) {
-                    ValueOrigin::Data(None)
+                    ValueOrigin::Data(DataType::Unresolved)
                 } else {
                     ValueOrigin::Unknown
                 }
@@ -446,7 +449,7 @@ fn element_origin(container: ValueOrigin) -> ValueOrigin {
         origin @ (ValueOrigin::PureStandardLibrary
         | ValueOrigin::DexSdk
         | ValueOrigin::External(_)) => origin,
-        ValueOrigin::Data(_) => ValueOrigin::Data(None),
+        ValueOrigin::Data(_) => ValueOrigin::Data(DataType::Unresolved),
         ValueOrigin::FileType(_) | ValueOrigin::Unknown => ValueOrigin::Unknown,
     }
 }

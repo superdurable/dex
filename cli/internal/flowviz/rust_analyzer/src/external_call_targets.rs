@@ -341,9 +341,20 @@ pub(crate) enum ValueOrigin {
     Collection(Box<ValueOrigin>),
     /// An Option or Result; holds its payload origin.
     Optional(Box<ValueOrigin>),
-    /// Deserialized data, such as the Step input; it cannot hold a service. Holds its same-file type.
-    Data(Option<String>),
+    /// Deserialized data, such as the Step input; it cannot hold a service.
+    Data(DataType),
     Unknown,
+}
+
+/// The type of a deserialized data value, which decides which of its methods are allowed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DataType {
+    /// A type declared in this file; its methods are checked like any same-file method.
+    FileType(String),
+    /// A named type from another file or crate; its methods may do I/O.
+    Custom,
+    /// A field or element of data whose type dexcli cannot resolve; standard-like methods are allowed.
+    Unresolved,
 }
 
 impl ValueOrigin {
@@ -354,7 +365,7 @@ impl ValueOrigin {
                 Self::External(certainty)
             }
             (left, right) if left == right => left,
-            (Self::Data(_), Self::Data(_)) => Self::Data(None),
+            (Self::Data(_), Self::Data(_)) => Self::Data(DataType::Custom),
             _ => Self::Unknown,
         }
     }
@@ -362,8 +373,9 @@ impl ValueOrigin {
     /// Returns the origin of a deserialized value of this declared type, which holds no service.
     pub(crate) fn into_data(self) -> Self {
         match self {
-            Self::FileType(owner) => Self::Data(Some(owner)),
-            Self::External(_) | Self::Unknown => Self::Data(None),
+            Self::FileType(owner) => Self::Data(DataType::FileType(owner)),
+            Self::External(_) => Self::Data(DataType::Custom),
+            Self::Unknown => Self::Data(DataType::Unresolved),
             Self::Collection(element) => Self::Collection(Box::new(element.into_data())),
             Self::Optional(payload) => Self::Optional(Box::new(payload.into_data())),
             data_or_pure => data_or_pure,
@@ -554,6 +566,25 @@ impl RustFlowSource<'_> {
             current = first;
         }
         None
+    }
+
+    /// Returns every field type of a same-file struct or enum, and its generics.
+    pub(crate) fn declared_field_types(&self, owner: &str) -> Option<(Vec<&Type>, &Generics)> {
+        match self.declarations.get(owner)? {
+            Item::Struct(declaration) => Some((
+                declaration.fields.iter().map(|field| &field.ty).collect(),
+                &declaration.generics,
+            )),
+            Item::Enum(declaration) => Some((
+                declaration
+                    .variants
+                    .iter()
+                    .flat_map(|variant| variant.fields.iter().map(|field| &field.ty))
+                    .collect(),
+                &declaration.generics,
+            )),
+            _ => None,
+        }
     }
 
     /// Reports whether a same-file struct or enum derives the standard trait that adds method.
