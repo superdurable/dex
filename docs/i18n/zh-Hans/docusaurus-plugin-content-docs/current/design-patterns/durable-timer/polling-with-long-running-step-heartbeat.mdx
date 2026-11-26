@@ -25,9 +25,9 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 4. 报告进度。状态变化时写一条 Stream 消息，否则带着 checkpoint 记录一次 heartbeat。
 5. 按轮询间隔 sleep，然后重新开始。
 
-“尚未就绪”是循环里的正常分支，绝不是错误。
+“尚未就绪”是循环里的正常分支。优先用它，而不是返回错误再靠重试循环。返回错误会把“尚未就绪”和真正的失败混在一起，还会消耗重试预算。
 
-普通的 sleep 就够了。通过该语言 SDK 的机制响应取消。外部调用支持取消参数时，把它传进去，并保留调用自己的 timeout。取消是协作式的：循环在下一个能报告取消的边界退出。见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
+普通的 sleep 就够了。通过该语言 SDK 的机制响应取消。外部调用支持取消参数时，把它传进去。观察不到取消的阻塞调用要有自己的 timeout，因为 handler 返回之后 Worker 槽才会释放。取消是协作式的：循环在下一个能报告取消的边界退出。见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
 
 ## 规则 {#rules}
 
@@ -38,7 +38,7 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 - <a id="deadline-watchdog"></a>业务截止时间比整个等待短，或者轮询 Step 为了提交每次状态变化而重新进入自身、Step options 无法守住截止时间时，使用 watchdog。watchdog 是一个与自己的 Timer 竞争的等待 Step。它和记录结果的 Step 声明同一个 Attribute lock。Timer 触发时，它在这个 lock 下读取状态，只有工作仍未完成时才判定超期。
 - <a id="checkpoint-and-progress"></a>从上一个 checkpoint 继续，用 `GetLastHeartbeatValue` 读取它。示例中的 checkpoint 是上一次报告的 job 状态。从最后存储的 checkpoint 继续，可以减少重试后重复发送的进度消息。checkpoint 可能丢失，所以消费方必须容忍重复和缺失的消息；见 [Heartbeat](/reference/python/step-options#heartbeat)（英文）。
 - 只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从持久化状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。
-- <a id="locks"></a>由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中，这样 `ExecuteLockAttributes` 只会短暂持有。
+- <a id="locks"></a>由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中。如果 polling Step 在整个等待期间持有 lock，需要它的 Step（例如 watchdog）都要等到循环结束，需要它的 RPC 都会失败。
 
 ## 示例 {#example}
 

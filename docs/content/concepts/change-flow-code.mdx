@@ -38,8 +38,8 @@ missing Step implementations, renamed RPCs, or incompatible data.
 
 ### Lock business behavior at Flow start
 
-Persist a business version value when a Flow starts, such as an Attribute or a
-field in the start state. Branch on that stored value, not on the Worker build
+When a rule change must not affect open Flows, persist a business version value
+when a Flow starts, such as an Attribute or a field in the start state. Branch on that stored value, not on the Worker build
 currently serving the call. Existing Flows keep their old behavior; new Flows
 can use the new behavior after deployment.
 

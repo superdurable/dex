@@ -23,7 +23,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
 4. 遇到终态时，`Execute` 返回下一步的决定：成功或业务失败。
 5. 工作还没完成时，`Execute` 返回指向同一个 Step 的 `GoTo`，带上下一轮的输入。
 
-“尚未就绪”是正常的决定，绝不是错误。
+“尚未就绪”是正常的决定。优先用它，而不是返回错误再靠重试循环。返回错误会把“尚未就绪”和真正的失败混在一起，还会消耗重试预算。
 
 ## 规则 {#rules}
 

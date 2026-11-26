@@ -375,12 +375,27 @@ A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
 not declare it can still write the Attribute, unless the Attribute declares
 that its writes require the lock.
 
-Keep locked Steps and RPCs short; an RPC can take a free lock ahead of waiting
-Steps (see [Lock order](/reference/server/runtime-data#lock-order)). Make slow external calls in a Step that holds no
-lock, and set a short total duration, such as a few minutes, in the locked
-method's `StepOptions` retry policy. A failing locked Step holds its lock
-through every retry; see
+Keep locked RPCs short; an RPC can take a free lock ahead of waiting Steps
+(see [Lock order](/reference/server/runtime-data#lock-order)).
+
+When a Step declares a lock that an RPC also takes, the Step makes no
+external call while it holds the lock. It decides and commits under the lock.
+The next Step, which holds no lock, makes the call. Otherwise every RPC that
+arrives during the call fails with a lock conflict. The same holds for a
+`WaitFor` or a Flow timeout handler that declares such a lock. Starting or
+calling another Flow is an external call too.
+
+A lock that only Steps share may cover an external call. Those Steps wait for
+the lock and run one at a time. A polling Step should not hold a lock that its
+deadline watchdog also needs, because the watchdog would wait until the loop
+ends. A failing locked Step holds its lock through every retry, so set a short
+total duration, such as a few minutes, in its `StepOptions` retry policy; see
 [Lock holding](/reference/server/runtime-data#lock-holding).
+
+Some processes accept that an already decided action may still happen once,
+such as a reminder that is about to be sent when a stop request arrives. Such
+a process needs no lock. The RPC publishes the request and answers
+"received". Every later wait of the Flow includes that Channel.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 `Execute` runs:

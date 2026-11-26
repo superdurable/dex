@@ -13,7 +13,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 **Init** 启动多个 `DoWork` execution。每个 execution 随机等待一小段时间，所以任何一个都可能最先完成。最先返回 decision 的 execution 会取消其他 `DoWork` sibling execution。Flow 保留第一个结果，并停止已经无法改变结果的工作。
 
-每个分支都是独立的 Step execution，有自己的重试、失败路由和持久结果。在一个 `Execute` 里用进程内并发（例如 `Promise.any`、asyncio task 或线程）让几个外部调用互相竞争，这三样都会失去。
+每个分支都是独立的 Step execution，有自己的重试、失败路由和持久结果。分支有各自的外部副作用，或者需要这三样时，使用并行 Step。在一个 `Execute` 里用进程内并发（例如 `Promise.any`、asyncio task 或线程）适合一起成功或一起重试的幂等读取。
 
 ## 核心实现
 

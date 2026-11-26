@@ -336,7 +336,13 @@ Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时�
 
 lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute，除非这个 Attribute 声明了写入必须持有这个 lock。
 
-加锁的 Step 和 RPC 都要短；RPC 可以抢在等待的 Step 之前拿走空闲的 lock（见 [Lock 顺序](/reference/server/runtime-data#lock-order)）。慢的外部调用放在不持有 lock 的 Step 里，并在加锁方法的 `StepOptions` 重试策略里设置较短的总时长，例如几分钟。反复失败的加锁 Step 在每次重试期间都持有 lock；见 [Lock holding](/reference/server/runtime-data#lock-holding)（英文）。
+加锁的 RPC 要短；RPC 可以抢在等待的 Step 之前拿走空闲的 lock（见 [Lock 顺序](/reference/server/runtime-data#lock-order)）。
+
+Step 声明的 lock 也被某个 RPC 使用时，Step 持有 lock 期间不调用外部系统。它在 lock 下做决定并提交，由下一个不持有 lock 的 Step 调用外部系统。否则调用期间到达的 RPC 都会遇到 lock conflict。声明这种 lock 的 `WaitFor` 和 Flow timeout handler 也一样。启动或调用另一个 Flow 也算外部调用。
+
+只在 Step 之间共享的 lock 可以覆盖外部调用。这些 Step 会等待 lock，一个接一个运行。polling Step 不应持有它的截止时间 watchdog 也需要的 lock，否则 watchdog 要等到循环结束。反复失败的加锁 Step 在每次重试期间都持有 lock，所以在它的 `StepOptions` 重试策略里设置较短的总时长，例如几分钟；见 [Lock holding](/reference/server/runtime-data#lock-holding)（英文）。
+
+有些流程接受已经决定的动作可能还会发生一次，例如停止请求到达时，一条提醒正要发出。这样的流程不需要 lock。RPC 发布请求并回答“已收到”。Flow 之后的每个等待都包含那个 Channel。
 
 这个 Step 在 `Execute` 运行期间锁住一个 singleton Attribute 和一个 AttributeMap instance：
 

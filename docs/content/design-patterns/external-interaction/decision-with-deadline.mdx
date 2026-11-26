@@ -63,18 +63,20 @@ Keep these rules when you use the window:
 
 - Every RPC that writes a response Channel declares the same lock. Locks are cooperative. An RPC without the lock bypasses the window.
 - Lock only `Execute`, not `WaitFor`.
-- Keep the locked `Execute` short. Put side effects, such as an expiry notice, in the next Step. A failing `Execute` keeps the lock through its retries, and responses get lock conflicts meanwhile.
+- The response RPCs take this lock, so the locked `Execute` makes no external call. Put side effects, such as an expiry notice, in the next Step. A failing `Execute` keeps the lock through its retries, and responses get lock conflicts meanwhile.
 - Give the locked `Execute` an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The example uses an initial retry interval of 1 second, at most 3 attempts, a total budget of 1 minute, and 10 seconds for each attempt. See the [StepOptions reference](/reference/go/step-options#defaults).
 - Make the response idempotent, so a retried call is safe.
 - To wait again, reopen the window under the same lock, in the `Execute` that starts the next wait.
 
 ## Arbitrate by business priority {#arbitrate-by-business-priority}
 
-Some processes rank events against each other. For example, a withdrawal wins over a decision. "Arrives at the same moment" is not a boundary Dex can enforce. A lower-ranked event that commits first satisfies the wait before a higher-ranked one commits. So name the boundary explicitly:
+Some processes rank events against each other. For example, a withdrawal wins over a decision, or a confirmation wins over a decline that arrives at the same moment. Keep such a rule, and state which meaning of "the same moment" the design uses. Both meanings are valid:
 
-- **Events ready when the wait is evaluated.** Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued.
+- **Server commit order.** A response window or lock admits responses one commit at a time. The first committed response wins, so ties never occur. This is the response window above.
+- **Events ready when the wait is evaluated.** Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued. When that matters, `Execute` checks the higher-ranked Channel first before it takes the Timer branch.
 - **Every event admitted before the decision.** Keep each round's candidates in Attributes keyed by round, as described below.
-- **The first response wins.** This is the response window above, a different, valid policy.
+
+A response window can also be combined with ranked responses, for example by ranking the responses present when the locked `Execute` closes the window.
 
 For the second policy, each round has a round ID that is never reused. Two AttributeMaps are keyed by it: the round's window and the round's candidates. Every RPC and Step that touches a round locks that round's instances of both maps.
 

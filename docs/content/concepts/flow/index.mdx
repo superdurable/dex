@@ -228,9 +228,12 @@ The parent receives each child's result durably:
 - When several entry points can start the same child, they derive the same
   Flow ID and request ID from the same request. Otherwise the start reports
   that the Flow already started: read that run and track it only when its
-  business identity matches.
-- Each child has its own Flow timeout. A closing parent never stops its
-  children.
+  stored business identity matches. When it does not match, record a
+  rejected admission that the parent lists but never waits for, counts, or
+  stops.
+- Each child has its own Flow timeout. Each starter sets it, because it is a
+  start option. A child that must report its timeout uses a timeout handler
+  that reports, not a Timer Step. A closing parent never stops its children.
 - A client stop starts no new handlers in the child, so the child may never
   report. A running handler can ignore cancellation, so a report already sent
   can still arrive.
