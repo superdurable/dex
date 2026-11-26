@@ -36,7 +36,7 @@ import java.time.Duration;
 
 @Component
 public class PollingWithTimerFlow implements Flow<Void> {
-    // POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+    // MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(10);
     public static final String POLL_INTERVAL_TIMER_ID = "poll-interval";
     private static final int MAX_POLL_ROUNDS = 60;

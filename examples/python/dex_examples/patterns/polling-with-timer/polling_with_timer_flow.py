@@ -37,7 +37,7 @@ from dex import (
 
 from dex_examples.patterns.polling.job_service import FakeJobService, JobState
 
-# POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+# MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 POLL_INTERVAL = timedelta(seconds=10)
 POLL_INTERVAL_TIMER_ID = "poll-interval"
 MAX_POLL_ROUNDS = 60

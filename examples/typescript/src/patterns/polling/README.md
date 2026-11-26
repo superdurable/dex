@@ -11,8 +11,8 @@ then `RUNNING`, and succeeds six seconds after it starts or as soon as
 `complete-job` is called.
 
 **AwaitJob** keeps `POLL_INTERVAL_MS + JOB_CALL_TIMEOUT_MS <= heartbeatTimeoutMs - 10s`.
-Each status call has its own `AbortSignal.timeout`. `MAX_JOB_WAIT_MS` sets both
-`executeMethodTimeoutMs` and the retry policy's `totalDurationMs`. Dex enforces
+Each status call combines `context.cancellationSignal` with its own
+`AbortSignal.timeout`. `MAX_JOB_WAIT_MS` sets both `executeMethodTimeoutMs` and the retry policy's `totalDurationMs`. Dex enforces
 the maximum wait, so the Step code has no deadline. A retry resumes from the
 last reported status through `getLastHeartbeatValue`.
 

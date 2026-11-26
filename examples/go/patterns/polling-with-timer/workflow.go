@@ -29,7 +29,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-// pollInterval * maxPollRounds bounds the whole wait.
+// maxPollRounds bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const (
 	pollInterval        = 10 * time.Second
 	PollIntervalTimerID = "poll-interval"

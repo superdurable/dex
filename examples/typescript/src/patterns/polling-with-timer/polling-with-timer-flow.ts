@@ -34,7 +34,7 @@ import {
 
 import type { FakeJobService } from "../polling/fake-job-service.js";
 
-// POLL_INTERVAL_MS * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const POLL_INTERVAL_MS = 10_000;
 export const POLL_INTERVAL_TIMER_ID = "poll-interval";
 const MAX_POLL_ROUNDS = 60;
@@ -86,10 +86,10 @@ class CheckJobStatus implements Step<JobPollRound> {
     return Wait.until(Timer.byDuration(POLL_INTERVAL_MS, POLL_INTERVAL_TIMER_ID));
   }
 
-  public async execute(_context: AsyncContext, pollRound: JobPollRound): Promise<StepDecision> {
+  public async execute(context: AsyncContext, pollRound: JobPollRound): Promise<StepDecision> {
     const status = await this.jobs.getJobStatus(
       pollRound.jobId,
-      AbortSignal.timeout(JOB_CALL_TIMEOUT_MS),
+      AbortSignal.any([context.cancellationSignal, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS)]),
     );
     switch (status.state) {
       case "SUCCEEDED":
@@ -114,7 +114,10 @@ class StartJob implements Step<void> {
 
   public async execute(context: Context, _input: void): Promise<StepDecision> {
     const jobId = context.flowId;
-    await this.jobs.startJob(jobId, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS));
+    await this.jobs.startJob(
+      jobId,
+      AbortSignal.any([context.cancellationSignal, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS)]),
+    );
     return goTo(CheckJobStatus, { jobId, roundNumber: 1 });
   }
 }

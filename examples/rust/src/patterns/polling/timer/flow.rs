@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::patterns::polling::job_service::{FakeJobService, JobState};
 
-// POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL_TIMER_ID: &str = "poll-interval";
 const MAX_POLL_ROUNDS: u32 = 60;

@@ -30,8 +30,11 @@ Each round of the polling Step runs these steps:
 - <a id="not-ready"></a>Return `GoTo` to the same Step when the work is not
   ready. Each `GoTo` starts a new Step execution, which waits for a new Timer.
 - <a id="bound-the-loop"></a>Bound the loop. Carry a round number in the Step
-  input and stop at a maximum. The interval times the maximum rounds bounds
-  the whole wait. A deadline kept in an Attribute works the same way.
+  input and stop at a maximum. The round limit bounds the number of checks.
+  It does not bound the elapsed time: each round also spends time on the
+  external call, retries, and queueing. For a hard deadline, use the
+  [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)
+  or a [deadline watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#deadline-watchdog).
 - <a id="step-input"></a>Keep the Step input small and fixed in size, such as
   the job ID and the round number. Keep accumulated state, such as collected
   results, in Attributes, never in a growing Step input.
@@ -65,7 +68,7 @@ The simulated job succeeds six seconds after it starts, so the first round finds
 <SdkSnippet lang="python">
 
 ```python
-# POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+# MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 POLL_INTERVAL = timedelta(seconds=10)
 POLL_INTERVAL_TIMER_ID = "poll-interval"
 MAX_POLL_ROUNDS = 60
@@ -119,7 +122,7 @@ class CheckJobStatus(Step[JobPollRound]):
 <SdkSnippet lang="go">
 
 ```go
-// pollInterval * maxPollRounds bounds the whole wait.
+// maxPollRounds bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const (
 	pollInterval        = 10 * time.Second
 	PollIntervalTimerID = "poll-interval"
@@ -176,7 +179,7 @@ func (step CheckJobStatus) Execute(ctx dex.Context, pollRound JobPollRound) (*de
 <SdkSnippet lang="java">
 
 ```java
-// POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 private static final Duration POLL_INTERVAL = Duration.ofSeconds(10);
 public static final String POLL_INTERVAL_TIMER_ID = "poll-interval";
 private static final int MAX_POLL_ROUNDS = 60;
@@ -229,7 +232,7 @@ final class CheckJobStatus implements Step<JobPollRound> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-// POLL_INTERVAL_MS * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const POLL_INTERVAL_MS = 10_000;
 export const POLL_INTERVAL_TIMER_ID = "poll-interval";
 const MAX_POLL_ROUNDS = 60;
@@ -259,10 +262,10 @@ class CheckJobStatus implements Step<JobPollRound> {
     return Wait.until(Timer.byDuration(POLL_INTERVAL_MS, POLL_INTERVAL_TIMER_ID));
   }
 
-  public async execute(_context: AsyncContext, pollRound: JobPollRound): Promise<StepDecision> {
+  public async execute(context: AsyncContext, pollRound: JobPollRound): Promise<StepDecision> {
     const status = await this.jobs.getJobStatus(
       pollRound.jobId,
-      AbortSignal.timeout(JOB_CALL_TIMEOUT_MS),
+      AbortSignal.any([context.cancellationSignal, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS)]),
     );
     switch (status.state) {
       case "SUCCEEDED":
@@ -283,7 +286,7 @@ class CheckJobStatus implements Step<JobPollRound> {
 <SdkSnippet lang="rust">
 
 ```rust
-// POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL_TIMER_ID: &str = "poll-interval";
 const MAX_POLL_ROUNDS: u32 = 60;
@@ -360,8 +363,10 @@ Polling with WaitFor Timer records every round in the Flow's history. You see ea
 | --- | --- | --- |
 | Each round | A new Step execution in the Flow's history | A heartbeat or Stream message inside one attempt |
 | Between rounds | No Worker task slot is held | The attempt holds a Worker task slot |
-| Dex Server failover | Fails only a check that is running | Fails the running attempt, which uses a retry |
+| Dex Server failover | A Timer wait continues and uses no retry; a `WaitFor` or `Execute` attempt a Worker had received fails and uses a retry | The running attempt fails and uses a retry |
 | Interval | Whole seconds | Any interval |
+
+[Lease](/reference/server/high-availability#lease) gives the exact failover rules, including the ASYNC exception.
 
 Choose this pattern for long intervals, to see each round, or to Time Travel to a round. Choose the heartbeat pattern for short intervals or the lightest loop. Time Travel reaches a round only inside the run's recent history window; see [Recover a Flow with Time Travel](/components/operate-and-debug#time-travel).
 

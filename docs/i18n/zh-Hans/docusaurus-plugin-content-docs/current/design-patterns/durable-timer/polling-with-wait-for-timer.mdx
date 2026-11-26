@@ -30,7 +30,10 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
 - <a id="not-ready"></a>工作尚未就绪时，返回指向同一个 Step 的 `GoTo`。
   每次 `GoTo` 都开始一次新的 Step execution，它会等待一个新的 Timer。
 - <a id="bound-the-loop"></a>给循环设上限。在 Step 输入里带上轮次编号，到达最大值就停止。
-  间隔乘以最大轮次，就是整个等待的上限。把截止时间存在 Attribute 里也可以。
+  轮次上限限制的是检查次数，不是耗时：每一轮还要花时间在外部调用、重试和排队上。
+  需要硬性截止时间时，使用
+  [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)（英文）
+  或 [截止时间 watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#deadline-watchdog)。
 - <a id="step-input"></a>Step 输入保持小而且大小固定，例如 job ID 和轮次编号。
   累积的状态，例如收集到的结果，放在 Attribute 里，绝不放进不断变大的 Step 输入。
 - <a id="external-calls"></a>只在 `Execute` 中调用外部系统。`WaitFor` 只声明 Timer。
@@ -59,7 +62,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
 <SdkSnippet lang="python">
 
 ```python
-# POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+# MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 POLL_INTERVAL = timedelta(seconds=10)
 POLL_INTERVAL_TIMER_ID = "poll-interval"
 MAX_POLL_ROUNDS = 60
@@ -113,7 +116,7 @@ class CheckJobStatus(Step[JobPollRound]):
 <SdkSnippet lang="go">
 
 ```go
-// pollInterval * maxPollRounds bounds the whole wait.
+// maxPollRounds bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const (
 	pollInterval        = 10 * time.Second
 	PollIntervalTimerID = "poll-interval"
@@ -170,7 +173,7 @@ func (step CheckJobStatus) Execute(ctx dex.Context, pollRound JobPollRound) (*de
 <SdkSnippet lang="java">
 
 ```java
-// POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 private static final Duration POLL_INTERVAL = Duration.ofSeconds(10);
 public static final String POLL_INTERVAL_TIMER_ID = "poll-interval";
 private static final int MAX_POLL_ROUNDS = 60;
@@ -223,7 +226,7 @@ final class CheckJobStatus implements Step<JobPollRound> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-// POLL_INTERVAL_MS * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const POLL_INTERVAL_MS = 10_000;
 export const POLL_INTERVAL_TIMER_ID = "poll-interval";
 const MAX_POLL_ROUNDS = 60;
@@ -253,10 +256,10 @@ class CheckJobStatus implements Step<JobPollRound> {
     return Wait.until(Timer.byDuration(POLL_INTERVAL_MS, POLL_INTERVAL_TIMER_ID));
   }
 
-  public async execute(_context: AsyncContext, pollRound: JobPollRound): Promise<StepDecision> {
+  public async execute(context: AsyncContext, pollRound: JobPollRound): Promise<StepDecision> {
     const status = await this.jobs.getJobStatus(
       pollRound.jobId,
-      AbortSignal.timeout(JOB_CALL_TIMEOUT_MS),
+      AbortSignal.any([context.cancellationSignal, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS)]),
     );
     switch (status.state) {
       case "SUCCEEDED":
@@ -277,7 +280,7 @@ class CheckJobStatus implements Step<JobPollRound> {
 <SdkSnippet lang="rust">
 
 ```rust
-// POLL_INTERVAL * MAX_POLL_ROUNDS bounds the whole wait.
+// MAX_POLL_ROUNDS bounds the number of checks, not elapsed time; calls, retries, and queueing add time.
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL_TIMER_ID: &str = "poll-interval";
 const MAX_POLL_ROUNDS: u32 = 60;
@@ -354,8 +357,10 @@ impl Step for CheckJobStatus {
 | --- | --- | --- |
 | 每一轮 | Flow 历史中一次新的 Step execution | 一次尝试内的一次 heartbeat 或一条 Stream message |
 | 两轮之间 | 不占用 Worker task slot | 这次尝试一直占用一个 Worker task slot |
-| Dex Server failover | 只让正在运行的那次检查失败 | 让正在运行的尝试失败，并消耗一次重试 |
+| Dex Server failover | Timer 等待继续，不消耗重试；Worker 已收到的 `WaitFor` 或 `Execute` 尝试会失败，并消耗一次重试 | 正在运行的尝试失败，并消耗一次重试 |
 | 间隔 | 整秒 | 任意间隔 |
+
+准确的 failover 规则，包括 ASYNC 的例外，见 [Lease](/reference/server/high-availability#lease)（英文）。
 
 间隔长、要看到每一轮、或者要用 Time Travel 回到某一轮时，选这个模式。间隔短、或者要最轻量的循环时，选 heartbeat 模式。Time Travel 只能回到运行近期历史窗口内的轮次；见 [用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)。
 

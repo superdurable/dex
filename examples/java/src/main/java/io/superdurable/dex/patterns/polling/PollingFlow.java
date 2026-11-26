@@ -33,7 +33,7 @@ import java.time.Duration;
 @Component
 public class PollingFlow implements Flow<Void> {
     // Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= HeartbeatTimeout - 10s.
-    // MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
+    // MAX_JOB_WAIT bounds each attempt and whether another attempt starts; Dex enforces it.
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
     private static final Duration JOB_CALL_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration MAX_JOB_WAIT = Duration.ofMinutes(10);
