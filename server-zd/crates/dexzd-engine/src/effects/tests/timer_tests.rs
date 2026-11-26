@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
 use dexzd_keyspace::row_keys::{decode_timer_index_key, timer_index_key, timer_key};
-use dexzd_keyspace::{ColumnFamily, RunId};
+use dexzd_keyspace::{ColumnFamily, PartitionId, RunId};
 use dexzd_protocol::dex::{FlowResetType, FlowStatus, ResetFlowRequest};
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, TimeTravelCommand, TimerId, TimerRecord, WaitConditionTimerId, flow_command,
@@ -19,10 +19,11 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use super::{
-    CommandOverride, EffectHarness, SECOND_MICROS, is_error_reply, is_timers_fired, ok_reply,
-    settings, start_request,
+    CommandOverride, EffectHarness, MemoryState, SECOND_MICROS, is_error_reply, is_timers_fired,
+    ok_reply, settings, start_request,
 };
 use crate::effects::EffectsConfig;
+use crate::effects::state_reads::RunLocation;
 use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 use dexzd_clock::WallClock;
 
@@ -48,8 +49,20 @@ pub(super) fn seed_timer(
     fire_at_micros: i64,
 ) {
     let run = harness.run_location(flow_id, run_id);
-    let encoded = timer.encode_to_vec();
+    let partition = harness.partition_of(flow_id);
     let mut state = harness.flow_effect_operations.state.lock().expect("lock");
+    write_timer_rows(&mut state, partition, run, timer, fire_at_micros);
+}
+
+/// Writes a timer row and its partition index entry into `state`.
+pub(super) fn write_timer_rows(
+    state: &mut MemoryState,
+    partition: PartitionId,
+    run: RunLocation,
+    timer: &TimerId,
+    fire_at_micros: i64,
+) {
+    let encoded = timer.encode_to_vec();
     state.put_message(
         ColumnFamily::Flow,
         timer_key(run.flow_hash, run.run_id, &encoded),
@@ -62,7 +75,7 @@ pub(super) fn seed_timer(
         (
             ColumnFamily::PartitionIndex,
             timer_index_key(
-                harness.partition_of(flow_id),
+                partition,
                 fire_at_micros,
                 run.flow_hash,
                 run.run_id,
@@ -91,7 +104,7 @@ pub(super) fn timers_fired_override() -> CommandOverride {
     })
 }
 
-fn fired_commands(harness: &EffectHarness) -> Vec<(Vec<u8>, Vec<TimerId>, i64)> {
+pub(super) fn fired_commands(harness: &EffectHarness) -> Vec<(Vec<u8>, Vec<TimerId>, i64)> {
     harness
         .flow_effect_operations
         .commands_matching(is_timers_fired)
