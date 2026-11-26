@@ -161,10 +161,13 @@ func (finder *goExternalCallFinder) classify(callee string, function *types.Func
 	if function == nil {
 		return &possibleExternalCall{Callee: callee}, true
 	}
+	receiver := function.Signature().Recv()
+	if isGoDexClientMethod(function, receiver) {
+		return &possibleExternalCall{Callee: callee}, true
+	}
 	if function.Pkg() == nil || isGoDexSDKPackage(function.Pkg().Path()) {
 		return nil, true
 	}
-	receiver := function.Signature().Recv()
 	if receiver != nil && types.IsInterface(receiver.Type()) {
 		// dex.Context embeds context.Context, whose methods the Worker implements.
 		if function.Pkg().Path() == "context" {
@@ -207,6 +210,19 @@ func (finder *goExternalCallFinder) helperExternalCall(function *types.Func, dec
 		finder.exactResults[function] = result
 	}
 	return result, isExact
+}
+
+// isGoDexClientMethod reports a dex.Client method; it reaches the Dex server, so it counts as external.
+func isGoDexClientMethod(function *types.Func, receiver *types.Var) bool {
+	if receiver == nil || function.Pkg() == nil || function.Pkg().Path() != goSDKPackage {
+		return false
+	}
+	receiverType := receiver.Type()
+	if pointer, isPointer := receiverType.(*types.Pointer); isPointer {
+		receiverType = pointer.Elem()
+	}
+	named, isNamed := receiverType.(*types.Named)
+	return isNamed && named.Obj().Name() == "Client"
 }
 
 func isGoDexSDKPackage(path string) bool {

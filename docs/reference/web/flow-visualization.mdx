@@ -545,7 +545,7 @@ The warning **locked_method_external_call** is experimental. It can report false
 
 The analyzer decides what counts as an external call with an allowlist, so it does not miss one. In Go, a call is allowed when it is one of these:
 
-- a call into the Dex SDK packages `sdk-go/dex` and `sdk-go/logging`, or a method of **context.Context**;
+- a call into the Dex SDK packages `sdk-go/dex` and `sdk-go/logging`, such as a method of the handler's **dex.Context** or an Attribute, or a method of **context.Context**. Methods of **dex.Client**, such as **StartFlow**, count as external calls, because they reach the Dex server and another Flow is an external system;
 - a built-in function or a type conversion;
 - a standard-library call that does no I/O, such as **strings**, **strconv**, **encoding/json**, **math**, **sort**, **slices**, **errors**, **time** formatting and arithmetic, **fmt.Sprintf** and **fmt.Errorf**, and **log** or **log/slog**. **fmt.Print**, **fmt.Fprint**, **json.NewEncoder**, **json.NewDecoder**, **time.Sleep**, and timers count as external calls;
 - a function or method of the Flow's package whose body, checked up to six helper levels deep, makes only allowed calls.

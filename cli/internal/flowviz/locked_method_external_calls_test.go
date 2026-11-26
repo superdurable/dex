@@ -186,6 +186,14 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 				extraSource: "func countDown(n int) int {\n\tif n == 0 {\n\t\treturn 0\n\t}\n\treturn countUp(n - 1)\n}\n\nfunc countUp(n int) int { return countDown(n) }",
 			},
 		},
+		"execute starts another Flow through the Dex client": {
+			source: goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)",
+				executeBody: "_, _ = reminderClient.StartFlow(ctx, &ReminderFlow{}, \"reminder-\"+input, input, dex.StartFlowOptions{})",
+				extraSource: "var reminderClient *dex.Client",
+			},
+			messages: []string{"and calls reminderClient.StartFlow;"},
+		},
 		"standard library sleep": {
 			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "time.Sleep(time.Second)"},
 			messages: []string{"and calls time.Sleep;"},
