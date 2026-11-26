@@ -27,7 +27,7 @@ The polling Step repeats these steps:
 
 "Not ready yet" is a normal branch of the loop. It is never an error.
 
-A plain sleep is enough. Pass the SDK's cancellation signal to the external call, together with the call's own timeout. Cancellation is cooperative: the loop ends at the next point where the language's SDK reports it, such as the external call, the sleep, or the next heartbeat. See [Cancellation](/reference/python/step-options#cancellation).
+A plain sleep is enough. Honor cancellation through the language SDK's mechanism. When the external call accepts a cancellation argument, pass it, and keep the call's own timeout. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](/reference/server/runtime-data#cancel-honour).
 
 ## Rules {#rules}
 

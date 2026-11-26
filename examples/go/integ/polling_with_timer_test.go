@@ -30,6 +30,7 @@ import (
 	pollingwithtimer "github.com/superdurable/dex/examples/go/patterns/polling-with-timer"
 	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 // pollingWithTimerMaxRounds mirrors the example's unexported round limit.
@@ -119,12 +120,11 @@ func completeJobWhenStarted(t *testing.T, flowID string) {
 
 func skipPollIntervalTimer(t *testing.T, flowID string, round int) {
 	t.Helper()
-	executionNumber := int32(round)
 	require.Eventually(t, func() bool {
 		return integClient.SkipTimer(
 			integrationContext(t),
 			flowID,
-			dex.StepExecutionID{StepType: "CheckJobStatus", ExecutionNumber: &executionNumber},
+			dex.StepExecutionID{StepType: "CheckJobStatus", ExecutionNumber: ptr.Any(int32(round))},
 			dex.TimerID{ConditionID: pollingwithtimer.PollIntervalTimerID},
 		) == nil
 	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "the interval Timer of round %d must be skipped", round)

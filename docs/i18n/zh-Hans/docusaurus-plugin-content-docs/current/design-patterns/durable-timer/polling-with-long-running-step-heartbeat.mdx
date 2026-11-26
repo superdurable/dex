@@ -27,7 +27,7 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 
 “尚未就绪”是循环里的正常分支，绝不是错误。
 
-普通的 sleep 就够了。把 SDK 的取消信号和调用自己的 timeout 一起传给外部调用。取消是协作式的：循环会在该语言 SDK 报告取消的下一个位置结束，例如外部调用、sleep 或下一次 heartbeat。见 [Cancellation](/reference/python/step-options#cancellation)（英文）。
+普通的 sleep 就够了。通过该语言 SDK 的机制响应取消。外部调用支持取消参数时，把它传进去，并保留调用自己的 timeout。取消是协作式的：循环在下一个能报告取消的边界退出。见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
 
 ## 规则 {#rules}
 

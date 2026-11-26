@@ -4,8 +4,8 @@ bump: patch
 - Split Polling into two shapes. Polling with WaitFor Timer waits for a Timer in WaitFor, checks once in Execute, and returns GoTo to the same Step while the work is not ready. Polling with long-running Step heartbeat keeps the single-Execute loop.
 - Allow again a WaitFor Timer loop that polls an external system.
 - State the trade-off: the Timer shape records every round in the Flow's history, so each round is visible and Time Travel can move the run back to a round, but it is somewhat heavier. The heartbeat shape is lighter.
-- Add a choice table. Between rounds the Timer shape waits durably and holds no Worker task slot. Link the Developer reference for failover and Timer details.
+- Add a choice table. Between rounds the Timer shape waits durably and holds no Worker task slot. Link the Developer reference for exact failover rules.
 - Add the Timer-shape rules: "not ready" is a GoTo, never an error; a round limit bounds the number of checks, not elapsed time; keep the Step input small; call the provider only in Execute; tests skip the Timer with SkipTimer.
 - Keep forbidding retry policy, backoff, or RetryAfter as the polling loop, and a new Flow per page.
-- Correct the heartbeat shape: each attempt lasts at most its timeout, and the retry budget only decides whether another attempt starts. Pass the SDK cancellation signal to provider calls. A checkpoint reduces, but does not prevent, repeated progress messages.
+- Correct the heartbeat shape: each attempt lasts at most its timeout, and the retry budget only decides whether another attempt starts. Honor SDK cancellation at provider calls or other cancellation-aware boundaries. A checkpoint reduces, but does not prevent, repeated progress messages.
 - Link the new WaitFor Timer polling examples in Go, Python, TypeScript, Java, and Rust.
