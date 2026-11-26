@@ -93,6 +93,11 @@ As in any durable execution engine, an interrupted Step runs again; see [Idempot
   has 10 Keyword slots and 3 for each other index type, shared by every Flow
   type. The registry has no delete. See
   [PostgreSQL search](/reference/server/search#postgresql-search).
+- **One Flow run holds up to 1,000 active Steps and 1,000 pending messages in
+  each Channel by default.** A Step decision, RPC, or publish beyond either
+  limit fails.
+  Spread larger work across child Flows. See
+  [Step and Channel message limits](/reference/server/configuration#step-and-channel-limits).
 
 ## Release status {#release-status}
 

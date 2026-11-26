@@ -188,6 +188,12 @@ func binaryDexConfig(testConfig serverZDTestConfig) (map[string]any, string) {
 	if testConfig.ServerZDMaxChildFlowResultBytes > 0 {
 		limitsConfig["maxChildFlowResultBytes"] = testConfig.ServerZDMaxChildFlowResultBytes
 	}
+	if testConfig.ServerZDMaxConcurrentStepsPerFlow > 0 {
+		limitsConfig["maxConcurrentStepsPerFlow"] = testConfig.ServerZDMaxConcurrentStepsPerFlow
+	}
+	if testConfig.ServerZDMaxChannelMessages > 0 {
+		limitsConfig["maxChannelMessages"] = testConfig.ServerZDMaxChannelMessages
+	}
 	if len(limitsConfig) > 0 {
 		configuration["limits"] = limitsConfig
 	}

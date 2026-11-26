@@ -207,6 +207,15 @@ To roll back to an older server:
    N + M + 1 unpruned window events with its effective prune chunk M, such as
    2147484648 with the default chunk, and that none has reached it already.
 
+server-zd 0.1.38 also changes how the server applies commands: it enforces
+**limits.maxConcurrentStepsPerFlow** and **limits.maxChannelMessages**. Upgrade
+the active process and the standby together, as for 0.1.21. A Flow run that
+already holds more active Steps than the Step limit it recorded keeps them, but
+a command that would start more fails. Flow runs that started before 0.1.38
+have no Channel message limit. An older server ignores the Channel message
+limit that newer Flow runs record. See
+[Step and Channel message limits](/reference/server/configuration#step-and-channel-limits).
+
 A later release that raises the minimum protocol version needs the same care.
 Stop old Workers and their traffic before that server upgrade. Alternatively,
 use isolated blue and green environments, so deployments with ranges that do not

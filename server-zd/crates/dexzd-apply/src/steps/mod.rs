@@ -8,6 +8,7 @@
 
 //! Step executions and their method calls (plan sections 8.1 and 8.3).
 
+mod active_step_limit;
 mod attempt_snapshot;
 pub(crate) mod dispatch_queue;
 mod ended_step_rows;
@@ -18,6 +19,7 @@ mod step_decisions;
 mod step_results;
 pub(crate) mod wait_conditions;
 
+pub(crate) use active_step_limit::{active_step_limit_violation, should_enforce_active_step_limit};
 pub(crate) use ended_step_rows::{
     delete_ended_step_rows, has_deletable_ended_step_put, is_deletable_ended_step,
     sweep_ended_step_rows,

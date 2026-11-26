@@ -702,9 +702,20 @@ pub struct LimitsConfig {
     /// A command that grows active state and leaves it above this limit is rejected, or fails its
     /// Step attempt without retry. Each run records it at start.
     pub max_flow_state_bytes: u64,
-    /// Defaults to 10000; largest pending message count in one Channel.
+    /// Defaults to 1000; largest number of pending messages in one Channel of a Flow run.
+    ///
+    /// A Client publish or RPC that would leave a Channel with more pending messages is rejected
+    /// with RESOURCE_EXHAUSTED; such a Step result fails its Step attempt without retry. Messages
+    /// that a canceled Step returns to its Channel are never rejected. Each run records it at
+    /// start; runs that started before it was recorded have no limit. Must be at least 1.
     pub max_channel_messages: u32,
-    /// Defaults to 1000; most concurrently active Step executions in one Flow.
+    /// Defaults to 1000; most active Step executions (WaitFor, Waiting, or Execute) in one Flow
+    /// run's current attempt, without the Flow timeout handler.
+    ///
+    /// A Flow start or RPC that would raise the count above it is rejected with
+    /// RESOURCE_EXHAUSTED; such a Step result fails its Step attempt without retry. A command that
+    /// does not raise the count is never rejected. Each run records it at start. Must be at
+    /// least 1.
     pub max_concurrent_steps_per_flow: u32,
     /// Defaults to 256; most uncommitted speculative commands retained for one Flow.
     pub max_speculative_commands_per_flow: u32,
@@ -733,7 +744,7 @@ impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
             max_flow_state_bytes: 64 * 1024 * 1024,
-            max_channel_messages: 10_000,
+            max_channel_messages: 1_000,
             max_concurrent_steps_per_flow: 1_000,
             max_speculative_commands_per_flow: 256,
             max_speculative_bytes_per_node: 64 * 1024 * 1024,

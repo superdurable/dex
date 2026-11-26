@@ -64,7 +64,7 @@ impl From<FlowDataRejection> for HandlerResult {
     fn from(rejection: FlowDataRejection) -> Self {
         match rejection {
             FlowDataRejection::Value(rejection) => Self::Rejected(error_reply(
-                grpc_code::INVALID_ARGUMENT,
+                rejection.grpc_code(),
                 ErrorSubStatus::Uncategorized,
                 rejection.message(),
             )),
@@ -569,6 +569,18 @@ pub(crate) fn apply_channel_publications(
             .rows
             .channel_meta(transaction, &message.channel_name)?;
         meta.pending_count += 1;
+        // Zero, as in runs recorded before the limit, sets no limit.
+        let max_channel_messages = cursor
+            .record
+            .settings
+            .unwrap_or_default()
+            .max_channel_messages;
+        if max_channel_messages > 0 && meta.pending_count > u64::from(max_channel_messages) {
+            return Ok(Err(ValueRejection::ChannelMessageLimitExceeded {
+                channel_name: message.channel_name.clone(),
+                max_channel_messages,
+            }));
+        }
         cursor
             .rows
             .put_channel_meta(transaction, &message.channel_name, &meta);

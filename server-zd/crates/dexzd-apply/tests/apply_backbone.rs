@@ -54,6 +54,8 @@ mod attempt_handout;
 mod close_results;
 #[path = "apply_backbone/dispatch_queue.rs"]
 mod dispatch_queue;
+#[path = "apply_backbone/flow_count_limits.rs"]
+mod flow_count_limits;
 #[path = "apply_backbone/retry_snapshots.rs"]
 mod retry_snapshots;
 #[path = "apply_backbone/run_state_limit.rs"]
@@ -631,6 +633,7 @@ fn settings() -> RunSettings {
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
+        max_channel_messages: 0,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,

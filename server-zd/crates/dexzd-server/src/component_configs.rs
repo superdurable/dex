@@ -123,6 +123,7 @@ impl ComponentConfigs {
         run_settings.request_dedup_capacity = config.limits.max_request_ids_per_run;
         run_settings.max_run_state_bytes = config.limits.max_flow_state_bytes;
         run_settings.max_active_step_executions = config.limits.max_concurrent_steps_per_flow;
+        run_settings.max_channel_messages = config.limits.max_channel_messages;
         run_settings.max_child_flow_result_bytes = config.limits.max_child_flow_result_bytes;
         run_settings.history_segment_target_bytes = config.history.segment_target_bytes;
         run_settings.superseded_value_grace_micros = duration_micros(
@@ -297,6 +298,8 @@ impl ComponentConfigs {
                 history_prune_chunk_events: run_settings.history_prune_chunk_events,
                 history_segment_target_bytes: config.history.segment_target_bytes,
                 superseded_value_grace_micros: run_settings.superseded_value_grace_micros,
+                max_active_step_executions: run_settings.max_active_step_executions,
+                max_channel_messages: run_settings.max_channel_messages,
                 ..EffectsConfig::default().child_run_settings
             },
             heads_resync_interval: config.matching.heads_resync_interval,

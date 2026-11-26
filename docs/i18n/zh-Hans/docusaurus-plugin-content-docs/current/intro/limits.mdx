@@ -55,6 +55,7 @@ description: 在生产环境运行 Dex 的团队可能遇到的意外情况、De
 - **被取消的方法会继续运行。** Dex 不会中止代码。方法应该检查取消状态并返回。见 [Step](/concepts/step#guarantees)。
 - **并行写入方会互相覆盖，除非加锁。** 见[锁](/concepts/primitives/attribute#locking)。
 - **索引槽位有限。** 使用 PostgreSQL 搜索后端时，每个租户有 10 个 Keyword 槽位，其他每种索引类型各 3 个，由所有 Flow type 共用。已登记的索引槽位不能删除。见 [PostgreSQL search](/reference/server/search#postgresql-search)（英文）。
+- **默认情况下，一个 Flow run 最多有 1,000 个活跃的 Step，每个 Channel 最多有 1,000 条待处理消息。** 超出任一上限的 Step 决定、RPC 或发布都会失败。更大的工作量请分散到多个子 Flow。见 [Step and Channel message limits](/reference/server/configuration#step-and-channel-limits)（英文）。
 
 ## 发布状态 {#release-status}
 

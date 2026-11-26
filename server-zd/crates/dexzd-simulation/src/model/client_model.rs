@@ -64,6 +64,8 @@ pub(crate) fn run_settings() -> RunSettings {
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
         offload_history: None,
+        // Zero (no limit) keeps the pinned main-stream bytes of the regression seeds.
+        max_channel_messages: 0,
     }
 }
 

@@ -461,6 +461,7 @@ fn settings(history_window_events: u32, request_dedup_capacity: u32) -> RunSetti
         request_dedup_capacity,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
+        max_channel_messages: 0,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,

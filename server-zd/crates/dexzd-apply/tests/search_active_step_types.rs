@@ -491,6 +491,7 @@ fn settings() -> RunSettings {
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
+        max_channel_messages: 0,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,
@@ -590,7 +591,7 @@ fn run_chain_then_time_travel(harness: &mut Harness, chain_length: u32) {
 }
 
 #[test]
-fn disabled_search_keeps_no_counts_and_scans_no_step_executions() {
+fn disabled_search_keeps_no_counts_and_scans_only_for_the_step_limit() {
     let mut harness = Harness::new();
     harness.start(
         Some(ActiveStepSearchMode::Disabled),
@@ -626,7 +627,8 @@ fn disabled_search_keeps_no_counts_and_scans_no_step_executions() {
         )),
         ..StepMethodCompletedCommand::default()
     });
-    assert_eq!(harness.apply_counting_step_scans(completion), 0);
+    // Without counts, the Step limit scans the stored Step row of a command that adds a Step.
+    assert_eq!(harness.apply_counting_step_scans(completion), 1);
     assert_eq!(harness.apply_counting_step_scans(set_attribute("paid")), 0);
     assert_eq!(harness.run_record().search_active_step_type_counts, None);
     assert!(harness.search_document_active_step_types().is_empty());

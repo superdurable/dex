@@ -394,5 +394,9 @@ fn reject_invalid(message: impl Into<String>) -> HandlerResult {
 }
 
 fn reject_value(rejection: ValueRejection) -> HandlerResult {
-    reject_invalid(rejection.message())
+    HandlerResult::Rejected(error_reply(
+        rejection.grpc_code(),
+        ErrorSubStatus::Uncategorized,
+        rejection.message(),
+    ))
 }

@@ -216,7 +216,7 @@ pub(crate) fn apply_channel_publish(
         Ok(published) => published,
         Err(rejection) => {
             return Ok(HandlerResult::Rejected(error_reply(
-                grpc_code::INVALID_ARGUMENT,
+                rejection.grpc_code(),
                 ErrorSubStatus::Uncategorized,
                 rejection.message(),
             )));
