@@ -165,6 +165,7 @@ window.PLAYGROUND_CATALOG = [
         query("rateLimitRetryAfter", { default: "0" }),
         query("settleAfterChecks", { default: "1" }),
         query("neverSettle", { type: "select", options: ["false", "true"], default: "false" }),
+        query("heartbeatCheckInterval", { default: "0" }),
       ]),
       endpoint("GET", "/products/refund-durable-timers/send-customer-message", "Send customer message", [
         flowId(),

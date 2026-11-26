@@ -38,6 +38,12 @@ class PaymentRateLimitedError(RuntimeError):
         self.retry_after_seconds = retry_after_seconds
 
 
+def derive_refund_id(idempotency_key: str, amount_cents: int) -> str:
+    """Returns the refund ID the fake provider issues for this key and amount."""
+    digest = hashlib.sha256(f"{idempotency_key}:{amount_cents}".encode()).hexdigest()
+    return f"rf_{digest[:10]}"
+
+
 @dataclass(frozen=True)
 class PaymentAttempt:
     """One call that reached the provider, with its monotonic arrival time."""
@@ -77,8 +83,9 @@ class FakePaymentProvider:
             raise PaymentRateLimitedError(simulation.rate_limit_retry_after_seconds)
         self._record(idempotency_key, attempt, "refunded")
         with self._lock:
-            digest = hashlib.sha256(f"{idempotency_key}:{amount_cents}".encode()).hexdigest()
-            return self._refund_ids.setdefault(idempotency_key, f"rf_{digest[:10]}")
+            return self._refund_ids.setdefault(
+                idempotency_key, derive_refund_id(idempotency_key, amount_cents)
+            )
 
     def list_attempts(self, idempotency_key: str) -> list[PaymentAttempt]:
         with self._lock:

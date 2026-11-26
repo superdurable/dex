@@ -70,6 +70,13 @@ def parse_start_arguments() -> argparse.Namespace:
         "--settle-after-checks", type=int, default=1, help="the check that reports settled"
     )
     parser.add_argument("--never-settle", action="store_true", help="the bank never settles")
+    parser.add_argument(
+        "--heartbeat-check-interval",
+        type=int,
+        default=0,
+        metavar="SECONDS",
+        help="replace the heartbeat Step's 10-second check interval",
+    )
     return parser.parse_args()
 
 
@@ -79,6 +86,7 @@ async def start_refund(arguments: argparse.Namespace) -> None:
         rate_limit_retry_after_seconds=arguments.rate_limit_retry_after,
         settle_after_checks=arguments.settle_after_checks,
         bank_never_settles=arguments.never_settle,
+        heartbeat_check_interval_seconds=arguments.heartbeat_check_interval,
     )
     request = new_refund_request(SettlementPolling(arguments.settlement_polling), simulation)
     flow = new_refund_timers_flow()

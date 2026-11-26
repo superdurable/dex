@@ -29,6 +29,7 @@ SkipTimer instead of shortening it.
 | `CloseInactiveCase` | Closes the case after 3 idle days. | 2 |
 | `AwaitManagerDecision` | Waits for Approve or Reject; reminds the manager every 24 hours. | 1 |
 | `IssueRefund` | Issues the refund, retrying with backoff and Retry-After. | 3 |
+| `RecordIssuedRefund` | Records `refund-id`, sets `case-status` to `awaiting-settlement`, and picks the polling Step. | 3 |
 | `PollSettlementWithTimer` | Checks settlement once per 6-hour Timer, up to 12 times. The first check runs at once. | 4a |
 | `AwaitSettlementWithHeartbeat` | Checks settlement every 10 seconds in one heartbeating Step, up to 30 times. | 4b |
 | `EscalateUnsettledRefund` | Hands an unsettled refund to the support team. | 4 |
@@ -39,6 +40,15 @@ The RPCs are `send_customer_message`, `approve_refund`, and `reject_refund`.
 Each refuses a call when `case-status` shows the case is not at that stage.
 Approve and Reject are also Dex Web Actions with the `refund.manage`
 permission.
+
+The RPCs, the timeout handler, and every short Step that changes
+`case-status` hold the `case-status` lock. An RPC therefore never accepts a
+call while a Step moves the case to the next stage; it gets
+`RpcLockConflictError` and can try again. No `wait_for` and not the
+heartbeat loop holds the lock, so the RPCs stay available while the run
+waits. A Step keeps its locks through its retry backoff. So `IssueRefund`,
+which can back off for minutes, takes no lock, and `RecordIssuedRefund`
+writes the status after it.
 
 ## Files
 
@@ -59,7 +69,10 @@ permission.
 The fakes run in the Worker process and move no money. They need no network
 or credentials. Each run's knobs travel in its start input. The fakes decide
 from the Step attempt number and the durable check number, so a restarted
-Worker sees the same outcomes.
+Worker sees the same outcomes. The email fake skips a repeated idempotency
+key only within one Worker process; a restarted Worker can print a message
+again. A real notification service must persist its idempotency keys to send
+each message once across Worker restarts.
 
 ## Run it
 
@@ -141,7 +154,8 @@ before the Flow ID.
    --settle-after-checks 3`: one `AwaitSettlementWithHeartbeat` execution
    checks three times, 10 seconds apart, with no SkipTimer. With
    `--never-settle`, the Timer variant escalates after 12 checks and the
-   heartbeat variant after 30.
+   heartbeat variant after 30. Add `--heartbeat-check-interval 1` to reach
+   the heartbeat variant's 30 checks in about 30 seconds.
 5. **Graceful timeout.** Start `refund6` and fire `refund-deadline`. The
    timeout handler emails the support team, `case-status` becomes
    `escalated-deadline`, and the run completes with that outcome, even though
@@ -155,7 +169,7 @@ The shared example server (`uv run --frozen python main.py`, HTTP
 
 | Route | Query | What it does |
 | --- | --- | --- |
-| `GET /products/refund-durable-timers/start` | `settlementPolling` (`timer` or `heartbeat`), `transientFailures`, `rateLimitRetryAfter`, `settleAfterChecks`, `neverSettle` | Starts a refund. Without `workflowId` it mints a `refund-timers-...` ID. |
+| `GET /products/refund-durable-timers/start` | `settlementPolling` (`timer` or `heartbeat`), `transientFailures`, `rateLimitRetryAfter`, `settleAfterChecks`, `neverSettle`, `heartbeatCheckInterval` | Starts a refund. Without `workflowId` it mints a `refund-timers-...` ID. |
 | `GET /products/refund-durable-timers/send-customer-message` | `text`, `documentsComplete` | Sends a customer message. |
 | `GET /products/refund-durable-timers/decide` | `decision` (`approve` or `reject`), `reason` | Approves or rejects. |
 | `GET /products/refund-durable-timers/skip-timer` | `timer` | Fires one waiting Timer: `manager-reminder`, `customer-idle`, `settlement-poll`, or `refund-deadline`. |

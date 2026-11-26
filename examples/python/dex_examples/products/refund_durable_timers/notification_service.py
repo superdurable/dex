@@ -28,7 +28,11 @@ class Notification:
 
 
 class FakeNotificationService:
-    """Records one message per idempotency key, so a retried Step sends no duplicate."""
+    """Records one message per idempotency key, so a retried Step sends no duplicate.
+
+    The keys live in this Worker process only, so a restarted Worker can send a
+    message again. A real notification service must persist idempotency keys.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()

@@ -16,23 +16,32 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 from dex import (
     AsyncClient,
     AttributeMatch,
+    Context,
     FlowStatus,
+    RpcLockConflictError,
+    Step,
     StepExecutionId,
     WaitForAttributeOptions,
     WorkerInvocationError,
 )
 
 from dex_examples.app import ExampleApp
+from dex_examples.products.refund_durable_timers.bank_settlement_service import (
+    SettlementState,
+)
+from dex_examples.products.refund_durable_timers.payment_provider import derive_refund_id
 from dex_examples.products.refund_durable_timers.refund_timers_flow import (
     AWAITING_MANAGER,
     CASE_STATUS,
+    MAX_SETTLEMENT_HEARTBEAT_CHECKS,
     MAX_SETTLEMENT_POLLS,
     REFUND_ID,
     REMINDERS_SENT,
@@ -44,11 +53,12 @@ from dex_examples.products.refund_durable_timers.refund_timers_flow import (
 )
 from dex_examples.products.refund_durable_timers.skip_timer import skip_refund_timer
 from dex_examples.products.refund_durable_timers.start import new_refund_request
-from tests.integ.conftest import WAIT_TIMEOUT
+from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT
 
 pytestmark = pytest.mark.integ
 
-DOCUMENTS = CustomerMessage("Attached: bank statement and invoice.", documents_complete=True)
+REFUND_AMOUNT_CENTS = new_refund_request(SettlementPolling.TIMER, RefundSimulation()).amount_cents
+DOCUMENTS =CustomerMessage("Attached: bank statement and invoice.", documents_complete=True)
 
 
 async def start_refund(
@@ -225,6 +235,102 @@ async def test_lesson4b_polls_in_one_heartbeating_step(
     assert refund_id
     checks = app.refund_timers_bank.list_checks(refund_id)
     assert [check.check_number for check in checks] == [1, 2]
+
+
+async def test_lesson4b_escalates_after_the_heartbeat_check_limit(
+    app: ExampleApp, client: AsyncClient, new_flow_id: Callable[[str], str]
+) -> None:
+    flow_id = new_flow_id("refund-timers-heartbeat-never")
+    simulation = RefundSimulation(bank_never_settles=True, heartbeat_check_interval_seconds=1)
+    await start_refund(app, client, flow_id, SettlementPolling.HEARTBEAT, simulation)
+    await send_documents_and_approve(app, client, flow_id)
+
+    assert await completed_output(client, flow_id, LONG_WAIT_TIMEOUT) == "escalated-unsettled"
+    refund_id = derive_refund_id(f"refund-{flow_id}", REFUND_AMOUNT_CENTS)
+    checks = app.refund_timers_bank.list_checks(refund_id)
+    assert [check.check_number for check in checks] == list(
+        range(1, MAX_SETTLEMENT_HEARTBEAT_CHECKS + 1)
+    )
+
+
+async def test_lesson4b_retry_continues_from_the_heartbeat_checkpoint(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow_id = new_flow_id("refund-timers-heartbeat-resume")
+    refund_id = derive_refund_id(f"refund-{flow_id}", REFUND_AMOUNT_CENTS)
+    bank = app.refund_timers_bank
+    original_get_settlement_state = bank.get_settlement_state
+    failed_checks: list[int] = []
+
+    def fail_first_second_check(
+        checked_refund_id: str, check_number: int, simulation: RefundSimulation
+    ) -> SettlementState:
+        # Attempt 1 heartbeats check 1, then fails on check 2.
+        if checked_refund_id == refund_id and check_number == 2 and not failed_checks:
+            failed_checks.append(check_number)
+            raise ConnectionError("bank connection reset")
+        return original_get_settlement_state(checked_refund_id, check_number, simulation)
+
+    monkeypatch.setattr(bank, "get_settlement_state", fail_first_second_check)
+    simulation = RefundSimulation(settle_after_checks=3, heartbeat_check_interval_seconds=1)
+    await start_refund(app, client, flow_id, SettlementPolling.HEARTBEAT, simulation)
+    await send_documents_and_approve(app, client, flow_id)
+
+    assert await completed_output(client, flow_id) == "refunded"
+    assert failed_checks == [2]
+    # Attempt 2 starts at check 2, not check 1.
+    assert [check.check_number for check in bank.list_checks(refund_id)] == [1, 2, 3]
+
+
+class CollectDocumentsGate:
+    """Holds the first CollectSupportingDocuments execution of one Flow until released."""
+
+    def __init__(self, flow_id: str, step: Step[Any]) -> None:
+        self.flow_id = flow_id
+        self.entered = asyncio.Event()
+        self.released = asyncio.Event()
+        self._original_execute = step.execute
+
+    def execute(self, context: Context, input: Any) -> Any:
+        if context.flow_id != self.flow_id or self.entered.is_set():
+            return self._original_execute(context, input)
+        self.entered.set()
+        return self._execute_after_release(context, input)
+
+    async def _execute_after_release(self, context: Context, input: Any) -> Any:
+        await asyncio.wait_for(self.released.wait(), WAIT_TIMEOUT.total_seconds())
+        return self._original_execute(context, input)
+
+
+async def test_rpc_cannot_slip_in_while_a_step_changes_the_stage(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = app.refund_durable_timers
+    flow_id = new_flow_id("refund-timers-stage-lock")
+    gate = CollectDocumentsGate(flow_id, flow.collect_supporting_documents)
+    monkeypatch.setattr(flow.collect_supporting_documents, "execute", gate.execute)
+    await start_refund(app, client, flow_id)
+    await wait_for_case_status(client, flow_id, "awaiting-documents")
+    await client.invoke_rpc(flow.send_customer_message, flow_id, DOCUMENTS)
+    await asyncio.wait_for(gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+
+    # The Step holds the case-status lock while it moves the case to the manager.
+    late_message = CustomerMessage("One more receipt.")
+    with pytest.raises(RpcLockConflictError):
+        await client.invoke_rpc(flow.send_customer_message, flow_id, late_message)
+    gate.released.set()
+    await wait_for_case_status(client, flow_id, AWAITING_MANAGER)
+    with pytest.raises(WorkerInvocationError, match="not collecting documents"):
+        await client.invoke_rpc(flow.send_customer_message, flow_id, late_message)
+
+    await client.invoke_rpc(flow.approve_refund, flow_id, DecisionReason("Receipts match"))
+    assert await completed_output(client, flow_id) == "refunded"
 
 
 async def test_lesson5_timeout_handler_escalates_the_case(

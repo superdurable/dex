@@ -20,6 +20,7 @@ from dex import (
     FlowAlreadyStartedError,
     FlowNotActiveOrNotFoundError,
     FlowNotFoundError,
+    RpcLockConflictError,
     WorkerInvocationError,
 )
 from quart import Blueprint, Response, current_app, jsonify
@@ -63,6 +64,10 @@ def create_refund_durable_timers_blueprint(app_state: ExampleApp) -> Blueprint:
     async def report_duplicate_refund(error: FlowAlreadyStartedError) -> Response:
         return _error_response(error.detail, 409)
 
+    @blueprint.errorhandler(RpcLockConflictError)
+    async def report_busy_refund(error: RpcLockConflictError) -> Response:
+        return _error_response("the refund is changing stage; try again", 409)
+
     @blueprint.errorhandler(WorkerInvocationError)
     async def report_refused_rpc(error: WorkerInvocationError) -> Response:
         return _error_response(error.worker_error_detail, 409)
@@ -87,6 +92,7 @@ def create_refund_durable_timers_blueprint(app_state: ExampleApp) -> Blueprint:
             rate_limit_retry_after_seconds=int(optional_query("rateLimitRetryAfter", "0")),
             settle_after_checks=int(optional_query("settleAfterChecks", "1")),
             bank_never_settles=optional_query("neverSettle", "false").lower() == "true",
+            heartbeat_check_interval_seconds=int(optional_query("heartbeatCheckInterval", "0")),
         )
         polling = SettlementPolling(optional_query("settlementPolling", "timer"))
         flow_id = _optional_flow_id() or new_flow_id("refund-timers")

@@ -89,6 +89,9 @@ REMINDERS_SENT = Attribute("reminders-sent", int, plaintext=True)
 LAST_CUSTOMER_MESSAGE = Attribute("last-customer-message", str)
 REFUND_ID = Attribute("refund-id", str, plaintext=True)
 
+# Short Steps that change case-status hold its lock, as the RPCs that check it do.
+CASE_STATUS_WRITER_OPTIONS = StepOptions(execute_lock_attributes=(CASE_STATUS.lock(),))
+
 
 class SettlementPolling(StrEnum):
     """How the run waits for the bank: a durable Timer per check, or one heartbeating Step."""
@@ -107,12 +110,15 @@ class RefundSimulation:
             once with this Retry-After value.
         settle_after_checks: The settlement check that first reports the refund settled.
         bank_never_settles: The bank reports every check as pending.
+        heartbeat_check_interval_seconds: When positive, replaces the 10-second interval
+            of the heartbeat settlement Step, so a demo reaches its 30-check limit fast.
     """
 
     transient_payment_failures: int = 0
     rate_limit_retry_after_seconds: int = 0
     settle_after_checks: int = 1
     bank_never_settles: bool = False
+    heartbeat_check_interval_seconds: int = 0
 
 
 @dataclass(frozen=True)
@@ -164,6 +170,9 @@ class RequestSupportingDocuments(Step[RefundRequest]):
     def __init__(self, notifications: FakeNotificationService) -> None:
         self.notifications = notifications
 
+    def get_step_options(self) -> StepOptions:
+        return CASE_STATUS_WRITER_OPTIONS
+
     def execute(self, context: Context, input: RefundRequest) -> StepDecision:
         self.notifications.send(
             input.customer_email,
@@ -174,7 +183,6 @@ class RequestSupportingDocuments(Step[RefundRequest]):
         return go_to(CollectSupportingDocuments, RefundCase(request=input))
 
 
-# Lesson 2: every customer message re-enters this Step, which restarts the idle Timer.
 # dex:group group-id:documents group-label:"Documents"
 # dex:explanation text:"Wait for customer messages; close the case after 3 idle days."
 class CollectSupportingDocuments(Step[RefundCase]):
@@ -183,6 +191,9 @@ class CollectSupportingDocuments(Step[RefundCase]):
             Timer.by_duration(CUSTOMER_IDLE_LIMIT, condition_id=CUSTOMER_IDLE_TIMER_ID),
             CUSTOMER_MESSAGES.for_one(),
         )
+
+    def get_step_options(self) -> StepOptions:
+        return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         if context.has_timer_fired():
@@ -201,6 +212,9 @@ class CloseInactiveCase(Step[RefundCase]):
     def __init__(self, notifications: FakeNotificationService) -> None:
         self.notifications = notifications
 
+    def get_step_options(self) -> StepOptions:
+        return CASE_STATUS_WRITER_OPTIONS
+
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         self.notifications.send(
             input.request.customer_email,
@@ -211,7 +225,6 @@ class CloseInactiveCase(Step[RefundCase]):
         return graceful_complete("closed-inactive")
 
 
-# Lesson 1: the Timer reminds the manager and re-enters this Step; a decision moves on.
 # dex:group group-id:approval group-label:"Approval"
 # dex:explanation text:"Wait for the manager's decision; remind the manager every 24 hours."
 class AwaitManagerDecision(Step[RefundCase]):
@@ -239,7 +252,6 @@ class AwaitManagerDecision(Step[RefundCase]):
         return go_to(CloseCase, input)
 
 
-# Lesson 3: transient failures back off; a rate limit retries after the provider's delay.
 # dex:group group-id:refund group-label:"Refund"
 # dex:explanation text:"Issue the refund through the payment provider, retrying durably."
 class IssueRefund(Step[RefundCase]):
@@ -267,15 +279,24 @@ class IssueRefund(Step[RefundCase]):
             )
         except PaymentRateLimitedError as error:
             raise retry_after(error.retry_after_seconds, error) from error
-        REFUND_ID.set(context, refund_id)
+        return go_to(RecordIssuedRefund, replace(input, refund_id=refund_id))
+
+
+# dex:group group-id:refund group-label:"Refund"
+# dex:explanation text:"Record the refund ID and start waiting for settlement."
+class RecordIssuedRefund(Step[RefundCase]):
+    # Locks last through retry backoff, so IssueRefund leaves status writes to this Step.
+    def get_step_options(self) -> StepOptions:
+        return CASE_STATUS_WRITER_OPTIONS
+
+    def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        REFUND_ID.set(context, input.refund_id)
         CASE_STATUS.set(context, "awaiting-settlement")
-        refunded = replace(input, refund_id=refund_id)
         if input.request.settlement_polling is SettlementPolling.HEARTBEAT:
-            return go_to(AwaitSettlementWithHeartbeat, refunded)
-        return go_to(PollSettlementWithTimer, SettlementPoll(case=refunded))
+            return go_to(AwaitSettlementWithHeartbeat, input)
+        return go_to(PollSettlementWithTimer, SettlementPoll(case=input))
 
 
-# Lesson 4a: wait on a durable Timer, check once, and re-enter until settled or out of checks.
 # dex:group group-id:settlement group-label:"Settlement"
 # dex:explanation text:"Check settlement once per durable 6-hour Timer, up to 12 times."
 class PollSettlementWithTimer(Step[SettlementPoll]):
@@ -301,7 +322,6 @@ class PollSettlementWithTimer(Step[SettlementPoll]):
         return go_to(PollSettlementWithTimer, replace(input, checks_done=check_number))
 
 
-# Lesson 4b: one Execute loops, sleeps, and heartbeats its check count as a checkpoint.
 # dex:group group-id:settlement group-label:"Settlement"
 # dex:explanation text:"Check settlement every 10 seconds in one heartbeating Step."
 class AwaitSettlementWithHeartbeat(Step[RefundCase]):
@@ -321,6 +341,9 @@ class AwaitSettlementWithHeartbeat(Step[RefundCase]):
         ).on_execute_failure_proceed_to(EscalateUnsettledRefund)
 
     async def execute(self, context: AsyncContext, input: RefundCase) -> StepDecision:
+        interval = input.request.simulation.heartbeat_check_interval_seconds or (
+            SETTLEMENT_HEARTBEAT_INTERVAL.total_seconds()
+        )
         checks_done = context.get_last_heartbeat_value(int) or 0
         while checks_done < MAX_SETTLEMENT_HEARTBEAT_CHECKS:
             checks_done += 1
@@ -330,7 +353,7 @@ class AwaitSettlementWithHeartbeat(Step[RefundCase]):
             if state is SettlementState.SETTLED:
                 return go_to(CloseCase, input)
             await context.heartbeat(checks_done)
-            await asyncio.sleep(SETTLEMENT_HEARTBEAT_INTERVAL.total_seconds())
+            await asyncio.sleep(interval)
         return go_to(EscalateUnsettledRefund, input)
 
 
@@ -339,6 +362,9 @@ class AwaitSettlementWithHeartbeat(Step[RefundCase]):
 class EscalateUnsettledRefund(Step[RefundCase]):
     def __init__(self, notifications: FakeNotificationService) -> None:
         self.notifications = notifications
+
+    def get_step_options(self) -> StepOptions:
+        return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         self.notifications.send(
@@ -355,6 +381,9 @@ class EscalateUnsettledRefund(Step[RefundCase]):
 class CloseCase(Step[RefundCase]):
     def __init__(self, notifications: FakeNotificationService) -> None:
         self.notifications = notifications
+
+    def get_step_options(self) -> StepOptions:
+        return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         outcome = "refunded" if input.refund_id else "rejected"
@@ -388,6 +417,7 @@ class RefundDurableTimersFlow(Flow[RefundRequest]):
         self.close_inactive_case = CloseInactiveCase(notifications)
         self.await_manager_decision = AwaitManagerDecision(notifications)
         self.issue_refund = IssueRefund(payment)
+        self.record_issued_refund = RecordIssuedRefund()
         self.poll_settlement_with_timer = PollSettlementWithTimer(bank)
         self.await_settlement_with_heartbeat = AwaitSettlementWithHeartbeat(bank)
         self.escalate_unsettled_refund = EscalateUnsettledRefund(notifications)
@@ -399,6 +429,7 @@ class RefundDurableTimersFlow(Flow[RefundRequest]):
             self.close_inactive_case,
             self.await_manager_decision,
             self.issue_refund,
+            self.record_issued_refund,
             self.poll_settlement_with_timer,
             self.await_settlement_with_heartbeat,
             self.escalate_unsettled_refund,
@@ -415,7 +446,7 @@ class RefundDurableTimersFlow(Flow[RefundRequest]):
             MANAGER_DECISIONS,
         )
 
-    # Lesson 5: Dex calls this when the 7-day Flow timeout fires; any waiting Step ends.
+    # Dex calls this when the 7-day Flow timeout fires; any waiting Step ends.
     def handle_timeout(self, context: Context) -> StepDecision:
         self.notifications.send(
             SUPPORT_TEAM_EMAIL,
@@ -477,6 +508,7 @@ def refund_start_options() -> StartFlowOptions:
         timeout_policy=FlowTimeoutPolicy.HANDLER,
         timeout_handler_options=FlowTimeoutHandlerOptions(
             method_timeout=timedelta(minutes=1),
+            lock_attributes=(CASE_STATUS.lock(),),
             retry=RetryPolicy(
                 initial_interval=timedelta(seconds=5),
                 backoff_coefficient=2.0,
