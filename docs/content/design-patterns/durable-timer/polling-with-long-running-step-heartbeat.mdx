@@ -19,7 +19,7 @@ Business signals inside Dex, such as Channel messages and RPCs, are not polling.
 
 The polling Step repeats these steps:
 
-1. Call the external API with its own short timeout, such as 10 seconds.
+1. Call the external API. A short client timeout, such as 10 seconds, is recommended.
 2. On a transient error, return the error. The retry policy runs the Step again.
 3. On a terminal status, return the next decision: success or a business failure.
 4. Report progress. Write a Stream message when the status changes. Otherwise record a heartbeat with the checkpoint.
