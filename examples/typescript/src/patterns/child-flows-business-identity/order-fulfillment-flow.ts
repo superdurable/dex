@@ -77,6 +77,13 @@ export interface TrackedShipment {
   readonly shipmentRunId?: string;
 }
 
+/** What StartShipment hands to ClaimShipment. */
+export interface StartedShipment {
+  readonly tracked: TrackedShipment;
+  /** True when another request owns the shipment number. */
+  readonly rejected?: boolean;
+}
+
 /** What a shipment run sends to its order when it ends. */
 export interface ShipmentReport {
   readonly shipmentNumber: string;
@@ -94,18 +101,25 @@ export interface ShipmentRecord {
   readonly outcome?: string;
 }
 
+/** A claimed shipment run that ended, with what the order read from it. */
+export interface EndedShipment {
+  readonly shipmentNumber: string;
+  readonly shipmentRunId: string;
+  readonly reading: ShipmentRecord;
+}
+
 /** Holds one record per shipment, keyed by shipment number. */
 export const shipmentRecords = new AttributeMap("shipmentRecords", jsonCodec<ShipmentRecord>());
-/** Serializes every write to shipmentRecords; it stores no value. */
+/**
+ * Holds reports that arrive before the claim, keyed by shipment number. Each
+ * value maps a shipment run ID to that run's first report.
+ */
+export const pendingShipmentReports = new AttributeMap(
+  "pendingShipmentReports",
+  jsonCodec<Readonly<Record<string, ShipmentReport>>>(),
+);
+/** Serializes every write to shipmentRecords and pendingShipmentReports; it stores no value. */
 export const shipmentRecordsLock = new Attribute("shipmentRecordsLock", booleanCodec);
-
-/** Asks a shipment to retry its report after the order claims its run. */
-export class ShipmentNotClaimedError extends Error {
-  public constructor() {
-    super("childflows: the order has not claimed this shipment run yet");
-    this.name = "ShipmentNotClaimedError";
-  }
-}
 
 /** Returns the lowercase Flow status a shipment record stores, such as "canceled". */
 export function shipmentStatusOf(status: FlowStatus): string {
@@ -178,7 +192,7 @@ class StartShipments implements Step<Order> {
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
+// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 class StartShipment implements Step<TrackedShipment> {
   public constructor(
     private readonly getClient: () => Client,
@@ -189,11 +203,7 @@ class StartShipment implements Step<TrackedShipment> {
     return "StartShipment";
   }
 
-  /** Takes the records lock, so the claim and the rejection never race a report. */
-  public getStepOptions(): StepOptions {
-    return { executeLockAttributes: [shipmentRecordsLock.lock()] };
-  }
-
+  /** Takes no lock: a report must never wait for the start call or its retries. */
   public async execute(context: Context, tracked: TrackedShipment): Promise<StepDecision> {
     // Calling a field through this would hide the Step class from the Flow visualizer.
     const getClient = this.getClient;
@@ -217,22 +227,82 @@ class StartShipment implements Step<TrackedShipment> {
         throw error;
       }
       // Another request owns this shipment number; this order does not track it.
+      return goTo(ClaimShipment, { tracked, rejected: true });
+    }
+    return goTo(ClaimShipment, { tracked: { ...tracked, shipmentRunId: runId } });
+  }
+}
+
+// dex:group group-id:start group-label:"Start shipments"
+// dex:explanation text:"Claims the started run and merges a report that arrived before the claim."
+class ClaimShipment implements Step<StartedShipment> {
+  public getStepType(): string {
+    return "ClaimShipment";
+  }
+
+  /** Takes the records lock, so the claim never races a report. */
+  public getStepOptions(): StepOptions {
+    return {
+      executeLockAttributes: [shipmentRecordsLock.lock()],
+      executeLoadAttributeMaps: [pendingShipmentReports],
+    };
+  }
+
+  public execute(context: Context, started: StartedShipment): StepDecision {
+    const number = started.tracked.shipment.shipmentNumber;
+    const pending = loadPendingReports(context, number);
+    // The claim or the rejection settles every early report of this shipment.
+    if (pending !== undefined) {
+      pendingShipmentReports.delete(context, number);
+    }
+    if (started.rejected === true) {
       shipmentRecords.set(context, number, { status: SHIPMENT_REJECTED });
       return gracefulComplete();
     }
+    const runId = started.tracked.shipmentRunId ?? "";
     // Claim the run: reports and reads of any other run of this number are ignored.
-    shipmentRecords.set(context, number, { status: SHIPMENT_STARTED, runId });
-    return goTo(AwaitShipment, { ...tracked, shipmentRunId: runId });
+    const report = pending?.[runId];
+    const record: ShipmentRecord =
+      report === undefined
+        ? { status: SHIPMENT_STARTED, runId }
+        : { status: SHIPMENT_STARTED, runId, outcome: report.outcome };
+    shipmentRecords.set(context, number, record);
+    return goTo(AwaitShipment, started.tracked);
   }
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
+// dex:explanation text:"Reads the claimed shipment run at each interval until it ends."
 class AwaitShipment implements Step<TrackedShipment> {
   public constructor(private readonly getClient: () => Client) {}
 
   public getStepType(): string {
     return "AwaitShipment";
+  }
+
+  public waitFor(_context: Context, tracked: TrackedShipment): Wait {
+    return Wait.until(Timer.byDuration(tracked.reconcileIntervalSeconds * 1000));
+  }
+
+  /** Takes no lock: a report must never wait for the reads or their retries. */
+  public async execute(_context: Context, tracked: TrackedShipment): Promise<StepDecision> {
+    // Calling a field through this would hide the Step class from the Flow visualizer.
+    const getClient = this.getClient;
+    const number = tracked.shipment.shipmentNumber;
+    const runId = tracked.shipmentRunId ?? "";
+    const reading = await reconcileShipment(getClient(), number, runId);
+    if (reading.status === "running") {
+      return goTo(AwaitShipment, tracked);
+    }
+    return goTo(RecordShipmentEnd, { shipmentNumber: number, shipmentRunId: runId, reading });
+  }
+}
+
+// dex:group group-id:track group-label:"Track shipment"
+// dex:explanation text:"Records how the claimed shipment run ended."
+class RecordShipmentEnd implements Step<EndedShipment> {
+  public getStepType(): string {
+    return "RecordShipmentEnd";
   }
 
   /** Takes the same lock as the report RPC and loads the records. */
@@ -243,25 +313,13 @@ class AwaitShipment implements Step<TrackedShipment> {
     };
   }
 
-  public waitFor(_context: Context, tracked: TrackedShipment): Wait {
-    return Wait.until(Timer.byDuration(tracked.reconcileIntervalSeconds * 1000));
-  }
-
-  public async execute(context: Context, tracked: TrackedShipment): Promise<StepDecision> {
-    // Calling a field through this would hide the Step class from the Flow visualizer.
-    const getClient = this.getClient;
-    const number = tracked.shipment.shipmentNumber;
-    const runId = tracked.shipmentRunId ?? "";
-    const reading = await reconcileShipment(getClient(), number, runId);
-    if (reading.status === "running") {
-      return goTo(AwaitShipment, tracked);
-    }
+  public execute(context: Context, ended: EndedShipment): StepDecision {
     // Merge with the record, which may already hold the reported outcome.
-    const { record } = loadShipmentRecord(context, number);
-    shipmentRecords.set(context, number, {
-      status: reading.status,
-      runId,
-      outcome: record.outcome ?? reading.outcome,
+    const { record } = loadShipmentRecord(context, ended.shipmentNumber);
+    shipmentRecords.set(context, ended.shipmentNumber, {
+      status: ended.reading.status,
+      runId: ended.shipmentRunId,
+      outcome: record.outcome ?? ended.reading.outcome,
     });
     return gracefulComplete();
   }
@@ -276,6 +334,18 @@ class AwaitShipment implements Step<TrackedShipment> {
 function loadShipmentRecord(context: Context, number: string): { record: ShipmentRecord; found: boolean } {
   const record = shipmentRecords.get(context, number) as ShipmentRecord | undefined;
   return record === undefined ? { record: {}, found: false } : { record, found: true };
+}
+
+/**
+ * Returns the loaded early reports of a shipment, keyed by run ID.
+ *
+ * @returns The stored reports, or undefined when the shipment has none.
+ */
+function loadPendingReports(
+  context: Context,
+  number: string,
+): Readonly<Record<string, ShipmentReport>> | undefined {
+  return pendingShipmentReports.get(context, number) as Readonly<Record<string, ShipmentReport>> | undefined;
 }
 
 /**
@@ -356,30 +426,48 @@ export class OrderFulfillmentFlow implements Flow<Order> {
   }
 
   public getSteps(): StepList<Order> {
-    return StepList.startStep(new StartShipments()).otherSteps(this.startShipment, this.awaitShipment);
+    return StepList.startStep(new StartShipments()).otherSteps(
+      this.startShipment,
+      new ClaimShipment(),
+      this.awaitShipment,
+      new RecordShipmentEnd(),
+    );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [shipmentRecords, shipmentRecordsLock],
+      attributes: [shipmentRecords, pendingShipmentReports, shipmentRecordsLock],
     };
   }
 
   /**
    * Fills the outcome of a shipment's record. It accepts only the run this
    * order claimed; the first report wins, and any other report changes nothing.
-   *
-   * @throws ShipmentNotClaimedError while the order is still starting that shipment.
+   * Before the claim, it keeps the first report of each run for ClaimShipment
+   * to merge.
    */
-  @rpc({ lockAttributes: [shipmentRecordsLock.lock()], loadAttributeMaps: [shipmentRecords] })
+  @rpc({
+    lockAttributes: [shipmentRecordsLock.lock()],
+    loadAttributeMaps: [shipmentRecords, pendingShipmentReports],
+  })
   public recordShipmentOutcome(context: Context, report: ShipmentReport): void {
     const { record, found } = loadShipmentRecord(context, report.shipmentNumber);
-    if (found && record.status === SHIPMENT_STARTING) {
-      throw new ShipmentNotClaimedError();
+    // Ignore an unknown shipment and a report without a run.
+    if (!found || report.shipmentRunId === "") {
+      return;
     }
-    // Ignore an unknown or rejected shipment, another run, and a repeated report.
+    if (record.status === SHIPMENT_STARTING) {
+      const pending = loadPendingReports(context, report.shipmentNumber) ?? {};
+      if (!Object.hasOwn(pending, report.shipmentRunId)) {
+        pendingShipmentReports.set(context, report.shipmentNumber, {
+          ...pending,
+          [report.shipmentRunId]: report,
+        });
+      }
+      return;
+    }
+    // Ignore a rejected shipment, another run, and a repeated report.
     if (
-      !found ||
       record.runId === undefined ||
       record.runId !== report.shipmentRunId ||
       record.outcome !== undefined

@@ -31,10 +31,12 @@ from dex import (
 
 from dex_examples.app import ExampleApp
 from dex_examples.patterns.child_flows_business_identity.order_fulfillment_flow import (
+    PENDING_SHIPMENT_REPORTS,
     SHIPMENT_OUTCOME,
     SHIPMENT_RECORDS,
     SHIPMENT_REJECTED,
     SHIPMENT_STARTED,
+    SHIPMENT_STARTING,
     SHIPMENT_TIMEOUT,
     SHIPMENT_UNAVAILABLE,
     Order,
@@ -299,6 +301,102 @@ async def test_child_flows_business_identity_keeps_the_outcome_readable_when_syn
     values = await client.get_attributes(number, SHIPMENT_OUTCOME)
     assert values.get(SHIPMENT_OUTCOME) == "delivered to Austin"
     await _terminate_flows(client, order_id)
+
+
+async def test_child_flows_business_identity_merges_reports_that_arrive_before_the_claim(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order_id = new_flow_id("order")
+    claimed = Shipment(f"{order_id}-1", "Seattle", 3600)
+    other = Shipment(f"{order_id}-2", "Boise", 3600)
+    owned = Shipment(f"{order_id}-3", "Austin", 3600)
+    # Withholding the Worker's Client keeps every StartShipment retrying, so the
+    # reports below arrive deterministically before any claim.
+    monkeypatch.setattr(app, "_client", None)
+    try:
+        await _start_order(
+            app,
+            client,
+            order_id,
+            Order(shipments=[claimed, other, owned], reconcile_interval_seconds=3600),
+        )
+        for shipment in (claimed, other, owned):
+            await _wait_for_shipment_record(
+                client, order_id, shipment.shipment_number, ShipmentRecord(status=SHIPMENT_STARTING)
+            )
+
+        # Start the first shipment with the order's own request, so the order's retry gets this run.
+        claimed_run_id = await client.start_flow(
+            app.shipment,
+            claimed.shipment_number,
+            ShipmentRequest(order_flow_id=order_id, shipment=claimed),
+            StartFlowOptions(
+                timeout=SHIPMENT_TIMEOUT,
+                id_reuse_policy=IdReusePolicy.DISALLOW,
+                request_id=shipment_start_request_id(order_id, claimed),
+                ignore_already_started=True,
+            ),
+        )
+        # Another request owns the third shipment number, so the order rejects it.
+        await client.start_flow(
+            app.shipment,
+            owned.shipment_number,
+            ShipmentRequest(order_flow_id="another-order", shipment=owned),
+            StartFlowOptions(id_reuse_policy=IdReusePolicy.DISALLOW),
+        )
+
+        # A report under the wrong number arrives first; it must not hide the claimed run's report.
+        for report in (
+            ShipmentReport(other.shipment_number, claimed_run_id, "delivered to Boise"),
+            ShipmentReport(claimed.shipment_number, claimed_run_id, "delivered to Seattle"),
+            ShipmentReport(claimed.shipment_number, claimed_run_id, "delivered to Portland"),
+            ShipmentReport(owned.shipment_number, "another-run", "delivered to Austin"),
+        ):
+            await _report_shipment_outcome(app, client, order_id, report)
+        assert await _read_pending_shipment_reports(
+            client, order_id, claimed.shipment_number
+        ) == {
+            claimed_run_id: ShipmentReport(
+                claimed.shipment_number, claimed_run_id, "delivered to Seattle"
+            )
+        }
+    finally:
+        monkeypatch.undo()
+
+    await _wait_for_shipment_record(
+        client,
+        order_id,
+        claimed.shipment_number,
+        ShipmentRecord(status=SHIPMENT_STARTED, run_id=claimed_run_id, outcome="delivered to Seattle"),
+    )
+    await _wait_for_shipment_record(
+        client, order_id, owned.shipment_number, ShipmentRecord(status=SHIPMENT_REJECTED)
+    )
+    other_run_id = await _wait_for_claimed_run(client, order_id, other.shipment_number)
+    assert await _read_shipment_record(client, order_id, other.shipment_number) == ShipmentRecord(
+        status=SHIPMENT_STARTED, run_id=other_run_id
+    )
+    # The claim and the rejection leave no early report behind.
+    for shipment in (claimed, other, owned):
+        instance = PENDING_SHIPMENT_REPORTS.instance(shipment.shipment_number)
+        values = await client.get_attributes(order_id, instance)
+        assert instance not in values, f"pending reports of {shipment.shipment_number}"
+    await _terminate_flows(
+        client, claimed.shipment_number, other.shipment_number, owned.shipment_number, order_id
+    )
+
+
+async def _read_pending_shipment_reports(
+    client: AsyncClient, order_id: str, shipment_number: str
+) -> dict[str, ShipmentReport]:
+    instance = PENDING_SHIPMENT_REPORTS.instance(shipment_number)
+    values = await client.get_attributes(order_id, instance)
+    assert instance in values, f"pending reports of {shipment_number}"
+    pending: dict[str, ShipmentReport] = values[instance]
+    return pending
 
 
 async def _start_order(

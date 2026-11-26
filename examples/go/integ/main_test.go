@@ -44,6 +44,8 @@ var (
 	examplesAPIURL string
 	dexcliPath     string
 	flowCounter    atomic.Int64
+	// workerClientWithheld makes the Flows' Client provider return nil, so Client-calling Steps retry.
+	workerClientWithheld atomic.Bool
 	// sharedRefundLedgerDir is the ledger behind the example server's refund routes.
 	sharedRefundLedgerDir string
 )
@@ -71,7 +73,13 @@ func newIntegrationEnvironment() (_ *integrationEnvironment, constructionErr err
 			constructionErr = errors.Join(constructionErr, os.RemoveAll(refundLedgerDir))
 		}
 	}()
-	flows := registry.NewWithRefundLedgerDirectory(service.NewMyService(), func() *dex.Client { return client }, refundLedgerDir)
+	getClient := func() *dex.Client {
+		if workerClientWithheld.Load() {
+			return nil
+		}
+		return client
+	}
+	flows := registry.NewWithRefundLedgerDirectory(service.NewMyService(), getClient, refundLedgerDir)
 	flows = append(flows, conditionOrderProbeFlows()...)
 	flows = append(flows, &OfferResponseWindowProbeFlow{}, &OfferResponseDoubleReplyProbeFlow{})
 	registry, err := dex.NewRegistry(flows)
