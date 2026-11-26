@@ -40,7 +40,7 @@ The Client Attribute read returns committed values of known Attributes and exact
 - **No Worker.** Dex serves it directly. It works while no Worker runs and costs less latency than an RPC.
 - **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. It takes no run ID.
 - **Committed state.** It never sees writes that a running Step or RPC has staged. Hard-delete values are the exception: they are stored before commit, so the read can return a value from an attempt that later failed.
-- **Batch only.** There is no single-Attribute method. Pass every Attribute and map instance the response needs in one call. Never issue one call per Attribute. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
+- **Batch only.** There is no single-Attribute method. Pass every Attribute and map instance the response needs in one call; one call per Attribute costs round trips and can read different commits. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
 - **Exact keys.** Each read is a singleton Attribute or one exact map instance. It cannot enumerate a map and does not read Channels.
 - **Registered definitions.** Each definition must be registered by some Flow in the Client's registry. Dex reads by name and does not check that the target Flow declares it, so a same-named Attribute of another type fails to decode.
 - **Large values.** The Client hydrates blob-backed values through its BlobCache before decoding.

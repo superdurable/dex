@@ -12,7 +12,7 @@ An RPC is a typed, synchronous handler that a Flow declares. A Client invokes it
 | Enqueue work without synchronous handling | Publish to a Channel through an RPC, and let a Step consume it |
 | Wait for state to change | Client Attribute-match or Step-completion wait, not a polling RPC |
 
-Name every RPC with a concrete action verb and its subject, such as `getQueuedMessages` or `moveQueuedMessageToPrioritizedMessages`. Never use a noun-only or generic name. The RPC name is durable for open Flows.
+Prefer naming an RPC with a concrete action verb and its subject, such as `getQueuedMessages` or `moveQueuedMessageToPrioritizedMessages`, over a noun-only or generic name. The RPC name is durable for open Flows.
 
 ## Commit boundary
 

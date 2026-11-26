@@ -66,13 +66,13 @@ If the SDK has no typed error for these, they surface as a generic service error
 
 ### Start first; reconcile only after an error
 
-Call StartFlow first, with a stable Flow ID and an explicit ID reuse policy. Do not call a read-only RPC, a search, or DescribeFlow first just to check existence or to avoid an AlreadyStarted edge case. That adds a round trip to every start and still races with other callers. A read that the business contract needs for its own reason is different.
+Call StartFlow first, with a stable Flow ID. Do not call a read-only RPC, a search, or DescribeFlow first just to check existence or to avoid an AlreadyStarted edge case. That adds a round trip to every start and still races with other callers. A read that the business contract needs for its own reason is different.
 
 Dex is the start deduplication boundary:
 
 - Derive the Flow ID from the logical operation or resource.
 - Derive the start Request ID from the complete logical start request. Keep it the same across retries of that request. Never reuse it for a different request.
-- Choose an ID reuse policy that matches the lifecycle.
+- The default ID reuse policy rejects a second run. Choose another one only when the lifecycle needs it.
 - Never add a table, row, outbox, lease, lock, cache, or admission projection only to deduplicate or serialize starts.
 
 A stable Request ID alone does not suppress AlreadyStarted. For a retry that may attach to the existing Flow run, also enable the SDK's ignore-already-started option and use a reuse policy that rejects a new run even after the original closes. Dex then returns the existing run for a matching Request ID instead of starting a second run. The matching rules and the result of each combination are in the [StartFlowOptions reference](https://docs.superdurable.io/reference/python/start-flow-options#flow-id-request-id-and-already-started).

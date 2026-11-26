@@ -796,8 +796,10 @@ Arbitrate.execute(roundId), the round's locks, short retry budget, failure route
     route on the winner; with no candidate, route to the deadline branch
 ArbitrationFailed.execute(roundId), the round's locks
     if RoundWindow[roundId] is not open: return deadEnd()            // closed or missing: end the branch
-    in one commit: arbitrate again from RoundCandidates[roundId], or close the round,
-    record the failure, and answer every admitted sender through an idempotent path
+    in one commit: arbitrate again from RoundCandidates[roundId], or close the round
+    and record the failure; goTo(AnswerSenders, roundId)
+AnswerSenders.execute(roundId)                                       // no lock: the RPCs take the round's locks
+    answer every admitted sender through an idempotent path keyed by the candidate key
 ```
 
 - The RPCs answer "received". The receipt confirms admission only; the arbitration Step decides.
@@ -807,7 +809,7 @@ ArbitrationFailed.execute(roundId), the round's locks
 - The arbitration Step and the recovery Step both recheck the round's window under its locks. When the round is closed or missing, they end the branch with a dead end: no decision and no business route. Never return an empty decision for this case.
 - Start only one arbitration wait per round. The decision derives only from the round's Attribute state, so a retried Execute reaches the same decision. Execute holds the locks through its retries and backoff, so no candidate joins meanwhile.
 - The Timer is not a hard cutoff; the successful locked close is. A candidate admitted before it is eligible, even after the Timer fired.
-- When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. Give Execute a failure route whose Step, under the same locks, arbitrates again from the stored candidates or closes the round, records the failure, and answers every admitted sender through an idempotent path. It never relies on the wake-up. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
+- When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. Give Execute a failure route whose Step, under the same locks, arbitrates again from the stored candidates or closes the round and records the failure. The next, unlocked Step answers every admitted sender through an idempotent path, because the RPCs take the round's locks. It never relies on the wake-up. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
 - Losing candidates stay in the record. Answer their senders through an idempotent path keyed by the candidate key.
 - Never present an RPC that decides by lock order as business priority: lock order is commit order, definition (a).
 

@@ -19,6 +19,11 @@ SubFlow has two main uses:
 2. Fan out work. One Flow run has limited throughput. Fan work out to
    SubFlows to run it in parallel.
 
+Parallel Steps inside one Flow are the first choice for work that shares one
+lifecycle. Use a SubFlow when the child needs its own lifecycle, history, or
+retries, or when one fan-out is very large. Define the child's input, output,
+cancellation, and failure handling.
+
 ## Guarantees
 
 A child keeps running when its parent Flow closes. Stop it yourself, or set a

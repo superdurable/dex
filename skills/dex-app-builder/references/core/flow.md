@@ -12,7 +12,7 @@ A Flow is one durable run of a business process, with a stable identity and life
 | Run attempt | Dex Server | Increments on each time travel of a run | Capture it before an operator mutation. |
 | Step type | the application | Stable name of a Step definition in the Flow | Part of the durable contract of open runs, not just a function name. |
 | Step execution ID | Dex Server | One execution of a Step type, formatted Step type plus a number | Use it, with the Flow ID, to key external effects. |
-| RPC name | the application | Durable name of an RPC handler | Must start with a concrete action verb. |
+| RPC name | the application | Durable name of an RPC handler | Prefer a concrete action verb first. |
 
 Go, Java, Python, and Rust derive the default Flow type from the type or class name without its package or module. Flow types must therefore be unique within one Worker registry and on one Server. A generic Flow or Step type must override its type name. Dex Web and search show the Flow type as written.
 
