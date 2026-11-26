@@ -27,7 +27,7 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 
 “尚未就绪”是循环里的正常分支。优先用它，而不是返回错误再靠重试循环。返回错误会把“尚未就绪”和真正的失败混在一起，还会消耗重试预算。
 
-普通的 sleep 就够了。通过该语言 SDK 的机制响应取消。外部调用支持取消参数时，把它传进去。观察不到取消的阻塞调用最好有自己的 timeout。卡住的调用在返回之前一直占着 Worker 槽。heartbeat timeout 或 method timeout 仍会结束这个 attempt，重试照常进行。取消是协作式的：循环在下一个能报告取消的边界退出。见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
+普通的 sleep 就够了。通过该语言 SDK 的机制响应取消。外部调用支持取消参数时，把它传进去。观察不到取消的阻塞调用最好有自己的 timeout。卡住的调用在返回之前一直占着 Worker 槽。heartbeat timeout 或 method timeout 仍会结束这个 attempt，Dex 按重试策略安排后续 attempt。取消是协作式的：循环在下一个能报告取消的边界退出。见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
 
 ## 规则 {#rules}
 

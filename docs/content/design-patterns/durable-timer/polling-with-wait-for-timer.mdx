@@ -18,7 +18,7 @@ The polling Step waits for a Timer in `WaitFor`. Its `Execute` calls the externa
 Each round of the polling Step runs these steps:
 
 1. `WaitFor` returns a Timer for the polling interval.
-2. When the Timer fires, `Execute` calls the external API once, with its own short timeout.
+2. When the Timer fires, `Execute` calls the external API once. A short client timeout on that call is recommended.
 3. On a transient error, `Execute` returns the error. The retry policy runs the round again.
 4. On a terminal status, `Execute` returns the next decision: success or a business failure.
 5. While the work is not finished, `Execute` returns `GoTo` to the same Step with the next round's input.
@@ -32,18 +32,23 @@ Each round of the polling Step runs these steps:
 - <a id="bound-the-loop"></a>Bound the loop. Carry a round number in the Step
   input and stop at a maximum. The round limit bounds the number of checks.
   It does not bound the elapsed time: each round also spends time on the
-  external call, retries, and queueing. For a hard deadline, use the
+  external call, retries, and queueing. For a durable deadline that polling
+  retries cannot delay, use the
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)
-  or a [deadline watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#rules).
-- <a id="deadline-watchdog"></a>Start the watchdog with the first round for a
-  deadline shorter than the Flow: `GoToMany` starts the polling Step and a
-  watchdog Step together. The watchdog waits on a Timer for the deadline.
-  Under the lock of the Step that records the result, it marks the work
-  overdue only while the work is unfinished. A result already recorded makes
-  it skip. Later rounds come from `GoTo`, not from the fork, so a sibling
-  cancel does not reach the watchdog. To end it early, cancel it by Step type.
-  The deadline does not come from a stored timestamp and the clock, because a
-  round that is retrying would delay it.
+  or a [deadline watchdog](#deadline-watchdog).
+- <a id="deadline-watchdog"></a>Use a deadline watchdog for a deadline
+  shorter than the Flow. The decision that handles the starting event
+  schedules the polling Step and a watchdog Step together. The watchdog's
+  `WaitFor` returns a Timer for the deadline. The polling Step calls the
+  external system and holds no lock. When it sees a finished job, it moves to
+  a short result Step. The result Step and the watchdog's `Execute` share one
+  Attribute lock. Each writes the terminal state only while it is still open.
+  Whoever commits first ends the other. A result cancels the watchdog by Step
+  type when the Flow has one such watchdog. An overdue mark ends polling: the
+  next round reads the terminal state and stops. The deadline never comes
+  from a stored timestamp and the clock, because a round that is retrying
+  would delay it. The Timer starts when the watchdog's `WaitFor` result
+  commits; see [Timer firing time](/reference/server/runtime-data#timer-firing-time).
 - <a id="step-input"></a>Keep the Step input small and fixed in size, such as
   the job ID and the round number. Keep accumulated state, such as collected
   results, in Attributes, never in a growing Step input.

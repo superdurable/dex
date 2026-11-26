@@ -224,12 +224,18 @@ The parent receives each child's result durably:
 - The parent keeps one record per child, keyed by its Flow ID, with the
   outcome and the terminal status as separate fields. A report or a read
   fills in what is missing, and a repeat changes nothing.
-- The business number is the child Flow ID. A retry by that number starts a
-  new run of the same Flow ID, with an ID reuse policy that allows a closed
-  run. The parent tracks the run ID that it claimed. Describe and the Client
-  Attribute read see only the latest run, so the parent accepts reports and
-  reads only from the claimed run. A newer run is another attempt, which the
-  parent handles by business policy.
+- The business number is the child Flow ID. A resend of the same start
+  request keeps its request ID. A deliberate reopen is a new start request
+  with a new request ID. Every ID reuse policy that the starters use rejects
+  an active run; see
+  [ID reuse policies](/reference/go/start-flow-options#flow-id-request-id-and-already-started).
+  The parent tracks the run ID that it claimed. It accepts only reads,
+  reports, and stops that it can tie to that run. Describe and the Client
+  Attribute read see only the latest run, so the parent confirms the run ID
+  around each read; see the
+  [Production checklist](/design-patterns/subflows/child-flows-with-business-identity#production-checklist).
+  A newer run is another attempt, which the parent handles by business
+  policy.
 - Every start of the same logical request derives the same Flow ID and
   request ID. Another logical request can still start a run with the same
   Flow ID, even from the same entry point or parent run. Then the start
@@ -242,8 +248,11 @@ The parent receives each child's result durably:
 - Each child has its own Flow timeout. Each starter sets it, because it is a
   start option. A child that must report its timeout uses a timeout handler
   that reports, not a Timer Step. A closing parent never stops its children.
-- A client stop starts no new handlers in the child, so the child may never
-  report. A running handler can ignore cancellation, so a report already sent
+- A client stop that cancels, fails, or terminates the child starts no new
+  handlers in it, so the child may never report. A client stop targets the
+  latest run of the Flow ID. To stop only the claimed run of a child that can
+  be reopened, call a child RPC that carries the claimed run ID; the child
+  compares it with its own run ID before it stops. A running handler can ignore cancellation, so a report already sent
   can still arrive.
 - When the parent does not need to know how a stopped child ended, it stops
   the child and moves on. A parent that needs only a quorum stops the
