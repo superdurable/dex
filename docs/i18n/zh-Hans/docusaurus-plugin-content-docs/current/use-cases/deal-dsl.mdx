@@ -764,15 +764,13 @@ impl Step for EvaluateDealTransition {
 
 ## Demo
 
-这次完成的 Go 运行把 **Premium research package** 商品卖给了 **buyer-demo**。Flow 等待 **buyer-confirmation**，向买家收款，交付商品，并以 **itemDeliveryStatus: delivered** 完成。每个动作在图中都有独立且已完成的 `ExecuteDealAction` execution。
+这次完成的 Go 运行协商了交易、向买家收款并交付了商品。**Timeline** 按顺序显示事件，包括条件消息和已完成的 Step。
 
-<a href="/img/use-cases/deal-dsl-step-execution-graph.png" target="_blank" rel="noreferrer">
-  <img
-    className="deal-dsl-step-execution-graph"
-    src="/img/use-cases/deal-dsl-step-execution-graph.png"
-    alt="已完成的 Deal DSL 直接购买 Step execution graph"
-  />
-</a>
+[![已完成的 Deal DSL 运行的时间线](/img/use-cases/deal-dsl-timeline.png)](/img/use-cases/deal-dsl-timeline.png)
+
+**Graph** 显示 Step execution 及其转换。此视图折叠了重复的轮次，最后一轮包含交付动作。
+
+[![已完成的 Deal DSL 运行的执行图](/img/use-cases/deal-dsl-graph.png)](/img/use-cases/deal-dsl-graph.png)
 
 ## 下一步
 
