@@ -41,6 +41,7 @@ from dex_examples.products.refund_durable_timers.payment_provider import derive_
 from dex_examples.products.refund_durable_timers.refund_timers_flow import (
     AWAITING_MANAGER,
     CASE_STATUS,
+    CLOSING_INACTIVE,
     MAX_SETTLEMENT_HEARTBEAT_CHECKS,
     MAX_SETTLEMENT_POLLS,
     REFUND_ID,
@@ -58,7 +59,7 @@ from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT
 pytestmark = pytest.mark.integ
 
 REFUND_AMOUNT_CENTS = new_refund_request(SettlementPolling.TIMER, RefundSimulation()).amount_cents
-DOCUMENTS =CustomerMessage("Attached: bank statement and invoice.", documents_complete=True)
+DOCUMENTS = CustomerMessage("Attached: bank statement and invoice.", documents_complete=True)
 
 
 async def start_refund(
@@ -285,8 +286,8 @@ async def test_lesson4b_retry_continues_from_the_heartbeat_checkpoint(
     assert [check.check_number for check in bank.list_checks(refund_id)] == [1, 2, 3]
 
 
-class CollectDocumentsGate:
-    """Holds the first CollectSupportingDocuments execution of one Flow until released."""
+class FirstExecutionGate:
+    """Holds the first execution of one Step in one Flow until the test releases it."""
 
     def __init__(self, flow_id: str, step: Step[Any]) -> None:
         self.flow_id = flow_id
@@ -313,24 +314,57 @@ async def test_rpc_cannot_slip_in_while_a_step_changes_the_stage(
 ) -> None:
     flow = app.refund_durable_timers
     flow_id = new_flow_id("refund-timers-stage-lock")
-    gate = CollectDocumentsGate(flow_id, flow.collect_supporting_documents)
+    gate = FirstExecutionGate(flow_id, flow.collect_supporting_documents)
     monkeypatch.setattr(flow.collect_supporting_documents, "execute", gate.execute)
     await start_refund(app, client, flow_id)
     await wait_for_case_status(client, flow_id, "awaiting-documents")
     await client.invoke_rpc(flow.send_customer_message, flow_id, DOCUMENTS)
     await asyncio.wait_for(gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
 
-    # The Step holds the case-status lock while it moves the case to the manager.
     late_message = CustomerMessage("One more receipt.")
-    with pytest.raises(RpcLockConflictError):
-        await client.invoke_rpc(flow.send_customer_message, flow_id, late_message)
-    gate.released.set()
+    try:
+        # The Step holds the case-status lock while it moves the case to the manager.
+        with pytest.raises(RpcLockConflictError):
+            await client.invoke_rpc(flow.send_customer_message, flow_id, late_message)
+    finally:
+        gate.released.set()
     await wait_for_case_status(client, flow_id, AWAITING_MANAGER)
     with pytest.raises(WorkerInvocationError, match="not collecting documents"):
         await client.invoke_rpc(flow.send_customer_message, flow_id, late_message)
 
     await client.invoke_rpc(flow.approve_refund, flow_id, DecisionReason("Receipts match"))
     assert await completed_output(client, flow_id) == "refunded"
+
+
+async def test_idle_close_leaves_the_documents_stage_before_the_handoff(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = app.refund_durable_timers
+    flow_id = new_flow_id("refund-timers-idle-handoff")
+    gate = FirstExecutionGate(flow_id, flow.close_inactive_case)
+    monkeypatch.setattr(flow.close_inactive_case, "execute", gate.execute)
+    await start_refund(app, client, flow_id)
+    await wait_for_case_status(client, flow_id, "awaiting-documents")
+    await skip_refund_timer(client, flow_id, "customer-idle")
+    await asyncio.wait_for(gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+
+    try:
+        # CollectSupportingDocuments committed the stage change before CloseInactiveCase ran.
+        status = (await client.get_attributes(flow_id, CASE_STATUS)).get(CASE_STATUS)
+        assert status == CLOSING_INACTIVE
+        with pytest.raises((RpcLockConflictError, WorkerInvocationError)):
+            await client.invoke_rpc(
+                flow.send_customer_message, flow_id, CustomerMessage("Here it is.")
+            )
+    finally:
+        gate.released.set()
+
+    assert await completed_output(client, flow_id) == "closed-inactive"
+    status = (await client.get_attributes(flow_id, CASE_STATUS)).get(CASE_STATUS)
+    assert status == "closed-inactive"
 
 
 async def test_lesson5_timeout_handler_escalates_the_case(

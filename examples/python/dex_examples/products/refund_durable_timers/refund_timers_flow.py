@@ -83,6 +83,7 @@ MANAGER_EMAIL = "refund-manager@example.com"
 
 AWAITING_DOCUMENTS = "awaiting-documents"
 AWAITING_MANAGER = "awaiting-manager"
+CLOSING_INACTIVE = "closing-inactive"
 
 CASE_STATUS = Attribute("case-status", str, plaintext=True)
 REMINDERS_SENT = Attribute("reminders-sent", int, plaintext=True)
@@ -197,6 +198,11 @@ class CollectSupportingDocuments(Step[RefundCase]):
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
         if context.has_timer_fired():
+            # A message accepted after the Timer fired restarts the wait instead.
+            if CUSTOMER_MESSAGES.size(context) > 0:
+                return go_to(CollectSupportingDocuments, input)
+            # The RPC stage check refuses messages from here on.
+            CASE_STATUS.set(context, CLOSING_INACTIVE)
             return go_to(CloseInactiveCase, input)
         message = CUSTOMER_MESSAGES.results(context)[0]
         LAST_CUSTOMER_MESSAGE.set(context, message.text)

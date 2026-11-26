@@ -25,7 +25,7 @@ SkipTimer instead of shortening it.
 | Step | What it does | Lesson |
 | --- | --- | --- |
 | `RequestSupportingDocuments` | Emails the customer for documents; `case-status` becomes `awaiting-documents`. | 2 |
-| `CollectSupportingDocuments` | Waits for a customer message or 3 idle days. | 2 |
+| `CollectSupportingDocuments` | Waits for a customer message or 3 idle days; on the idle Timer it sets `case-status` to `closing-inactive`. | 2 |
 | `CloseInactiveCase` | Closes the case after 3 idle days. | 2 |
 | `AwaitManagerDecision` | Waits for Approve or Reject; reminds the manager every 24 hours. | 1 |
 | `IssueRefund` | Issues the refund, retrying with backoff and Retry-After. | 3 |
@@ -42,13 +42,25 @@ Approve and Reject are also Dex Web Actions with the `refund.manage`
 permission.
 
 The RPCs, the timeout handler, and every short Step that changes
-`case-status` hold the `case-status` lock. An RPC therefore never accepts a
-call while a Step moves the case to the next stage; it gets
-`RpcLockConflictError` and can try again. No `wait_for` and not the
-heartbeat loop holds the lock, so the RPCs stay available while the run
-waits. A Step keeps its locks through its retry backoff. So `IssueRefund`,
-which can back off for minutes, takes no lock, and `RecordIssuedRefund`
-writes the status after it.
+`case-status` hold the `case-status` lock. While such a Step runs, an RPC
+gets `RpcLockConflictError` and can try again. A Step that hands the case to
+the next Step first moves `case-status` out of the stage that the RPC
+accepts, such as `closing-inactive` before `CloseInactiveCase` or `approved`
+before `IssueRefund`. So an RPC that comes in during the handoff fails its
+stage check instead of publishing a message that no Step would read. When
+the idle Timer fires just as a customer message is accepted,
+`CollectSupportingDocuments` sees the queued message and waits again instead
+of closing the case.
+
+No `wait_for` and not the heartbeat loop holds the lock, so the RPCs stay
+available while the run waits. A Step keeps its locks through its retry
+backoff. So `IssueRefund`, which can back off for minutes, takes no lock,
+and `RecordIssuedRefund` writes the status after it.
+
+One gap remains at the 7-day deadline. A message accepted after the
+deadline passes but before `handle_timeout` runs stays in the
+`customer-messages` Channel. The support team that takes over the case sees
+it in Dex Web.
 
 ## Files
 

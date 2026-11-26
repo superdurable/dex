@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
+
+from dex import RpcLockConflictError
 
 from dex_examples.products.refund_durable_timers.refund_settings import (
     new_presenter_client,
@@ -35,6 +38,8 @@ async def send_message(flow_id: str, message: CustomerMessage) -> None:
     try:
         await client.invoke_rpc(flow.send_customer_message, flow_id, message)
         print(f"Refund {flow_id}: customer message sent.", flush=True)
+    except RpcLockConflictError:
+        sys.exit(f"Refund {flow_id}: the case is changing stage; try again.")
     finally:
         await client.close()
         cache.close()
