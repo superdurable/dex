@@ -104,6 +104,23 @@ pub(super) struct PartitionTimerService {
     last_full_scan_at: Instant,
 }
 
+/// The Timer index keys one due scan covered; a key in it and not returned left the index.
+struct ScannedKeyRange<'a> {
+    start: &'a [u8],
+    end: ScannedKeyRangeEnd<'a>,
+}
+
+/// Where a due scan's covered keys end.
+enum ScannedKeyRangeEnd<'a> {
+    /// The scan read the whole due range, which ends before this key. A wall clock moved back
+    /// can put this key at or below the start.
+    Before(&'a [u8]),
+    /// The scan stopped at its load threshold after reading this key.
+    Through(&'a [u8]),
+    /// The scan read no page.
+    Empty,
+}
+
 /// The Timer index rows one pass read.
 struct TimerIndexScan {
     /// Rows firing at or before now, in index order, including rows in retry backoff.
@@ -334,21 +351,19 @@ impl PartitionTimerService {
             }
         }
         let scanned_keys: BTreeSet<&Vec<u8>> = entries.iter().map(|(key, _)| key).collect();
-        let last_scanned = entries.last().map(|(key, _)| key.as_slice());
-        let scan_start = self.scan_start_key.as_slice();
-        // A wall clock moved back can leave the due range empty; it confirms no row gone.
-        let is_in_scanned_range = |key: &[u8]| {
-            key >= scan_start
-                && if is_due_range_read {
-                    key < due_end.as_slice()
-                } else {
-                    last_scanned.is_some_and(|last| key <= last)
-                }
+        let scanned_range = ScannedKeyRange {
+            start: self.scan_start_key.as_slice(),
+            end: match entries.last() {
+                _ if is_due_range_read => ScannedKeyRangeEnd::Before(due_end.as_slice()),
+                Some((last_key, _)) => ScannedKeyRangeEnd::Through(last_key.as_slice()),
+                None => ScannedKeyRangeEnd::Empty,
+            },
         };
         // Rows beyond the scan keep their backoff; scanned rows no longer in the index lose it.
         self.retry_after
-            .retain(|key, _| scanned_keys.contains(key) || !is_in_scanned_range(key));
-        // The cursor never passes `now_micros`, so a later pass rereads unnotified future timers.
+            .retain(|key, _| scanned_keys.contains(key) || !scanned_range.contains(key));
+        // An empty scan moves the cursor at most to this pass's due-range end, so later passes
+        // reread future timers.
         match entries.first() {
             Some((first_key, _)) => self.scan_start_key.clone_from(first_key),
             None if is_due_range_read && due_end > self.scan_start_key => {
@@ -396,5 +411,16 @@ impl PartitionTimerService {
             .await
             .ok_or(EffectError::Stopped)?;
         Ok(())
+    }
+}
+
+impl ScannedKeyRange<'_> {
+    fn contains(&self, key: &[u8]) -> bool {
+        key >= self.start
+            && match self.end {
+                ScannedKeyRangeEnd::Before(end) => key < end,
+                ScannedKeyRangeEnd::Through(last) => key <= last,
+                ScannedKeyRangeEnd::Empty => false,
+            }
     }
 }

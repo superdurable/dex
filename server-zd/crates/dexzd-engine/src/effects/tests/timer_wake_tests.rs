@@ -13,7 +13,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
-use dexzd_keyspace::RunId;
+use dexzd_keyspace::{PartitionId, RunId};
 use dexzd_protocol::dexzd::v1::TimerId;
 
 use super::timer_tests::{
@@ -21,10 +21,11 @@ use super::timer_tests::{
     write_timer_rows,
 };
 use super::{
-    DurableState, EffectHarness, SECOND_MICROS, is_timers_fired, ok_override, settings,
-    start_request,
+    DurableState, EffectHarness, MemoryState, SECOND_MICROS, is_timers_fired, ok_override,
+    settings, start_request,
 };
 use crate::effects::EffectsConfig;
+use crate::effects::state_reads::RunLocation;
 use crate::effects::timer_service::{PartitionTimerService, PartitionTimerWake};
 use crate::flow_coordination::FlowCoordinationEffectSink;
 use dexzd_clock::WallClock;
@@ -76,6 +77,28 @@ fn start_flow_without_steps(harness: &EffectHarness, flow_id: &str) -> RunId {
     let mut request = start_request(flow_id);
     request.start_step_type.clear();
     harness.start_flow(request, settings())
+}
+
+/// A `wait_timer(0)` that a commit racing a pass's snapshot arms.
+struct TimerArmedAfterSnapshot {
+    partition: PartitionId,
+    run: RunLocation,
+    fire_at_micros: i64,
+    wake: Arc<PartitionTimerWake>,
+}
+
+impl TimerArmedAfterSnapshot {
+    /// Writes the timer rows into `state`, then reports the armed timer as the router would.
+    fn commit_and_notify(self, state: &mut MemoryState) {
+        write_timer_rows(
+            state,
+            self.partition,
+            self.run,
+            &wait_timer(0),
+            self.fire_at_micros,
+        );
+        self.wake.note_armed(self.fire_at_micros);
+    }
 }
 
 /// Starts a run and fires its `wait_timer(0)`, moving the read cursor past it.
@@ -308,16 +331,17 @@ async fn a_timer_armed_after_a_pass_takes_its_snapshot_fires_in_the_next_pass() 
         partition,
         Arc::clone(&wake),
     );
-    let fire_at = harness.clock.now_unix_micros() - MILLI_MICROS;
-    let armed_wake = Arc::clone(&wake);
+    let racing_timer = TimerArmedAfterSnapshot {
+        partition,
+        run,
+        fire_at_micros: harness.clock.now_unix_micros() - MILLI_MICROS,
+        wake: Arc::clone(&wake),
+    };
     *harness
         .flow_effect_operations
         .committed_reader_hook
         .lock()
-        .expect("lock") = Some(Box::new(move |state| {
-        write_timer_rows(state, partition, run, &wait_timer(0), fire_at);
-        armed_wake.note_armed(fire_at);
-    }));
+        .expect("lock") = Some(Box::new(move |state| racing_timer.commit_and_notify(state)));
 
     let first_pass = service
         .fire_due_timers()

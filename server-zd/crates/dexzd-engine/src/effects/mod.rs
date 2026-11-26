@@ -102,9 +102,10 @@ pub struct EffectsConfig {
     /// Default 60 seconds. The timer service looks this far ahead for the next timer to fire,
     /// and rereads the Timer index at least this often.
     pub timer_lookahead: Duration,
-    /// Default 5 minutes. A timer service scans its partition's Timer index from the index prefix
-    /// up to the due bound at least this often, in case a timer was armed without notifying it.
-    /// Zero scans from the prefix every pass.
+    /// Default 5 minutes. When idle, a timer service starts one due scan from its partition's
+    /// Timer index prefix at this interval, in case a timer was armed without notifying it. Due
+    /// rows beyond one pass's load threshold are read in later passes. Zero starts every pass
+    /// from the prefix.
     pub timer_full_scan_interval: Duration,
     /// Default 1024. Number of timer index rows read per page of a partition. A pass keeps
     /// paging past rows in retry backoff until it has read this many other rows.
