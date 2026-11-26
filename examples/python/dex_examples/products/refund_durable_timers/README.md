@@ -35,8 +35,8 @@ SkipTimer instead of shortening it.
 | `AwaitSettlementWithHeartbeat` | Checks settlement every 10 seconds in one heartbeating Step, up to 30 times. | 4b |
 | `EscalateUnsettledRefund` | Sets `case-status` to `escalated-unsettled` and hands the refund to the support team. | 4 |
 | `CloseCase` | Sets `case-status` to `closed-refunded` or `closed-rejected`. | all |
-| `SendClosingNotification` | Emails the decision of `CloseInactiveCase`, `EscalateUnsettledRefund`, or `CloseCase`, then completes the Flow. | all |
-| `handle_timeout` | Runs when the 7-day deadline passes and the case is still open. | 5 |
+| `SendClosingNotification` | Emails the decision of `CloseInactiveCase`, `EscalateUnsettledRefund`, `CloseCase`, or `handle_timeout`, then completes the Flow. | all |
+| `handle_timeout` | Runs when the 7-day deadline passes. If the case is still open, it sets `case-status` to `escalated-deadline` and hands the support email to `SendClosingNotification`, which force-completes the Flow. | 5 |
 
 The RPCs are `send_customer_message`, `approve_refund`, and `reject_refund`.
 Each refuses a call when `case-status` shows the case is not at that stage.
@@ -66,6 +66,15 @@ Step, which takes no lock. `SendDocumentsRequest` sends the documents request.
 slow or retried send never makes an RPC fail with `RpcLockConflictError`.
 Each email's idempotency key names the Flow ID and its decision, so a retry
 sends no duplicate.
+
+The timeout handler follows the same rule. Under the `case-status` lock it
+checks for a final decision, a `closed-` or `escalated-` status. If one is
+committed, the handler ends with `dead_end()` and the pending
+`SendClosingNotification` completes the Flow with that decision. Otherwise it
+commits `escalated-deadline` and moves to `SendClosingNotification`. Steps
+keep running until that Step force-completes the Flow. So every Step that
+writes `case-status` first checks for `escalated-deadline` and ends with
+`dead_end()` instead of overwriting it.
 
 At the 7-day deadline, an RPC can still accept a message before the timeout
 handler acquires the `case-status` lock. The message may be processed,

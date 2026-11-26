@@ -40,6 +40,7 @@ from dex import (
     StepOptions,
     Timer,
     Wait,
+    dead_end,
     force_complete,
     go_to,
     graceful_complete,
@@ -84,6 +85,9 @@ MANAGER_EMAIL = "refund-manager@example.com"
 AWAITING_DOCUMENTS = "awaiting-documents"
 AWAITING_MANAGER = "awaiting-manager"
 CLOSING_INACTIVE = "closing-inactive"
+ESCALATED_DEADLINE = "escalated-deadline"
+# A case-status with one of these prefixes is a final decision.
+FINAL_STATUS_PREFIXES = ("closed-", "escalated-")
 
 CASE_STATUS = Attribute("case-status", str, plaintext=True)
 REMINDERS_SENT = Attribute("reminders-sent", int, plaintext=True)
@@ -171,12 +175,19 @@ class ClosingNotification:
         subject: The email subject.
         idempotency_key: Identifies the decision, so a retried send emails once.
         outcome: The Flow output after the email is sent.
+        cancel_other_steps: Force-completes the Flow, cancelling Steps that still wait.
     """
 
     recipient: str
     subject: str
     idempotency_key: str
     outcome: str
+    cancel_other_steps: bool = False
+
+
+def is_deadline_escalated(context: Context) -> bool:
+    """Returns whether the timeout handler took the case over; later status writers then end."""
+    return CASE_STATUS.get(context) == ESCALATED_DEADLINE
 
 
 CUSTOMER_MESSAGES = Channel("customer-messages", CustomerMessage)
@@ -222,6 +233,8 @@ class CollectSupportingDocuments(Step[RefundCase]):
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         if context.has_timer_fired():
             # A message accepted after the Timer fired restarts the wait instead.
             if CUSTOMER_MESSAGES.size(context) > 0:
@@ -244,6 +257,8 @@ class CloseInactiveCase(Step[RefundCase]):
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         CASE_STATUS.set(context, "closed-inactive")
         return go_to(
             SendClosingNotification,
@@ -321,6 +336,8 @@ class RecordIssuedRefund(Step[RefundCase]):
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         REFUND_ID.set(context, input.refund_id)
         CASE_STATUS.set(context, "awaiting-settlement")
         if input.request.settlement_polling is SettlementPolling.HEARTBEAT:
@@ -395,6 +412,8 @@ class EscalateUnsettledRefund(Step[RefundCase]):
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         CASE_STATUS.set(context, "escalated-unsettled")
         return go_to(
             SendClosingNotification,
@@ -417,6 +436,8 @@ class CloseCase(Step[RefundCase]):
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         outcome = "refunded" if input.refund_id else "rejected"
         CASE_STATUS.set(context, f"closed-{outcome}")
         return go_to(
@@ -441,6 +462,8 @@ class SendClosingNotification(Step[ClosingNotification]):
         self.notifications.send(
             input.recipient, input.subject, idempotency_key=input.idempotency_key
         )
+        if input.cancel_other_steps:
+            return force_complete(input.outcome)
         return graceful_complete(input.outcome)
 
 
@@ -500,13 +523,21 @@ class RefundDurableTimersFlow(Flow[RefundRequest]):
 
     # Dex calls this when the 7-day Flow timeout fires; any waiting Step ends.
     def handle_timeout(self, context: Context) -> StepDecision:
-        self.notifications.send(
-            SUPPORT_TEAM_EMAIL,
-            f"Refund {context.flow_id} missed its 7-day deadline; please take it over",
-            idempotency_key=f"escalate-deadline-{context.flow_id}",
+        status = CASE_STATUS.get(context) or ""
+        # A final decision is committed; its SendClosingNotification completes the Flow.
+        if status.startswith(FINAL_STATUS_PREFIXES):
+            return dead_end()
+        CASE_STATUS.set(context, ESCALATED_DEADLINE)
+        return go_to(
+            SendClosingNotification,
+            ClosingNotification(
+                recipient=SUPPORT_TEAM_EMAIL,
+                subject=f"Refund {context.flow_id} missed its 7-day deadline; please take it over",
+                idempotency_key=f"escalate-deadline-{context.flow_id}",
+                outcome=ESCALATED_DEADLINE,
+                cancel_other_steps=True,
+            ),
         )
-        CASE_STATUS.set(context, "escalated-deadline")
-        return force_complete("escalated-deadline")
 
     @rpc(lock_attributes=(CASE_STATUS.lock(),))
     def send_customer_message(self, context: Context, input: CustomerMessage) -> None:

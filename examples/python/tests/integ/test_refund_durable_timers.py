@@ -411,3 +411,42 @@ async def test_lesson5_timeout_handler_escalates_the_case(
     assert status == "escalated-deadline"
     escalations = app.refund_timers_notifications.list_sent(f"escalate-deadline-{flow_id}")
     assert len(escalations) == 1
+
+
+async def test_lesson5_deadline_keeps_a_committed_closing_decision(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = app.refund_durable_timers
+    flow_id = new_flow_id("refund-timers-deadline-after-close")
+    gate = FirstExecutionGate(flow_id, flow.send_closing_notification)
+    monkeypatch.setattr(flow.send_closing_notification, "execute", gate.execute)
+    handled = asyncio.Event()
+    original_handle_timeout = flow.handle_timeout
+
+    def handle_timeout(context: Context) -> Any:
+        decision = original_handle_timeout(context)
+        if context.flow_id == flow_id:
+            handled.set()
+        return decision
+
+    monkeypatch.setattr(flow, "handle_timeout", handle_timeout)
+    await start_refund(app, client, flow_id)
+    await wait_for_case_status(client, flow_id, "awaiting-documents")
+    await skip_refund_timer(client, flow_id, "customer-idle")
+    await asyncio.wait_for(gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+
+    try:
+        # The deadline passes while the closing email is still pending.
+        await skip_refund_timer(client, flow_id, "refund-deadline")
+        await asyncio.wait_for(handled.wait(), WAIT_TIMEOUT.total_seconds())
+    finally:
+        gate.released.set()
+
+    assert await completed_output(client, flow_id) == "closed-inactive"
+    status = (await client.get_attributes(flow_id, CASE_STATUS)).get(CASE_STATUS)
+    assert status == "closed-inactive"
+    assert app.refund_timers_notifications.list_sent(f"escalate-deadline-{flow_id}") == []
+    assert len(app.refund_timers_notifications.list_sent(f"closed-inactive-{flow_id}")) == 1
