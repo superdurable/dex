@@ -46,8 +46,9 @@ Each round of the polling Step runs these steps:
   The polling Step's failure route also goes to the result Step. The winner
   writes the terminal state once and returns `GracefulComplete`, or goes to
   the existing close branch. The loser returns `DeadEnd`. With one polling
-  Step and one watchdog, the winner cancels the other by Step type, so the
-  Flow completes when the winner commits. The deadline never comes
+  Step and one watchdog, the winner cancels the still-active other Step in
+  its committed decision. After the completion request, the Flow starts
+  closing once its remaining Steps end. The deadline never comes
   from a stored timestamp and the clock, because a round that is retrying
   would delay it. The Timer starts when the watchdog's `WaitFor` result
   commits; see [Timer firing time](/reference/server/runtime-data#timer-firing-time).
