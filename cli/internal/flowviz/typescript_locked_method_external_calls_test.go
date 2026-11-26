@@ -294,6 +294,17 @@ func TestTypeScriptLockedMethodExternalCallMarksOnlyPhasesWithSharedLocks(t *tes
 	require.Equal(t, map[string][]string{"step:SendReminderStep execute": {}}, markers)
 }
 
+// A single-Flow graph leaves Step locks undrawn; the shared-lock intersection must still see them.
+func TestTypeScriptLockedMethodSingleFlowUsesUndrawnStepLocks(t *testing.T) {
+	graph := analyzeTypeScriptLockedMethodSource(t, typeScriptLockedMethodCase{
+		rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);",
+	})
+	requireStepLocksOnlyUndrawn(t, graph)
+	messages := lockedMethodWarningMessages(graph)
+	require.Len(t, messages, 1, "%+v", graph.Diagnostics)
+	require.Contains(t, messages[0], "Execute of SendReminderStep holds lock Ending")
+}
+
 func analyzeTypeScriptLockedMethodSource(t *testing.T, source typeScriptLockedMethodCase) *Graph {
 	t.Helper()
 	compilerDirectory := trustedTypeScriptCompilerDirectory(t)

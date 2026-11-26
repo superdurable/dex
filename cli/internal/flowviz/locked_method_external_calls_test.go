@@ -293,6 +293,37 @@ func TestGoLockedMethodMarksOnlyMethodsSharingRPCLocks(t *testing.T) {
 	require.Equal(t, []string{"step:SendReminderStep execute"}, marked)
 }
 
+// A single-Flow graph leaves Step locks undrawn; the shared-lock intersection must still see them.
+func TestGoLockedMethodSingleFlowUsesUndrawnStepLocks(t *testing.T) {
+	graph := analyzeGoLockedMethodSource(t, goLockedMethodCase{
+		rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "_ = step.mailer.Send(input)",
+	})
+	requireStepLocksOnlyUndrawn(t, graph)
+	messages := lockedMethodWarningMessages(graph)
+	require.Len(t, messages, 1, "%+v", graph.Diagnostics)
+	require.Contains(t, messages[0], "Execute of SendReminderStep holds lock ending")
+}
+
+func requireStepLocksOnlyUndrawn(t *testing.T, graph *Graph) {
+	t.Helper()
+	isStepLock := func(edge Edge) bool {
+		phase, _ := edge.Metadata["phase"].(string)
+		return edge.Kind == "resource_lock" && phase != "rpc"
+	}
+	require.False(t, slices.ContainsFunc(graph.Edges, isStepLock), "%+v", graph.Edges)
+	require.True(t, slices.ContainsFunc(graph.undrawnLockEdges, isStepLock), "%+v", graph.undrawnLockEdges)
+}
+
+func lockedMethodWarningMessages(graph *Graph) []string {
+	var messages []string
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "locked_method_external_call" {
+			messages = append(messages, diagnostic.Message)
+		}
+	}
+	return messages
+}
+
 func analyzeGoLockedMethodSource(t *testing.T, source goLockedMethodCase) *Graph {
 	t.Helper()
 	deliverExecute := source.deliverExecute
