@@ -125,7 +125,7 @@ impl FakeJobService {
     }
 
     /// Keeps a job unfinished until `complete_job`. Call it before the job starts.
-    #[cfg(any(test, feature = "test-util"))]
+    #[cfg(feature = "test-util")]
     pub fn keep_job_running_for_test(&self, job_id: &str) {
         self.lock_records()
             .kept_running_job_ids
@@ -133,7 +133,7 @@ impl FakeJobService {
     }
 
     /// Makes the next `count` status checks of a job fail with a transient error.
-    #[cfg(any(test, feature = "test-util"))]
+    #[cfg(feature = "test-util")]
     pub fn fail_next_status_checks_for_test(&self, job_id: &str, count: u32) {
         *self
             .lock_records()
@@ -143,7 +143,7 @@ impl FakeJobService {
     }
 
     /// Returns how many status checks of a job ran, including failed ones.
-    #[cfg(any(test, feature = "test-util"))]
+    #[cfg(feature = "test-util")]
     pub fn count_status_checks_for_test(&self, job_id: &str) -> u32 {
         self.lock_records()
             .status_checks
