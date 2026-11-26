@@ -36,7 +36,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
   或 [截止时间 watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#rules)。
 - <a id="step-input"></a>Step 输入保持小而且大小固定，例如 job ID 和轮次编号。
   累积的状态，例如收集到的结果，放在 Attribute 里，绝不放进不断变大的 Step 输入。
-- <a id="external-calls"></a>只在 `Execute` 中调用外部系统。`WaitFor` 只声明 Timer。
+- <a id="external-calls"></a>在 `Execute` 中检查作业状态。不要在 `WaitFor` 中轮询外部系统。在这个模式中，`WaitFor` 只声明 Timer。
 - <a id="retries"></a>`ExecuteRetry` 使用少量带退避的尝试，处理临时错误。
   重试用完后，用 `ExecuteFailure` 选项路由到一个短 Step，由它记录失败；见
   [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)。
@@ -363,16 +363,6 @@ impl Step for CheckJobStatus {
 准确的 failover 规则，包括 ASYNC 的例外，见 [Lease](/reference/server/high-availability#lease)（英文）。
 
 间隔长、要看到每一轮、或者要用 Time Travel 回到某一轮时，选这个模式。间隔短、或者要最轻量的循环时，选 heartbeat 模式。Time Travel 只能回到运行近期历史窗口内的轮次；见 [用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)。
-
-## 反模式 {#anti-patterns}
-
-- 在 `WaitFor` 中调用外部系统。
-- 把重试策略、backoff 或 `RetryAfter` 当作轮询循环，把“尚未就绪”作为错误返回。
-- 循环缺少最大轮次或截止时间。
-- Step 输入每一轮都变大，例如记录看到过的每一个状态。
-- 外部调用缺少自己的 timeout。
-- 测试里缩短间隔，而不是使用 `SkipTimer`。
-- 每一轮或每一页结果都启动一个新的 Flow。
 
 ## 下一步 {#next}
 

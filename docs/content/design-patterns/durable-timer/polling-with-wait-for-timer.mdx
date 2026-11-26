@@ -38,8 +38,9 @@ Each round of the polling Step runs these steps:
 - <a id="step-input"></a>Keep the Step input small and fixed in size, such as
   the job ID and the round number. Keep accumulated state, such as collected
   results, in Attributes, never in a growing Step input.
-- <a id="external-calls"></a>Call the external system only in `Execute`.
-  `WaitFor` only declares the Timer.
+- <a id="external-calls"></a>Check the job status in `Execute`.
+  Never poll the external system from `WaitFor`.
+  In this pattern, `WaitFor` only declares the Timer.
 - <a id="retries"></a>Give `ExecuteRetry` a few attempts with backoff for
   transient errors. Route exhausted retries with the `ExecuteFailure` option
   to a short Step that records the failure; see
@@ -369,16 +370,6 @@ Polling with WaitFor Timer records every round in the Flow's history. You see ea
 [Lease](/reference/server/high-availability#lease) gives the exact failover rules, including the ASYNC exception.
 
 Choose this pattern for long intervals, to see each round, or to Time Travel to a round. Choose the heartbeat pattern for short intervals or the lightest loop. Time Travel reaches a round only inside the run's recent history window; see [Recover a Flow with Time Travel](/components/operate-and-debug#time-travel).
-
-## Anti-patterns
-
-- Calling the external system in `WaitFor`.
-- Using the retry policy, backoff, or `RetryAfter` as the polling loop, where "not ready" is returned as an error.
-- A loop without a maximum round count or deadline.
-- A Step input that grows each round, such as a list of every status seen.
-- An external call without its own timeout.
-- A shorter interval in tests instead of `SkipTimer`.
-- Starting a new Flow for each round or each page of results.
 
 ## Next
 

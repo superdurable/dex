@@ -470,14 +470,6 @@ The long-running Step with heartbeat is lighter. One Step execution holds the wh
 
 Choose this pattern for short intervals or the lightest loop. Choose the Timer pattern for long intervals, to see each round, or to Time Travel to a round. Time Travel reaches a round only inside the run's recent history window; see [Recover a Flow with Time Travel](/components/operate-and-debug#time-travel).
 
-## Anti-patterns
-
-- Using the retry policy, backoff, or `RetryAfter` as the polling loop, where "not ready" is returned as an error.
-- A long loop that never records a heartbeat or writes progress.
-- An external call without its own timeout.
-- A hand-written deadline that duplicates `ExecuteMethodTimeout` or `TotalDuration`.
-- Starting a new Flow for each page of results. Keep the page token in the loop instead.
-
 ## Next
 
 - [External Interaction](/design-patterns/external-interaction)

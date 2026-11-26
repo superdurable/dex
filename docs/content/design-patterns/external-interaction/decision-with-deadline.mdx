@@ -752,12 +752,6 @@ impl Step for RouteResponseBeforeExpiry {
 </SdkSnippet>
 </SdkTabs>
 
-## Anti-patterns
-
-- One parallel Step per event, where the first to finish cancels the others. One `AnyOf` wait makes the choice with no race between branches.
-- A Timer loop that checks an Attribute to see whether the customer answered.
-- A separate Flow, cron job, or database job that enforces the deadline.
-
 ## Next
 
 - [Idle Timer](/design-patterns/external-interaction/idle-timer)
