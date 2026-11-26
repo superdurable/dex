@@ -9,7 +9,7 @@ Run the design review before you implement a new Dex application, library, or de
 3. **Primitive check.** Before building a workaround, check whether a Dex primitive covers the need: canceling Steps, chunked or hash-partitioned AttributeMaps, Attribute locks, durable Timers, Channels with atomic complete-if-empty, and SubFlows.
 4. **Persisted layout.** Settle Flow, Step, RPC, Attribute, AttributeMap, Channel, and Stream names, instance keys, chunk size, partition count, hash algorithm, value schemas, and RPC types before the first release. Changing them later means reading both forms while old Flows or values exist. Define the partition count and chunk size as named constants with a code comment that they are persisted layout; changing the partition count moves keys to other partitions.
 5. **Existing features.** List the features of the nearest example or the version being replaced. Drop one only with an explicit, recorded decision.
-6. **Owner review.** Get the owner's review of the premises and decisions before implementation starts, and record the outcome. When the owner cannot be asked during the task and the request already authorizes the work, record routine decisions and proceed. Decisions that need the owner's confirmation still wait for it.
+6. **Owner review.** Record the premises and routine decisions. Proceed when the request authorizes the work. Get the owner's confirmation before implementing any decision that requires it, and record the outcome.
 
 ## Model before implementation
 
@@ -43,7 +43,7 @@ Modeling:
 - [ ] Execute of a deadline wait checks which Condition fired; it never treats "no Channel result" as the deadline.
 - [ ] A deadline for the whole Flow is the Flow timeout, never a competing Timer Step.
 - [ ] An inactivity window loops back for a fresh Timer on each event; it never computes the remaining window from a stored timestamp and the clock.
-- [ ] Every ranking between events names its arbitration boundary: Channel order among events queued at evaluation, or an admission window that the arbitration Step closes under a shared lock. No RPC decides between ranked events by lock order.
+- [ ] Every ranking between events names its arbitration boundary: Channel order among events queued at evaluation, or a candidate Attribute that RPCs append to and the arbitration Step closes and reads under one shared lock. No RPC decides between ranked events by lock order.
 - [ ] At any moment, at most one waiting Step consumes each Channel. An event every waiter must receive uses one ChannelMap key per waiter.
 - [ ] Compensation after an exhausted Step starts with that Step, because it may have taken effect.
 - [ ] Frequent concurrent appenders publish through an RPC to a Channel consumed by one writing Step; a few synchronous writers share the same Attribute lock.

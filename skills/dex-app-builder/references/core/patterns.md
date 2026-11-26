@@ -730,26 +730,32 @@ Use this when the business ranks events against each other, such as a withdrawal
 
 | Business rule | Recipe |
 | --- | --- |
-| Rank only events already queued when the wait is evaluated | Declare the Channels in rank order and use the winning Condition's results. |
-| Rank every event admitted before the decision closes | RPCs validate, publish, and answer "received", never the outcome. One short shared lock guards admission and an admission-closed Attribute. The arbitration Step's Execute takes the same lock, closes admission, explicitly loads the pending messages of the competing Channels, and compares the consumed Condition result with the pending candidates. |
+| Rank only events already queued when the wait is evaluated | Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued. |
+| Rank every event admitted before the decision closes | Keep the round's candidates in an Attribute, not in Channels. Each RPC appends its candidate under one short shared lock; the arbitration Step closes the window under the same lock and picks the winner from that Attribute. See the skeleton below. |
 | The first response wins and later callers get "window closed" | [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock). This is a different, valid policy. |
 
 ```text
-rpc submitWithdrawal(w), locks admissionClosed  -> if admissionClosed: return closed
-                                                   Withdrawals.publish(w); return received
-rpc submitDecision(d): the same, publishing to Decisions
+// roundWindow and roundCandidates are singleton Attributes; every writer locks roundWindow
+rpc submitWithdrawal(w), locks roundWindow
+    if roundWindow is closed: return closed
+    if w.businessId is already a candidate: return received          // idempotent retry
+    roundCandidates.append({type: withdrawal, ref: w.businessId, rank: 1, order: next})
+    RoundWakeups[round].publish(); return received                   // a wake-up signal only
+rpc submitDecision(d): the same, with rank 2
 
-Arbitrate.waitFor -> AnyOf(Withdrawals.ForOne(), Decisions.ForOne(), Timer(deadline))
-Arbitrate.execute, locks admissionClosed, loads Withdrawals and Decisions, short retry budget
-    admissionClosed.set(true)
-    candidates = the consumed result + Withdrawals.pending + Decisions.pending
-    winner = the highest-ranked candidate; within one Channel, the consumed message, which is older
-    delete the winner by message ID if it is still pending; handle the others by the business rule
-    route on the winner; with no candidate, route on the Timer
+Arbitrate.waitFor -> AnyOf(Timer(deadline), RoundWakeups[round].ForOne())
+Arbitrate.execute, locks roundWindow, short retry budget
+    roundWindow.set(closed)
+    winner = the highest-ranked candidate (rank 1 first); admission order breaks a tie
+    record the decision with the winner; mark the other candidates as not chosen
+    route on the winner; with no candidate, route to the deadline branch
 ```
 
-- The pending-message load is a snapshot of the Execute attempt; it does not consume messages and is not refreshed on retry. The shared lock keeps new admissions out while Execute holds it, through its retries.
-- Events admitted before Execute takes the lock are eligible, including ones that commit after the Timer fired. The Timer is not a hard cutoff; the locked Execute is.
+- The RPCs answer "received". The receipt confirms admission only; the arbitration Step decides.
+- The candidate set holds everything that decides the outcome: event type, a payload reference, rank, and admission order. The wake-up Channel carries no data and only wakes the Step. Use one ChannelMap key per round, so a leftover wake-up never starts another round.
+- The decision derives only from the Attribute state, so a retried Execute reaches the same decision. Execute holds the lock through its retries, so no candidate joins meanwhile.
+- The Timer is not a hard cutoff; the successful locked close is. A candidate admitted before it is eligible, even after the Timer fired. When Execute exhausts its retries, the normal failure route runs and the window stays open until a later successful close.
+- Losing candidates stay in the record. Answer their senders through an idempotent path, such as a reply keyed by the business ID.
 - Never decide between ranked events in an RPC by lock order: lock order is commit order, not business priority.
 
 ### Critical section
