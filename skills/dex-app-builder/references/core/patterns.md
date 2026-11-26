@@ -669,7 +669,7 @@ RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected
 
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
-- A response already queued when the wait starts wins at once. Otherwise the event that commits first wins. Declare the decision Channels in business priority order; it decides between responses that are both queued.
+- When the wait is evaluated, Dex selects one ready Condition: a ready Timer first, otherwise the first ready Channel in declaration order. When Conditions become ready at different times, the first event to satisfy the wait wins. Declare the decision Channels in business priority order.
 - Declaration order ranks only Channels that are ready when the wait is evaluated. When the business ranks events beyond that, see [Arbitrate by business priority](#arbitrate-by-business-priority).
 - A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. Two responses can also both be accepted before the wait takes one. With the window, the first response closes it: it is recorded and decides, and every later caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
@@ -730,32 +730,44 @@ Use this when the business ranks events against each other, such as a withdrawal
 
 | Business rule | Recipe |
 | --- | --- |
-| Rank only events already queued when the wait is evaluated | Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued. |
-| Rank every event admitted before the decision closes | Keep the round's candidates in an Attribute, not in Channels. Each RPC appends its candidate under one short shared lock; the arbitration Step closes the window under the same lock and picks the winner from that Attribute. See the skeleton below. |
+| Rank only events already ready when the wait is evaluated | Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued. |
+| Rank every event admitted before the decision closes | Keep each round's window and candidates in AttributeMaps keyed by a round ID that is never reused, not in Channels. Each RPC names its round and appends its candidate under that round's instance locks; the arbitration Step closes that round's window under the same locks and picks the winner from its candidates. See the skeleton below. |
 | The first response wins and later callers get "window closed" | [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock). This is a different, valid policy. |
 
 ```text
-// roundWindow and roundCandidates are singleton Attributes; every writer locks roundWindow
-rpc submitWithdrawal(w), locks roundWindow
-    if roundWindow is closed: return closed
-    if w.businessId is already a candidate: return received          // idempotent retry
-    roundCandidates.append({type: withdrawal, ref: w.businessId, rank: 1, order: next})
-    RoundWakeups[round].publish(); return received                   // a wake-up signal only
-rpc submitDecision(d): the same, with rank 2
+// RoundWindow and RoundCandidates are AttributeMaps keyed by round ID; a round ID is never reused.
+// Every writer of a round locks and loads both instances of that round: the round's locks.
+OpenRound.execute(roundId), the round's locks
+    RoundWindow[roundId] = open; goTo(Arbitrate, roundId)
+rpc submitWithdrawal(roundId, w), the round's locks
+    if RoundWindow[roundId] is not open: return closed               // an old or unknown round
+    key = (roundId, withdrawal, w.eventId)
+    if key is already a candidate: return received                   // idempotent retry
+    RoundCandidates[roundId].append({key, ref: w.eventId, rank: 1, order: next})
+    if the set was empty: RoundWakeups[roundId].publish()            // one data-free wake-up per round
+    return received
+rpc submitDecision(roundId, d): the same, with rank 2
 
-Arbitrate.waitFor -> AnyOf(Timer(deadline), RoundWakeups[round].ForOne())
-Arbitrate.execute, locks roundWindow, short retry budget
-    roundWindow.set(closed)
+Arbitrate.waitFor(roundId) -> AnyOf(Timer(deadline), RoundWakeups[roundId].ForOne())
+Arbitrate.execute(roundId), the round's locks, short retry budget, failure route ArbitrationFailed
+    if RoundWindow[roundId] is not open: exit without a decision or a business route
+    RoundWindow[roundId] = closed
     winner = the highest-ranked candidate (rank 1 first); admission order breaks a tie
-    record the decision with the winner; mark the other candidates as not chosen
+    record the decision; mark the other candidates as not chosen
     route on the winner; with no candidate, route to the deadline branch
+ArbitrationFailed.execute(roundId), the round's locks
+    arbitrate again from RoundCandidates[roundId], or close the round, record the failure,
+    and answer every admitted sender through an idempotent path
 ```
 
 - The RPCs answer "received". The receipt confirms admission only; the arbitration Step decides.
-- The candidate set holds everything that decides the outcome: event type, a payload reference, rank, and admission order. The wake-up Channel carries no data and only wakes the Step. Use one ChannelMap key per round, so a leftover wake-up never starts another round.
-- The decision derives only from the Attribute state, so a retried Execute reaches the same decision. Execute holds the lock through its retries, so no candidate joins meanwhile.
-- The Timer is not a hard cutoff; the successful locked close is. A candidate admitted before it is eligible, even after the Timer fired. When Execute exhausts its retries, the normal failure route runs and the window stays open until a later successful close.
-- Losing candidates stay in the record. Answer their senders through an idempotent path, such as a reply keyed by the business ID.
+- Every RPC and Step that touches a round holds that round's locks. An RPC names its target round, so a late RPC for a closed round gets "closed" and never reaches a newer round.
+- Each round's candidates hold everything that decides the outcome: a key of round ID, event type, and event ID, a payload reference, rank, and admission order. The key also deduplicates retries and keys the answers.
+- Publish one wake-up, in the same commit, when a round's candidate set goes from empty to non-empty; later admissions only append. The wake-up carries no data and its ChannelMap key is the round ID. Never read a wake-up to decide candidates or the outcome. When the Timer wins, one wake-up may stay pending; delete it with the round's other state when a long-running Flow must reclaim state.
+- Start only one arbitration wait per round. The decision derives only from the round's Attribute state, so a retried Execute reaches the same decision. Execute holds the locks through its retries and backoff, so no candidate joins meanwhile.
+- The Timer is not a hard cutoff; the successful locked close is. A candidate admitted before it is eligible, even after the Timer fired.
+- When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. Give Execute a failure route whose Step, under the same locks, arbitrates again from the stored candidates or closes the round, records the failure, and answers every admitted sender through an idempotent path. It never relies on the wake-up. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
+- Losing candidates stay in the record. Answer their senders through an idempotent path keyed by the candidate key.
 - Never decide between ranked events in an RPC by lock order: lock order is commit order, not business priority.
 
 ### Critical section

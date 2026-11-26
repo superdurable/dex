@@ -43,7 +43,7 @@ Modeling:
 - [ ] Execute of a deadline wait checks which Condition fired; it never treats "no Channel result" as the deadline.
 - [ ] A deadline for the whole Flow is the Flow timeout, never a competing Timer Step.
 - [ ] An inactivity window loops back for a fresh Timer on each event; it never computes the remaining window from a stored timestamp and the clock.
-- [ ] Every ranking between events names its arbitration boundary: Channel order among events queued at evaluation, or a candidate Attribute that RPCs append to and the arbitration Step closes and reads under one shared lock. No RPC decides between ranked events by lock order.
+- [ ] Every ranking between events names its arbitration boundary: Channel order among events queued at evaluation, or a round window, keyed by round ID, that the arbitration Step closes under the same locks the RPCs hold to append candidates for that round. No RPC decides between ranked events by lock order.
 - [ ] At any moment, at most one waiting Step consumes each Channel. An event every waiter must receive uses one ChannelMap key per waiter.
 - [ ] Compensation after an exhausted Step starts with that Step, because it may have taken effect.
 - [ ] Frequent concurrent appenders publish through an RPC to a Channel consumed by one writing Step; a few synchronous writers share the same Attribute lock.
