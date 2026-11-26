@@ -72,7 +72,11 @@ class ExecuteDealAction(Step[ActionStepInput]):
         state = self.flow.definition.get(context).state(input.state_name)
         if input.action_index < 0 or input.action_index >= len(state.actions):
             raise ValueError(f"invalid action index {input.action_index}")
-        self.flow.execute_action(context, state.actions[input.action_index])
+        # The execution ID stays stable on retries and changes when the same action runs again.
+        idempotency_key = f"{context.flow_id}/{context.step_execution_id}"
+        self.flow.execute_action(
+            context, state.actions[input.action_index], idempotency_key
+        )
         next_index = input.action_index + 1
         if next_index < len(state.actions):
             return go_to(ExecuteDealAction, ActionStepInput(state.name, next_index))
@@ -192,11 +196,14 @@ func (step executeAction) Execute(
 			state.Name,
 		)
 	}
+	// StepExecutionID stays stable on retries and changes when the same action runs again.
+	idempotencyKey := ctx.FlowID() + "/" + ctx.StepExecutionID()
 	actionInput := ActionInput{
-		FlowID:      ctx.FlowID(),
-		ItemID:      process.ItemID,
-		ItemName:    process.ItemName,
-		TargetState: state.Name,
+		FlowID:         ctx.FlowID(),
+		IdempotencyKey: idempotencyKey,
+		ItemID:         process.ItemID,
+		ItemName:       process.ItemName,
+		TargetState:    state.Name,
 	}
 	actionInput.ProcessID, err = ProcessID.Get(ctx)
 	if err != nil {
@@ -286,7 +293,9 @@ func (step executeAction) Execute(
             if (input.actionIndex < 0 || input.actionIndex >= state.actions.size()) {
                 throw new IllegalArgumentException("invalid action index " + input.actionIndex);
             }
-            runAction(context, state.actions.get(input.actionIndex));
+            // The execution ID stays stable on retries and changes when the same action runs again.
+            final String idempotencyKey = context.getFlowId() + "/" + context.getStepExecutionId();
+            runAction(context, state.actions.get(input.actionIndex), idempotencyKey);
             final int nextIndex = input.actionIndex + 1;
             if (nextIndex < state.actions.size()) {
                 return StepDecision.goTo(
@@ -347,7 +356,9 @@ class ExecuteDealAction implements Step<ActionStepInput> {
     const state = this.flow.state(context, input.stateName);
     const action = state.actions?.[input.actionIndex];
     if (action === undefined) throw new Error(`invalid action index ${input.actionIndex}`);
-    this.flow.executeAction(context, action);
+    // The execution ID stays stable on retries and changes when the same action runs again.
+    const idempotencyKey = `${context.flowId}/${context.stepExecutionId}`;
+    this.flow.executeAction(context, action, idempotencyKey);
     const nextIndex = input.actionIndex + 1;
     if (nextIndex < (state.actions?.length ?? 0)) {
       return goTo(ExecuteDealAction, { stateName: state.name, actionIndex: nextIndex });
@@ -415,7 +426,9 @@ impl Step for ExecuteDealAction {
                 format!("invalid action index {}", input.action_index),
             )
         })?;
-        run_action(context, action)?;
+        // The execution ID stays stable on retries and changes when the same action runs again.
+        let idempotency_key = format!("{}/{}", context.flow_id(), context.step_execution_id());
+        run_action(context, action, &idempotency_key)?;
         let next_index = input.action_index + 1;
         if next_index < state.actions.len() {
             return Ok(StepDecision::go_to(
