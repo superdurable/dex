@@ -67,6 +67,14 @@ pub(crate) enum BindingSource<'ast> {
     Unwrapped(&'ast Expr),
     /// An element of this iterated value.
     Element(&'ast Expr),
+    /// A parameter of a closure passed to a combinator method of receiver, such as map or and_then.
+    CombinatorParameter {
+        receiver: &'ast Expr,
+        method: &'ast syn::Ident,
+        index: usize,
+        /// The closure body, the only place where this binding is visible.
+        body: &'ast Expr,
+    },
     /// A name bound inside another pattern that destructures this value.
     Destructured(&'ast Expr),
     Untyped,
@@ -381,6 +389,33 @@ impl<'ast> Visit<'ast> for BindingCollector<'_, 'ast> {
         };
         bind_names(self.bindings, &iteration.pat, source);
         visit::visit_expr_for_loop(self, iteration);
+    }
+
+    /// Binds the parameters of a closure passed to a combinator, such as map, to the receiver's elements.
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        self.visit_expr(&call.receiver);
+        for argument in &call.args {
+            let Expr::Closure(closure) = argument else {
+                self.visit_expr(argument);
+                continue;
+            };
+            for (index, input) in closure.inputs.iter().enumerate() {
+                let source = match input {
+                    Pat::Type(typed) if matches!(typed.pat.as_ref(), Pat::Ident(_)) => {
+                        BindingSource::Typed(&typed.ty)
+                    }
+                    Pat::Ident(_) => BindingSource::CombinatorParameter {
+                        receiver: &call.receiver,
+                        method: &call.method,
+                        index,
+                        body: &closure.body,
+                    },
+                    _ => BindingSource::Untyped,
+                };
+                bind_names(self.bindings, input, source);
+            }
+            self.visit_expr(&closure.body);
+        }
     }
 
     fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {

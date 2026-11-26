@@ -27,7 +27,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, Client, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc,
+    Attribute, AttributeMap, Client, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc,
     RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, StepOptions, Wait,
 };
 
@@ -40,6 +40,8 @@ static ENDING: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("endi
 static COUNTER: LazyLock<Attribute<i64>> = LazyLock::new(|| Attribute::new("counter"));
 static LAST_ORDER: LazyLock<Attribute<crate::orders::Order>> =
     LazyLock::new(|| Attribute::new("last_order"));
+static PENDING_REPORTS: LazyLock<AttributeMap<BTreeMap<String, crate::reports::Report>>> =
+    LazyLock::new(|| AttributeMap::new("pending_reports"));
 const STOP_REMINDERS: Rpc<String, String> = Rpc::new("StopReminders");
 
 pub struct ReminderFlow {
@@ -76,6 +78,7 @@ pub struct SendReminderStep {
     mailer: Arc<dyn Mailer>,
     client: Arc<Client>,
     optional_client: Option<Arc<Client>>,
+    optional_mailer: Option<Arc<dyn Mailer>>,
 }
 
 impl Step for SendReminderStep {
@@ -265,6 +268,24 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 			messages:      []string{"and calls input.submit;"},
 			executeMarker: rustMarkerCalls,
 		},
+		"combinator closures over an AttributeMap value read as data": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let pending = PENDING_REPORTS.get(context, &input)?;\n" +
+					"        let report = pending.and_then(|mut reports| reports.remove(&input));\n" +
+					"        let count = PENDING_REPORTS.get(context, &input)?.map(|reports| reports.len()).unwrap_or_default();\n" +
+					"        let first = PENDING_REPORTS.get(context, &input)?.and_then(|reports| reports.get(&input).map(|report| report.id.as_str().to_owned()));",
+			},
+			executeMarker: rustMarkerClean,
+		},
+		"combinator closure parameter bound to an injected service": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let sent = self.optional_mailer.as_ref().map(|mailer| mailer.send(&input));",
+			},
+			messages:      []string{"and calls mailer.send;"},
+			executeMarker: rustMarkerCalls,
+		},
 		"injected service taken from a destructured tuple": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
@@ -276,9 +297,9 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 		"method on a value of unknown type": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
-				executeBody: "let lengths: Vec<usize> = vec![input.clone()].iter().map(|value| value.len()).collect();",
+				executeBody: "let entries: Vec<_> = Vec::new();\n        entries.iter().for_each(|entry| entry.flush());",
 			},
-			messages:      []string{"and calls value.len;"},
+			messages:      []string{"and calls entry.flush;"},
 			executeMarker: rustMarkerCalls,
 		},
 		"derived Default of a same-file type": {
