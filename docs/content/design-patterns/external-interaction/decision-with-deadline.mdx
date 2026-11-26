@@ -73,12 +73,15 @@ Keep these rules when you use the window:
 Some processes rank events against each other. For example, a withdrawal wins over a decision, or a confirmation wins over a decline that arrives at the same moment. Keep such a rule, and state which meaning of "the same moment" the design uses. Both meanings are valid:
 
 - **Server commit order.** A response window or lock admits responses one commit at a time. The first committed response wins, so ties never occur. This is the response window above.
-- **Events ready when the wait is evaluated.** Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued. When that matters, `Execute` checks the higher-ranked Channel first before it takes the Timer branch.
-- **Every event admitted before the decision.** Keep each round's candidates in Attributes keyed by round, as described below.
+- **Competing Channels ready when the wait is evaluated.** Among the Channel Conditions of one `AnyOf` that are ready together, the first declared wins, and `Execute` uses the messages it consumed. This ranks Channels only. A Timer in the same wait that is also ready is selected first, and the messages stay queued.
 
-A response window can also be combined with ranked responses, for example by ranking the responses present when the locked `Execute` closes the window.
+When a Timer wins and `Execute` then checks the Channels again, it sees the responses committed by the time `Execute` reads its state. That is a later moment than the wait evaluation. The example's `RouteResponseBeforeExpiry` branch relies on this: it takes a response that committed after the Timer won.
 
-For the second policy, each round has a round ID that is never reused. Two AttributeMaps are keyed by it: the round's window and the round's candidates. Every RPC and Step that touches a round locks that round's instances of both maps.
+### Rank every event in a locked round {#locked-round}
+
+To rank every event admitted before the decision, use a locked round. Its closed window decides which events are eligible. A response window can be combined with ranked responses this way. The runnable examples above show only the first-committed-response window; they have no rounds, ranking, recovery route, or reply Step.
+
+Each round has a round ID that is never reused. Two AttributeMaps are keyed by it: the round's window and the round's candidates. Every RPC and Step that reads or changes that window or those candidates locks that round's instances of both maps.
 
 A Step opens the round under its locks, then moves to the arbitration Step for that round.
 
@@ -86,13 +89,13 @@ Each event's RPC names its target round. Under the round's locks, it accepts onl
 
 When the round's candidate set goes from empty to non-empty, the same RPC commit publishes one wake-up. Later admissions only append. The wake-up carries no data, and its ChannelMap key is the round ID. Never read a wake-up to decide candidates or the outcome. When the Timer wins, one wake-up may stay pending. A long-running Flow that must reclaim state deletes it with the round's other state.
 
-The arbitration Step waits on `AnyOf` of the deadline Timer and the round's wake-up. Start only one such wait per round. Its `Execute` takes the round's locks. If the round is closed or missing, it ends the branch normally with a dead end (`DeadEnd`), with no decision and no business route. Otherwise it closes the round, reads the candidates, and picks the highest rank. Admission order breaks a tie. It records the decision and routes. With no candidate, it takes the deadline branch.
+The arbitration Step waits on `AnyOf` of the deadline Timer and the round's wake-up. Start only one such wait per round. Its `Execute` takes the round's locks. If the round is closed or missing, it ends the branch normally with a dead end (`DeadEnd`), with no decision and no business route. Otherwise it closes the round, reads the candidates, and picks the highest rank. Admission order breaks a tie. In the same commit it records the decision and the answer for every candidate. It then moves to a Step that holds no lock and gets those answers as its input. That Step sends them through an idempotent path keyed by the candidate key, then routes on the decision. With no candidate, the decision is the deadline branch.
 
 The decision derives only from the round's Attribute state, so a retried `Execute` reaches the same decision. `Execute` holds the locks through its retries and backoff, so no candidate joins meanwhile. The successful locked close is the cutoff, not the Timer. A candidate admitted before it is eligible, even after the Timer fired.
 
-When `Execute` exhausts its retries, neither the close nor the decision commits. Give `Execute` a short retry budget and a failure route. The recovery Step takes the same locks and rechecks the window. A closed or missing round ends the branch with a dead end. Otherwise, in one commit, it either arbitrates again from the stored candidates, or closes the round and records the failure. The RPCs take the round's locks, so the next Step, which holds no lock, answers every admitted sender through an idempotent path. It never relies on the wake-up. Without a failure route, the Flow fails, and senders learn the outcome from its terminal state.
+When `Execute` exhausts its retries, neither the close nor the decision commits. Give `Execute` a short retry budget and a failure route. The recovery Step takes the same locks and rechecks the window. A closed or missing round ends the branch with a dead end. Otherwise, in one commit, it either arbitrates again from the stored candidates, or closes the round and records the failure, together with the answer for every candidate. It then moves to the same unlocked answering Step with those answers as input. The RPCs take the round's locks, so neither path sends an answer while it holds them. It never relies on the wake-up. Without a failure route, the Flow fails, and senders learn the outcome from its terminal state.
 
-Losing candidates stay in the record. Answer their senders through an idempotent path keyed by the candidate key. Lock order is commit order, not business priority, so a locked RPC never decides between ranked events.
+Losing candidates stay in the record. Lock order is commit order, not business priority, so a locked RPC never decides between ranked events.
 
 ## Related shapes
 

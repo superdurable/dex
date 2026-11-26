@@ -189,7 +189,7 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 
 - 子 Flow 在一个 Step 里把结果提交到 Attribute，下一个 Step 再通过 RPC 向父 Flow 报告，这个 RPC 发布到一个 Channel。报告 Step 不能在结果提交之前运行，所以这两个 Step 保持默认的 SYNC durability；见 [Durability](/reference/python/step-options#durability)（英文）。报告带一个稳定的 request ID。也可以让父 Flow 的一个轮询 Step 等待子 Flow 的终态。
 - 父 Flow 为每个子 Flow 保留一条记录，以子 Flow ID 为键，结果和终态是分开的字段。报告或读取补上缺的字段，重复的报告不改变任何东西。每次业务尝试都用自己的子 Flow ID。
-- 多个入口可能启动同一个子 Flow 时，它们从同一个请求推导出相同的 Flow ID 和 request ID。否则启动会报告 Flow 已经启动：读取那个 run，只有保存的业务身份匹配时才跟踪它。不匹配时，记录一条被拒绝的接纳；父 Flow 会列出它，但从不等待、计数或停止它。
+- 同一个逻辑请求的每次启动都推导出相同的 Flow ID 和 request ID。另一个逻辑请求仍可能用同一个 Flow ID 启动 run，即使来自同一个入口或同一个父 run。这时启动会报告 Flow 已经启动：读取那个 run，只有保存的业务身份匹配时才跟踪它。不匹配时，记录一条被拒绝的接纳；父 Flow 会列出它，但从不等待、计数或停止它。只有当业务身份到子 Flow ID 的映射保证只有同一逻辑请求的重放会再次启动它时，才可以跳过这个核验。
 - 每个子 Flow 有自己的 Flow timeout。它是启动选项，所以每个启动者都要设置它。需要报告超时的子 Flow 用会报告的 timeout handler，而不是 Timer Step。父 Flow 关闭时不会停止它的子 Flow。
 - client 停止子 Flow 后，子 Flow 不会再启动新的 handler，所以它可能永远不会报告。正在运行的 handler 可以忽略取消，所以已经发出的报告仍可能到达。
 - 被停止的子 Flow 怎样结束与父 Flow 无关时，父 Flow 停止子 Flow 后直接往下走。只需要达到所需数量的父 Flow，也这样停止剩下的子 Flow。

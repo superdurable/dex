@@ -115,9 +115,11 @@ class AwaitJob(Step[str]):
 ```
 
 - Await provider calls, so cancellation reaches them at the `await`; never
-  block the event loop with a sync client. A synchronous call cannot observe
-  cancellation and keeps its Worker slot until it returns, so give it its own
-  timeout, as `asyncio.wait_for` does here.
+  block the event loop with a sync client. The example's `asyncio.wait_for`
+  bounds a cancellable async call.
+- A synchronous or threaded call cannot observe cancellation, and canceling
+  an `await` does not stop its thread; it keeps its Worker slot until it
+  returns. Configure the timeout of the client or the underlying I/O instead.
 - Keep the longest gap between heartbeats, including `POLL_INTERVAL` and the
   slowest healthy call, below the `heartbeat_timeout` the Step sets, with a
   margin. Raise it only when a healthy

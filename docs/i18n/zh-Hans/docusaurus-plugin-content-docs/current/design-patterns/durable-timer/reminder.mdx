@@ -151,6 +151,13 @@ impl Step for ReminderStep {
 
 </SdkTabs>
 
+## 生产环境说明 {#production-notes}
+
+示例只有一个 `OptOut` 消费者，并使用相对 Timer。它的发送调用没有幂等键。生产环境的提醒还要加上两点：
+
+- 用稳定的 occurrence ID（例如 Flow ID 加上第几次提醒）作为每次发送的键。这样重试的 `Execute` 只发送一次这条提醒。
+- Timer 胜出时，先检查 `OptOut` 再发送。到那时已经提交的退订会阻止下一条提醒。正在发送的提醒仍可能送达一次。
+
 ## 下一步
 
 - [用 WaitFor Timer 轮询](/design-patterns/durable-timer/polling-with-wait-for-timer)

@@ -381,7 +381,7 @@ Keep locked RPCs short; an RPC can take a free lock ahead of waiting Steps
 When a Step declares a lock that an RPC also takes, the Step makes no
 external call while it holds the lock. It decides and commits under the lock.
 The next Step, which holds no lock, makes the call. Otherwise every RPC that
-arrives during the call fails with a lock conflict. The same holds for a
+requests that lock during the call fails with a lock conflict. The same holds for a
 `WaitFor` or a Flow timeout handler that declares such a lock. Starting or
 calling another Flow is an external call too.
 
@@ -395,7 +395,11 @@ total duration, such as a few minutes, in its `StepOptions` retry policy; see
 Some processes accept that an already decided action may still happen once,
 such as a reminder that is about to be sent when a stop request arrives. Such
 a process needs no lock. The RPC publishes the request and answers
-"received". Every later wait of the Flow includes that Channel.
+"received". Every later decision handles a stop that has arrived before it
+commits a new action. That includes the branch where a Timer was selected
+first. One message reaches one consumer, so parallel consumers use a durable
+stop Attribute or one message per branch. The already decided action runs
+idempotently with a stable occurrence ID.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 `Execute` runs:

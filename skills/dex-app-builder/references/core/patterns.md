@@ -29,7 +29,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Proceed only after every branch finishes | [Await parallel Steps](#await-parallel-steps) |
 | Proceed after the first branch or n of m branches, optionally in rounds | [Partial join and reset](#partial-join-and-reset) |
 | Keep the first result, cancel the rest | [First-win parallel Steps](#first-win-parallel-steps) |
-| Child Flow runs with their own lifecycle, after the SubFlow gate | [Parallel SubFlows](#parallel-subflows) |
+| Child Flow runs that need their own lifecycle, history, or retries, or a very large fan-out | [Parallel SubFlows](#parallel-subflows) |
 | Child jobs with their own business identity, looked up, retried, or stopped by their own number | [Top-level child Flows](flow.md#child-jobs-with-their-own-identity) |
 | Wait for an external system to become ready or finish | [Polling](#polling) |
 | Recurring work at a fixed interval | [Cron schedule](#cron-schedule) |
@@ -256,9 +256,11 @@ OpenIntake.execute -> goToMany(HandleRequest x N, CloseIntake)
 HandleRequest.waitFor -> AnyOf(Requests.ForOne(), GracefulCompletionRequested())
 HandleRequest.execute                            // locks intakeClosed
     if no request was consumed: deadEnd()        // queue empty and the Flow is closing
-    if intakeClosed: record the request as returned; goTo(HandleRequest)
+    if intakeClosed: goTo(ReturnRequest, request)
     goTo(HandleChild, request)
-HandleChild.waitFor(request) -> Until(SubFlow(ChildFlow, request))
+ReturnRequest.execute(request)                   // no lock: reply keyed by the request ID
+    send the returned request back to its submitter idempotently; goTo(HandleRequest)
+HandleChild.waitFor(request) -> Until(SubFlow(ChildFlow, request))   // no lock
 HandleChild.execute -> record the result; goTo(HandleRequest)
 rpc sendRequest(request)                         // locks intakeClosed
     if intakeClosed or Requests.size >= buffer limit: return false
@@ -269,7 +271,8 @@ CloseIntake.execute -> gracefulComplete()
 ```
 
 - The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter.
-- Each worker owns the request it consumed. Under the `intakeClosed` lock it either commits the move to start the child, which then starts and finishes even after the close, or, after the close, records the request as returned through an idempotent path, such as a reply to its submitter. A queued request is never silently dropped or handed back twice.
+- Each worker owns the request it consumed. Under the `intakeClosed` lock it only commits its next move: to `HandleChild`, which starts the child without the lock and finishes even after the close, or, after the close, to `ReturnRequest`, which sends the returned request back without the lock through an idempotent path keyed by the request. The RPCs take that lock, so the locked Execute calls no other system or Flow. A queued request is never silently dropped or handed back twice.
+- The runnable long-lived parent examples show the basic variant: a later Step starts each child, and a stop RPC ends the workers. They have no closable intake, shared admission lock, or returned-request reply.
 - After the close, Channel Conditions still win over the graceful completion Condition, so workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion Condition and end with DeadEnd. Running children finish first, and the Flow completes when the last branch ends.
 - An admission RPC that sees the intake closed rejects the request, so the caller can resubmit to a new parent run.
 - The graceful completion Condition needs SDK and Server support; see the [Server reference](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition) and the language's Waits reference, such as [Go](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). Without it, the close Step publishes one message per worker to a Wake Channel, and each worker waits `AnyOf(Requests.ForOne(), Wake.ForOne())` and ends when it takes a Wake message.
@@ -456,11 +459,16 @@ rpc triggerNow -> TriggerNow.publish()
 Send reminders until the recipient opts out. Go folder: `reminders`.
 
 ```text
-Remind.waitFor -> AnyOf(Timer(interval), OptOut.ForOne())
-Remind.execute -> if the Timer did not fire: gracefulComplete()
-                  else: send the reminder; goTo(Remind)
+Remind.waitFor(occurrence) -> AnyOf(Timer(interval), OptOut.ForOne())
+Remind.execute(occurrence) -> if the Timer did not fire: gracefulComplete()
+                              if OptOut.size() > 0: gracefulComplete()   // opted out after the Timer won
+                              send the reminder, keyed by Flow ID + occurrence; goTo(Remind, occurrence + 1)
 rpc optOutReminders -> OptOut.publish()
 ```
+
+- Only one Step consumes the opt-out Channel. A Timer-won Execute checks the opt-out Channel before it sends, so an opt-out that committed by then stops the next reminder. A reminder already being sent may still arrive once.
+- Key each send by a stable occurrence ID, so a retried Execute does not send twice.
+- The runnable reminders examples show the single-consumer relative-Timer loop. Their send call has no occurrence idempotency key.
 
 ### Idle Timer
 
@@ -706,6 +714,8 @@ RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected
 - When the wait is evaluated, Dex selects one ready Condition: a ready Timer first, otherwise the first ready Channel in declaration order. When Conditions become ready at different times, the first event to satisfy the wait wins. Declare the decision Channels in business priority order.
 - Declaration order ranks only Channels that are ready when the wait is evaluated. When the business ranks responses, keep that rule and state which definition of "the same moment" the design uses; see [Arbitrate by business priority](#arbitrate-by-business-priority).
 - A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. Two responses can also both be accepted before the wait takes one. With the window, the first response closes it: it is recorded and decides, and every later caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
+- The Timer branch's size check selects a response committed by the time Execute reads its state, even one that committed after the Timer won. That is the window's commit-order boundary, not the wait-evaluation moment.
+- The runnable deferred-choice examples show only this first-committed-response window. They have no ranked rounds, recovery route, or reply Step.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
 
@@ -763,14 +773,16 @@ Rules:
 Use this when the business ranks events against each other, such as a withdrawal over a decision, or "a confirmation wins over a decline that arrives at the same moment". Keep the priority rule; never drop it as unenforceable. State in the design which definition of "the same moment" the code uses. Both are valid:
 
 - **(a) Server commit order.** A reply window or lock admits replies one commit at a time. The first committed reply wins, so ties never occur.
-- **(b) Events present when the wait is evaluated.** The events ready when the waiting Step's wait is evaluated are ranked, by AnyOf declaration order or by an Execute check. An event that commits later is not part of that moment.
+- **(b) Competing Channels ready when the wait is evaluated.** Among the Channel Conditions of one AnyOf that are ready together, the first declared wins, and Execute uses the messages it consumed. This ranks Channels strictly at that moment. It does not rank a Channel against a Timer: a ready Timer is selected first.
 
-A reply window may be combined with ranked replies, for example by ranking the replies present when the locked Execute closes the window.
+When a Timer wins and Execute then re-checks the Channels, for example by their size, it selects the events committed by the time Execute reads its state. That is a later moment than the wait evaluation: a message that committed after the Timer won, and before Execute took its locks, is included. Say so when the design relies on it, as the [Decision with Deadline](#decision-with-deadline) skeleton does.
+
+To rank every event admitted before the decision, use a locked round instead: its closed window defines which events are eligible, and the arbitration Step ranks them. A reply window can be combined with ranked replies this way.
 
 | Business rule | Recipe |
 | --- | --- |
-| Rank only events already ready when the wait is evaluated, definition (b) | Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued; when that matters, Execute checks the higher-ranked Channel first, for example by its size, before taking the Timer branch. |
-| Rank every event admitted before the decision closes | Keep each round's window and candidates in AttributeMaps keyed by a round ID that is never reused, not in Channels. Each RPC names its round and appends its candidate under that round's instance locks; the arbitration Step closes that round's window under the same locks and picks the winner from its candidates. See the skeleton below. |
+| Rank competing Channels ready when the wait is evaluated, definition (b) | Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued. |
+| Rank every event admitted before the decision closes, a locked round | Keep each round's window and candidates in AttributeMaps keyed by a round ID that is never reused, not in Channels. Each RPC names its round and appends its candidate under that round's instance locks; the arbitration Step closes that round's window under the same locks and picks the winner from its candidates. See the skeleton below. |
 | The first committed response wins and later callers get "window closed", definition (a) | [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock). |
 
 ```text
@@ -793,24 +805,28 @@ Arbitrate.execute(roundId), the round's locks, short retry budget, failure route
     RoundWindow[roundId] = closed
     winner = the highest-ranked candidate (rank 1 first); admission order breaks a tie
     record the decision; mark the other candidates as not chosen
-    route on the winner; with no candidate, route to the deadline branch
+    answers = one immutable answer per candidate, keyed by the candidate key
+    goTo(AnswerSenders, {decision, answers})   // with no candidate, the decision is the deadline branch
 ArbitrationFailed.execute(roundId), the round's locks
     if RoundWindow[roundId] is not open: return deadEnd()            // closed or missing: end the branch
     in one commit: arbitrate again from RoundCandidates[roundId], or close the round
-    and record the failure; goTo(AnswerSenders, roundId)
-AnswerSenders.execute(roundId)                                       // no lock: the RPCs take the round's locks
-    answer every admitted sender through an idempotent path keyed by the candidate key
+    and record the failure; build the answers the same way
+    goTo(AnswerSenders, {decision or failure, answers})
+AnswerSenders.execute({outcome, answers})      // no lock and no round read: the answers are its input
+    send each answer through an idempotent path keyed by its candidate key
+    route on the outcome
 ```
 
 - The RPCs answer "received". The receipt confirms admission only; the arbitration Step decides.
-- Every RPC and Step that touches a round holds that round's locks. An RPC names its target round, so a late RPC for a closed round gets "closed" and never reaches a newer round.
+- Every RPC and Step that reads or changes a round's window or candidates holds that round's locks. Both the arbitration Step and the recovery Step commit the outcome and one immutable answer per candidate under those locks, then pass them to an unlocked Step that sends the answers, because the RPCs take the same locks. An RPC names its target round, so a late RPC for a closed round gets "closed" and never reaches a newer round.
 - Each round's candidates hold everything that decides the outcome: a key of round ID, event type, and event ID, a payload reference, rank, and admission order. The key also deduplicates retries and keys the answers.
 - Publish one wake-up, in the same commit, when a round's candidate set goes from empty to non-empty; later admissions only append. The wake-up carries no data and its ChannelMap key is the round ID. Never read a wake-up to decide candidates or the outcome. When the Timer wins, one wake-up may stay pending; delete it with the round's other state when a long-running Flow must reclaim state.
 - The arbitration Step and the recovery Step both recheck the round's window under its locks. When the round is closed or missing, they end the branch with a dead end: no decision and no business route. Never return an empty decision for this case.
 - Start only one arbitration wait per round. The decision derives only from the round's Attribute state, so a retried Execute reaches the same decision. Execute holds the locks through its retries and backoff, so no candidate joins meanwhile.
 - The Timer is not a hard cutoff; the successful locked close is. A candidate admitted before it is eligible, even after the Timer fired.
-- When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. Give Execute a failure route whose Step, under the same locks, arbitrates again from the stored candidates or closes the round and records the failure. The next, unlocked Step answers every admitted sender through an idempotent path, because the RPCs take the round's locks. It never relies on the wake-up. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
-- Losing candidates stay in the record. Answer their senders through an idempotent path keyed by the candidate key.
+- When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. Give Execute a failure route whose Step, under the same locks, arbitrates again from the stored candidates or closes the round and records the failure, with the answers, and moves to the same answering Step. It never relies on the wake-up. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
+- Losing candidates stay in the record, and the answering Step answers their senders too.
+- The runnable deferred-choice examples show only the first-committed-response window. This round skeleton has no runnable example.
 - Never present an RPC that decides by lock order as business priority: lock order is commit order, definition (a).
 
 ### Critical section

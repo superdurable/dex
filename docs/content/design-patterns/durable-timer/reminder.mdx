@@ -151,6 +151,13 @@ impl Step for ReminderStep {
 
 </SdkTabs>
 
+## Production notes {#production-notes}
+
+The example shows a single consumer of `OptOut` and a relative Timer. Its send call has no idempotency key. A production reminder adds two things:
+
+- Key each send by a stable occurrence ID, such as the Flow ID and the occurrence number. A retried `Execute` then sends that reminder once.
+- When the Timer wins, check `OptOut` before sending. An opt-out that committed by then stops the next reminder. A reminder already being sent may still arrive once.
+
 ## Next
 
 - [Polling with WaitFor Timer](/design-patterns/durable-timer/polling-with-wait-for-timer)

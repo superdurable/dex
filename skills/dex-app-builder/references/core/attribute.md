@@ -41,13 +41,13 @@ Attribute locks serialize Steps and RPCs that declare the same lock within one F
 - Lock the exact AttributeMap instance when parallel Steps or RPCs read-modify-write the same value. Unrelated instances stay concurrent.
 - Without a lock, a read-modify-write can lose an update. Dex commits a write without checking that the values the handler read are still current.
 - Locks are cooperative. Every writer that must be serialized declares the same lock. A writer that skips it bypasses the protection.
-- Keep locked RPCs short. An RPC takes a free lock ahead of queued Steps, so a steady stream of locked RPCs can delay them. Lock order is in the [Attribute lock reference](https://docs.superdurable.io/reference/server/runtime-data#lock-order).
+- Keep locked RPCs short, so they do not delay the Steps that wait for the lock. Lock order is in the [Attribute lock reference](https://docs.superdurable.io/reference/server/runtime-data#lock-order).
 - A lock does not load data. A read-modify-write of a dynamic instance selects that instance both as a lock and as a load.
 - An RPC that needs a held lock fails at once with the RPC lock-conflict error. It is not queued. Retry it with bounded backoff and keep it idempotent. The holder can be a Step in retry backoff, because a method keeps its locks until the method call ends.
 - A Step takes its locks when Dex hands its attempt to a Worker. See [step.md](step.md#retry-snapshots-and-locks) for queued and retrying attempts.
 - When an Execute declares a lock that an RPC also takes, do not call an external system in that Execute. Decide and commit under the lock in that Step, then make the call in the next, unlocked Step. Otherwise every RPC that needs the lock fails with a lock conflict while the call and its retries run. The same applies to a WaitFor or a Flow timeout handler that declares such a lock, and starting or calling another Flow counts as an external call.
 - A lock that only Steps share may cover an external call; those Steps run one at a time. A lock on long parallel branches therefore serializes them, and a failing Step keeps the lock through its retries. A polling Step never holds a lock that its deadline watchdog also needs, because the watchdog would wait until the loop ends.
-- When the business accepts that an already-decided action may still happen once, no lock is needed: the RPC publishes its request and answers "received", and every later wait includes that Channel, such as a stop Channel.
+- When the business accepts that an already-decided action may still happen once, no lock is needed: the RPC publishes its request, such as a stop, and answers "received". Every later decision handles a stop that has arrived before it commits a new action, including the branch where a Timer was selected first. One message reaches one consumer, so parallel consumers use a durable stop Attribute or one message per branch. The already-decided action runs idempotently with a stable occurrence ID.
 
 ### Whole-map coordination
 

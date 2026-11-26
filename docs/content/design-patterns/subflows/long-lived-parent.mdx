@@ -589,11 +589,11 @@ impl Step for LongLiveHandleSubFlow {
 
 ## Close the intake {#close-the-intake}
 
-The example stops after the running children finish. A parent that closes its intake for good also ends its idle workers and hands back its queued requests:
+The runnable examples above show the basic variant: a later Step starts each child, and a **Stop** RPC ends the workers after their children finish. They have no closable intake, shared admission lock, or returned-request reply. A parent that closes its intake for good also ends its idle workers and hands back its queued requests:
 
 - A close RPC marks the intake closed and publishes a close message. From then on, the admission RPC rejects new requests, so callers can resubmit to a new parent run.
-- Both RPCs and the worker's `Execute` declare the same `intakeClosed` lock.
-- Each worker owns the request it consumed. Under that lock it either starts the child or, after the close, records the request as returned through an idempotent path, such as a reply to its submitter. A queued request is never dropped or handed back twice.
+- Both RPCs and the worker's `Execute` in `HandleRequest` declare the same `intakeClosed` lock.
+- Each worker owns the request it consumed. Under that lock it only commits its next move: to `HandleChild`, which holds no lock and starts the child, or, after the close, to `ReturnRequest`, which holds no lock and sends the returned request back through an idempotent path keyed by the request, such as a reply to its submitter, then takes the next request. The RPCs take the lock, so no worker calls another system or Flow while holding it. A queued request is never dropped or handed back twice.
 - A close Step waits for the close message and completes gracefully.
 - Channel conditions still win over the graceful completion condition, so after the close, workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion condition and end their branch. Workers with a running child finish it first.
 - The admission RPC checks the Channel size for its limit. Every RPC receives Channel sizes, so the parent keeps no separate waiting counter.
@@ -603,7 +603,7 @@ These steps describe the closable-intake variant. Its extra Steps, such as `Clos
 
 1. `sendRequest` holds the `intakeClosed` lock. It accepts a request while the intake is open and the current queue length is below the limit. It queues the request in the `Requests` Channel.
 2. Each worker in `HandleRequest` waits for a queued request or for a graceful completion request.
-3. A worker that took a request holds the `intakeClosed` lock and starts its child. After the close, it records the request as returned instead and waits for the next one.
+3. A worker that took a request holds the `intakeClosed` lock and commits its move to `HandleChild`, which starts the child without the lock. After the close, it moves to `ReturnRequest` instead, which sends the returned request without the lock and then waits for the next one.
 4. A worker whose wait ended through the graceful completion request, with no request consumed, ends its branch.
 5. `closeIntake` holds the `intakeClosed` lock, marks the intake closed, and publishes a close message. `CloseIntake` receives it and completes the Flow gracefully.
 
