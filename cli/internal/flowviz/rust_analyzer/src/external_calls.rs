@@ -18,8 +18,8 @@ use syn::{Block, Expr, FnArg, Generics, Item, Pat, ReturnType, Signature, Type};
 use crate::expressions::{peel, source_text};
 use crate::external_call_macros::macro_argument_expressions;
 use crate::external_call_targets::{
-    Certainty, LOG_MACROS, PRINT_MACROS, PURE_MACROS, PathTarget, TypeScope, ValueOrigin,
-    WRITE_MACROS,
+    Certainty, DATA_PURE_METHOD_NAMES, LOG_MACROS, PRINT_MACROS, PURE_MACROS, PathTarget,
+    TypeScope, ValueOrigin, WRITE_MACROS,
 };
 use crate::{RustFlowGraph, RustFlowSource, impl_method, source_span};
 
@@ -60,6 +60,8 @@ enum CallVerdict {
 #[derive(Clone, Copy)]
 pub(crate) enum BindingSource<'ast> {
     Typed(&'ast Type),
+    /// The Step input parameter, whose deserialized value holds no service.
+    StepInput(&'ast Type),
     Value(&'ast Expr),
     /// The payload of a `Some(name)` or `Ok(name)` pattern matched against this value.
     Unwrapped(&'ast Expr),
@@ -172,14 +174,23 @@ impl<'source> ExternalCallFinder<'source> {
             std::iter::once(&function.signature.generics).chain(function.impl_generics),
         );
         let mut bindings = BTreeMap::new();
-        for input in &function.signature.inputs {
-            if let FnArg::Typed(parameter) = input {
-                let source = match parameter.pat.as_ref() {
-                    Pat::Ident(_) => BindingSource::Typed(&parameter.ty),
-                    _ => BindingSource::Untyped,
-                };
-                bind_names(&mut bindings, &parameter.pat, source);
-            }
+        let typed_parameters = function
+            .signature
+            .inputs
+            .iter()
+            .filter_map(|input| match input {
+                FnArg::Typed(parameter) => Some(parameter),
+                FnArg::Receiver(_) => None,
+            });
+        for (index, parameter) in typed_parameters.enumerate() {
+            // Depth 0 is the Step method, whose second parameter is the deserialized Step input.
+            let is_step_input = depth == 0 && index == 1;
+            let source = match parameter.pat.as_ref() {
+                Pat::Ident(_) if is_step_input => BindingSource::StepInput(&parameter.ty),
+                Pat::Ident(_) => BindingSource::Typed(&parameter.ty),
+                _ => BindingSource::Untyped,
+            };
+            bind_names(&mut bindings, &parameter.pat, source);
         }
         BindingCollector {
             bindings: &mut bindings,
@@ -490,6 +501,21 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         }
     }
 
+    /// Checks a method on deserialized data: same-file methods, then standard-like pure methods.
+    fn data_method_verdict(&mut self, owner: Option<&str>, method: &str) -> CallVerdict {
+        if let Some(owner) = owner
+            && !self.finder.file_methods(owner, method).is_empty()
+        {
+            return self.file_type_method_verdict(owner, method);
+        }
+        if DATA_PURE_METHOD_NAMES.contains(&method) {
+            CallVerdict::Allowed
+        } else {
+            // Another file's data type may define an I/O method with this name.
+            CallVerdict::External(Certainty::Possible)
+        }
+    }
+
     pub(crate) fn is_binding(&self, name: &str) -> bool {
         self.bindings.contains_key(name)
     }
@@ -551,6 +577,7 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
             }
             ValueOrigin::External(certainty) => CallVerdict::External(certainty),
             ValueOrigin::FileType(owner) => self.file_type_method_verdict(&owner, &method),
+            ValueOrigin::Data(owner) => self.data_method_verdict(owner.as_deref(), &method),
             ValueOrigin::Unknown => CallVerdict::External(Certainty::Possible),
         }
     }

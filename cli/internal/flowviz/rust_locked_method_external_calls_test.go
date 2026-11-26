@@ -9,6 +9,7 @@
 package flowviz
 
 import (
+	"cmp"
 	"maps"
 	"os"
 	"path/filepath"
@@ -37,6 +38,8 @@ pub trait Mailer: Send + Sync {
 
 static ENDING: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("ending"));
 static COUNTER: LazyLock<Attribute<i64>> = LazyLock::new(|| Attribute::new("counter"));
+static LAST_ORDER: LazyLock<Attribute<crate::orders::Order>> =
+    LazyLock::new(|| Attribute::new("last_order"));
 const STOP_REMINDERS: Rpc<String, String> = Rpc::new("StopReminders");
 
 pub struct ReminderFlow {
@@ -84,7 +87,7 @@ impl Step for SendReminderStep {
 
     WAIT_METHOD
 
-    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, input: EXECUTE_INPUT) -> HandlerResult<StepDecision> {
         EXECUTE_BODY
         Ok(StepDecision::go_to(&DeliverStep { mailer: self.mailer.clone() }, input))
     }
@@ -118,9 +121,11 @@ type rustLockedMethodCase struct {
 	executeLock string
 	deliverLock string
 	waitBody    string
-	executeBody string
-	deliverBody string
-	extraSource string
+	// executeInput is the declared type of SendReminderStep.execute's input; empty means String.
+	executeInput string
+	executeBody  string
+	deliverBody  string
+	extraSource  string
 }
 
 const rustEndingLock = ".lock(ENDING.lock())"
@@ -149,6 +154,15 @@ const rustPureExecuteBody = `let mut names = BTreeMap::new();
         assert!(total >= names.len(), "total {total}");
         let labels: Vec<String> = names.keys().cloned().chain([self.step_type().to_owned()]).collect();
         let note = describe_note(labels.join(","));`
+
+const rustOrderDataBody = `let number = input.number.as_str().to_owned();
+        let copy = input.clone();
+        let count = input.items.len();
+        for item in &input.items {
+            let name = item.name.trim().to_string();
+        }
+        let saved = LAST_ORDER.get(context)?.unwrap_or_default();
+        let saved_number = saved.number.as_str();`
 
 const rustPureHelperSource = `fn format_reminder(input: &str) -> String {
     let mut text = input.trim().to_owned();
@@ -193,6 +207,29 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				extraSource: "fn require_client(client: Option<&Arc<Client>>) -> HandlerResult<&Client> {\n    client.map(Arc::as_ref).ok_or_else(|| HandlerError::new(\"Reminder\", \"missing client\"))\n}",
 			},
 			messages:      []string{"and calls client.describe_flow;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"Step input and Attribute values of another file's type with pure methods": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
+				executeBody: rustOrderDataBody,
+			},
+			executeMarker: rustMarkerClean,
+		},
+		"injected service called with Step input data": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
+				executeBody: rustOrderDataBody + "\n        let sent = self.mailer.send(input.number.as_str());",
+			},
+			messages:      []string{"and calls self.mailer.send;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"Step input data calling a method that is not standard-like": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
+				executeBody: "let receipt = input.submit();",
+			},
+			messages:      []string{"and calls input.submit;"},
 			executeMarker: rustMarkerCalls,
 		},
 		"injected service taken from a destructured tuple": {
@@ -352,6 +389,7 @@ func analyzeRustLockedMethodSource(t *testing.T, source rustLockedMethodCase) *G
 		"EXECUTE_BODY", source.executeBody,
 		"DELIVER_BODY", source.deliverBody,
 		"EXTRA_SOURCE", source.extraSource,
+		"EXECUTE_INPUT", cmp.Or(source.executeInput, "String"),
 	)
 	sourcePath := filepath.Join(t.TempDir(), "workflow.rs")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(rustLockedMethodSource)), 0o644))

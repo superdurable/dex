@@ -138,8 +138,124 @@ const DEX_SDK_EXTERNAL_ITEMS: &[&str] = &["BlobCache", "Client", "FileCredential
 /// serde_json functions that read or write through an I/O reader or writer.
 const SERDE_JSON_EXTERNAL_FUNCTIONS: &[&str] = &["from_reader", "to_writer", "to_writer_pretty"];
 
+/// Dex SDK types that store application data; their first type argument is the value type.
+const DEX_DATA_RESOURCE_TYPES: &[&str] = &[
+    "Attribute",
+    "AttributeMap",
+    "Channel",
+    "ChannelMap",
+    "Stream",
+];
+
 /// Methods a derived standard trait adds, by trait; derived impls only copy or build fields.
 const DERIVED_TRAIT_METHODS: &[(&str, &str)] = &[("Clone", "clone"), ("Default", "default")];
+
+/// Standard-like pure methods allowed on deserialized data: String, str, numbers, collections, Option, Result, and common traits.
+pub(crate) const DATA_PURE_METHOD_NAMES: &[&str] = &[
+    "abs",
+    "all",
+    "and_then",
+    "any",
+    "as_bytes",
+    "as_deref",
+    "as_mut",
+    "as_ref",
+    "as_slice",
+    "as_str",
+    "borrow",
+    "bytes",
+    "chars",
+    "checked_add",
+    "checked_div",
+    "checked_mul",
+    "checked_sub",
+    "clamp",
+    "clear",
+    "clone",
+    "cloned",
+    "cmp",
+    "collect",
+    "contains",
+    "contains_key",
+    "copied",
+    "count",
+    "default",
+    "ends_with",
+    "entry",
+    "enumerate",
+    "eq",
+    "expect",
+    "extend",
+    "filter",
+    "filter_map",
+    "find",
+    "first",
+    "flat_map",
+    "fmt",
+    "fold",
+    "get",
+    "get_mut",
+    "hash",
+    "insert",
+    "into",
+    "into_iter",
+    "is_empty",
+    "is_err",
+    "is_none",
+    "is_ok",
+    "is_some",
+    "iter",
+    "iter_mut",
+    "join",
+    "keys",
+    "last",
+    "len",
+    "lines",
+    "map",
+    "map_err",
+    "map_or",
+    "max",
+    "min",
+    "ne",
+    "ok",
+    "ok_or",
+    "ok_or_else",
+    "or_default",
+    "or_insert",
+    "parse",
+    "partial_cmp",
+    "pop",
+    "pow",
+    "push",
+    "push_str",
+    "remove",
+    "replace",
+    "retain",
+    "rev",
+    "saturating_add",
+    "saturating_sub",
+    "sort",
+    "split",
+    "split_once",
+    "starts_with",
+    "strip_prefix",
+    "strip_suffix",
+    "sum",
+    "take",
+    "to_lowercase",
+    "to_owned",
+    "to_string",
+    "to_uppercase",
+    "to_vec",
+    "trim",
+    "trim_end",
+    "trim_start",
+    "unwrap",
+    "unwrap_or",
+    "unwrap_or_default",
+    "unwrap_or_else",
+    "values",
+];
 
 /// Macros that do no I/O; their arguments are still checked.
 pub(crate) const PURE_MACROS: &[&str] = &[
@@ -225,6 +341,8 @@ pub(crate) enum ValueOrigin {
     Collection(Box<ValueOrigin>),
     /// An Option or Result; holds its payload origin.
     Optional(Box<ValueOrigin>),
+    /// Deserialized data, such as the Step input; it cannot hold a service. Holds its same-file type.
+    Data(Option<String>),
     Unknown,
 }
 
@@ -236,7 +354,19 @@ impl ValueOrigin {
                 Self::External(certainty)
             }
             (left, right) if left == right => left,
+            (Self::Data(_), Self::Data(_)) => Self::Data(None),
             _ => Self::Unknown,
+        }
+    }
+
+    /// Returns the origin of a deserialized value of this declared type, which holds no service.
+    pub(crate) fn into_data(self) -> Self {
+        match self {
+            Self::FileType(owner) => Self::Data(Some(owner)),
+            Self::External(_) | Self::Unknown => Self::Data(None),
+            Self::Collection(element) => Self::Collection(Box::new(element.into_data())),
+            Self::Optional(payload) => Self::Optional(Box::new(payload.into_data())),
+            data_or_pure => data_or_pure,
         }
     }
 
@@ -400,6 +530,30 @@ impl RustFlowSource<'_> {
             .filter(|root| !matches!(*root, "std" | "core" | "alloc"))
             .collect();
         !roots.is_empty() && roots.iter().all(|root| *root == "dex_sdk")
+    }
+
+    /// Returns the value type of a same-file Attribute, Channel, or Stream static, such as T in `LazyLock<Attribute<T>>`.
+    pub(crate) fn resource_value_type(&self, name: &str) -> Option<&Type> {
+        let (declared, _) = self.constants.get(name)?;
+        let mut current: &Type = declared;
+        for _ in 0..8 {
+            let Type::Path(path) = current else {
+                return None;
+            };
+            let segment = path.path.segments.last()?;
+            let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                return None;
+            };
+            let first = arguments.args.iter().find_map(|argument| match argument {
+                GenericArgument::Type(argument) => Some(argument),
+                _ => None,
+            })?;
+            if DEX_DATA_RESOURCE_TYPES.contains(&segment.ident.to_string().as_str()) {
+                return Some(first);
+            }
+            current = first;
+        }
+        None
     }
 
     /// Reports whether a same-file struct or enum derives the standard trait that adds method.

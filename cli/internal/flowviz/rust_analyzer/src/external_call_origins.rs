@@ -105,6 +105,11 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
             BindingSource::Typed(declared) => {
                 self.finder.source.type_origin(declared, &self.scope, 0)
             }
+            BindingSource::StepInput(declared) => self
+                .finder
+                .source
+                .type_origin(declared, &self.scope, 0)
+                .into_data(),
             BindingSource::Value(value) => self.expression_origin(value, depth + 1),
             BindingSource::Unwrapped(value) => self.expression_origin(value, depth + 1).unwrapped(),
             BindingSource::Element(value) => {
@@ -112,6 +117,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
             }
             BindingSource::Destructured(value) => match self.expression_origin(value, depth + 1) {
                 external @ ValueOrigin::External(_) => external,
+                ValueOrigin::Data(_) => ValueOrigin::Data(None),
                 _ => ValueOrigin::Unknown,
             },
             BindingSource::Untyped => ValueOrigin::Unknown,
@@ -229,17 +235,28 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
     }
 
     fn field_origin(&self, field: &syn::ExprField, depth: usize) -> ValueOrigin {
-        let owner = match self.expression_origin(&field.base, depth + 1) {
-            ValueOrigin::FileType(owner) => owner,
+        let (owner, is_data) = match self.expression_origin(&field.base, depth + 1) {
+            ValueOrigin::FileType(owner) => (owner, false),
+            ValueOrigin::Data(Some(owner)) => (owner, true),
+            ValueOrigin::Data(None) => return ValueOrigin::Data(None),
             external @ ValueOrigin::External(_) => return external,
             ValueOrigin::DexSdk => return ValueOrigin::DexSdk,
             ValueOrigin::PureStandardLibrary => return ValueOrigin::PureStandardLibrary,
             _ => return ValueOrigin::Unknown,
         };
-        let Some(Item::Struct(declaration)) = self.finder.source.declarations.get(&owner) else {
+        let declared_origin = self.declared_field_origin(&owner, &field.member);
+        if is_data {
+            declared_origin.into_data()
+        } else {
+            declared_origin
+        }
+    }
+
+    fn declared_field_origin(&self, owner: &str, member: &syn::Member) -> ValueOrigin {
+        let Some(Item::Struct(declaration)) = self.finder.source.declarations.get(owner) else {
             return ValueOrigin::Unknown;
         };
-        let declared = match &field.member {
+        let declared = match member {
             syn::Member::Named(name) => declaration
                 .fields
                 .iter()
@@ -249,7 +266,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
         let Some(declared) = declared else {
             return ValueOrigin::Unknown;
         };
-        let scope = TypeScope::new(&owner, [&declaration.generics]);
+        let scope = TypeScope::new(owner, [&declaration.generics]);
         self.finder.source.type_origin(&declared.ty, &scope, 0)
     }
 
@@ -319,12 +336,55 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
             .unwrap_or(ValueOrigin::Unknown)
     }
 
+    /// Returns the origin of a value read from a same-file Attribute, Channel, or Stream, if call reads one.
+    fn resource_read_origin(&self, call: &syn::ExprMethodCall) -> Option<ValueOrigin> {
+        let Expr::Path(receiver) = peel(&call.receiver) else {
+            return None;
+        };
+        let name = receiver.path.get_ident()?.to_string();
+        let source = self.finder.source;
+        if self.is_binding(&name) || !source.resources.contains_key(&name) {
+            return None;
+        }
+        let value = source
+            .resource_value_type(&name)
+            .map_or(ValueOrigin::Data(None), |declared| {
+                source.type_origin(declared, &self.scope, 0).into_data()
+            });
+        let wrapped = |origin| ValueOrigin::Optional(Box::new(origin));
+        match call.method.to_string().as_str() {
+            "get" => Some(wrapped(wrapped(value))),
+            "get_required" => Some(wrapped(value)),
+            "pending_messages"
+            | "condition_results"
+            | "branch_results"
+            | "remaining_branch_results" => Some(wrapped(ValueOrigin::collection(value))),
+            "find_pending_message" => Some(wrapped(wrapped(ValueOrigin::Data(None)))),
+            _ => None,
+        }
+    }
+
     fn method_result_origin(&self, call: &syn::ExprMethodCall, depth: usize) -> ValueOrigin {
+        if let Some(read) = self.resource_read_origin(call) {
+            return read;
+        }
         let receiver = self.expression_origin(&call.receiver, depth + 1);
         let method = call.method.to_string();
         let method = method.as_str();
         match receiver {
             ValueOrigin::FileType(owner) => self.associated_result_origin(&owner, method),
+            ValueOrigin::Data(owner) => {
+                if let Some(owner) = &owner
+                    && !self.finder.file_methods(owner, method).is_empty()
+                {
+                    return self.associated_result_origin(owner, method);
+                }
+                if matches!(method, "clone" | "to_owned" | "as_ref" | "borrow") {
+                    ValueOrigin::Data(owner)
+                } else {
+                    ValueOrigin::Data(None)
+                }
+            }
             ValueOrigin::Collection(element) => {
                 if COLLECTION_ELEMENT_METHODS.contains(&method) {
                     ValueOrigin::Optional(element)
@@ -332,6 +392,8 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
                     ValueOrigin::Collection(element)
                 } else if COLLECTION_PURE_RESULT_METHODS.contains(&method) {
                     ValueOrigin::PureStandardLibrary
+                } else if matches!(*element, ValueOrigin::Data(_)) {
+                    ValueOrigin::Data(None)
                 } else {
                     ValueOrigin::Unknown
                 }
@@ -345,6 +407,8 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
                     ValueOrigin::PureStandardLibrary
                 } else if matches!(method, "map" | "and_then") {
                     ValueOrigin::Optional(Box::new(ValueOrigin::Unknown))
+                } else if matches!(*payload, ValueOrigin::Data(_)) {
+                    ValueOrigin::Data(None)
                 } else {
                     ValueOrigin::Unknown
                 }
@@ -382,6 +446,7 @@ fn element_origin(container: ValueOrigin) -> ValueOrigin {
         origin @ (ValueOrigin::PureStandardLibrary
         | ValueOrigin::DexSdk
         | ValueOrigin::External(_)) => origin,
+        ValueOrigin::Data(_) => ValueOrigin::Data(None),
         ValueOrigin::FileType(_) | ValueOrigin::Unknown => ValueOrigin::Unknown,
     }
 }
