@@ -103,6 +103,19 @@ Dex 把 hard-delete Attribute 的每个值只存在对象存储里，Flow 历史
 
 见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
 
+## 两边都有的功能 {#shared-features}
+
+下面这些功能两边都有，但做法不同。[操作和恢复 Flow](/intro/compared-to-temporal/experience) 逐项对比。
+
+| 功能 | Temporal | Dex |
+| --- | --- | --- |
+| [流式输出](/intro/compared-to-temporal/experience#stream) | Workflow Streams 通过 Signal 发布，Signal 记录在 Event History 里。持久，但会增加 history。 | Stream 消息保存在 Dex Server 的内存里，不进入运行的 history。尽力而为。 |
+| [回到较早的时间点](/intro/compared-to-temporal/experience#time-travel) | Reset 终止当前运行，从某个 Workflow Task 事件开始一次新的运行。 | Time Travel 让同一次运行回到某个 Step，多一个新的 run attempt。 |
+| [子流程](/intro/compared-to-temporal/experience#subflow) | 父 Workflow 使用 Continue-As-New 时，Child Workflow 不会带过去。 | 父 Flow 的 SubFlow 等待一直留在同一次运行里。 |
+| [同步调用](/intro/compared-to-temporal/experience#rpc) | Update，每个 Workflow Execution 最多 10 个进行中、总共 2,000 个。 | RPC，没有每个 Flow 的进行中上限，也没有单次运行的总数上限。 |
+| [消息](/intro/compared-to-temporal/experience#channel) | Signal，每个 Workflow Execution 最多 10,000 个。 | Channel 消息，单次运行没有总数上限。 |
+| [长时间运行的工作](/intro/compared-to-temporal/experience#long-running-step) | 每次 Heartbeat 都由 Activity 代码发送。 | 一条 Stream 消息也算一次 heartbeat。 |
+
 ## 下一步 {#next}
 
 - [操作和恢复 Flow](/intro/compared-to-temporal/experience)：Time Travel 与 Reset、SubFlow 与 Child Workflow、RPC、Channel 和 Stream。

@@ -103,6 +103,19 @@ Dex stores every value of a hard-delete Attribute only in object storage, and Fl
 
 See [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes).
 
+## Features both engines have {#shared-features}
+
+Both engines have these features, and they work differently. [Operating and Recovering Flows](/intro/compared-to-temporal/experience) compares each one.
+
+| Feature | Temporal | Dex |
+| --- | --- | --- |
+| [Streaming](/intro/compared-to-temporal/experience#stream) | Workflow Streams publishes through Signals, which are recorded in the Event History. Durable, and it adds to the history. | Stream messages stay in Dex Server memory, outside the run's history. Best effort. |
+| [Going back to an earlier point](/intro/compared-to-temporal/experience#time-travel) | Reset terminates the current run and starts a new run at a Workflow Task event. | Time Travel moves the same run back to a Step, with a new run attempt. |
+| [Child processes](/intro/compared-to-temporal/experience#subflow) | A Child Workflow does not carry over when its parent uses Continue-As-New. | A parent Flow keeps its SubFlow waits in one run. |
+| [Synchronous calls](/intro/compared-to-temporal/experience#rpc) | An Update, with 10 in-flight and 2,000 total per Workflow Execution. | An RPC, with no per-Flow in-flight limit and no per-run total. |
+| [Messages](/intro/compared-to-temporal/experience#channel) | A Signal, with 10,000 per Workflow Execution. | A Channel message, with no total per run. |
+| [Long-running work](/intro/compared-to-temporal/experience#long-running-step) | The Activity code sends each Heartbeat. | A Stream message counts as a heartbeat. |
+
 ## Next
 
 - [Operating and Recovering Flows](/intro/compared-to-temporal/experience): Time Travel and Reset, SubFlow and Child Workflow, RPC, Channel, and Stream.
