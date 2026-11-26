@@ -9,7 +9,7 @@ Run the design review before you implement a new Dex application, library, or de
 3. **Primitive check.** Before building a workaround, check whether a Dex primitive covers the need: canceling Steps, chunked or hash-partitioned AttributeMaps, Attribute locks, durable Timers, Channels with atomic complete-if-empty, and SubFlows.
 4. **Persisted layout.** Settle Flow, Step, RPC, Attribute, AttributeMap, Channel, and Stream names, instance keys, chunk size, partition count, hash algorithm, value schemas, and RPC types before the first release. Changing them later means reading both forms while old Flows or values exist. Define the partition count and chunk size as named constants with a code comment that they are persisted layout; changing the partition count moves keys to other partitions.
 5. **Existing features.** List the features of the nearest example or the version being replaced. Drop one only with an explicit, recorded decision.
-6. **Owner review.** Get the owner's review of the premises and decisions before implementation starts, and record the outcome.
+6. **Owner review.** Get the owner's review of the premises and decisions before implementation starts, and record the outcome. When the owner cannot be asked during the task, record the premises and decisions and proceed; never stop early for this review.
 
 ## Model before implementation
 
@@ -39,7 +39,11 @@ Modeling:
 - [ ] No external polling in WaitFor; each external wait uses one of the two Polling shapes and is bounded.
 - [ ] No other Flow is started or mutated from WaitFor.
 - [ ] The Flow preferably owns the decisions and status of its process; the caller supplies facts, starts Flows, calls RPCs, and reads. See [client.md](client.md#the-flow-owns-decisions-and-status).
-- [ ] Business deadlines are durable Timers, never clock comparisons in a Step or an RPC. Idempotency keys and business IDs never derive from the current time. A decision with a deadline races its decision Channels and Timer in one waiting Step, and Execute checks which Condition fired; a deadline for the whole Flow uses the Flow timeout.
+- [ ] Business deadlines are durable Timers, never clock comparisons in a Step or an RPC. Idempotency keys and business IDs never derive from the current time. A decision with a deadline races its decision Channels and Timer in one waiting Step.
+- [ ] Execute of a deadline wait checks which Condition fired; it never treats "no Channel result" as the deadline.
+- [ ] A deadline for the whole Flow is the Flow timeout, never a competing Timer Step.
+- [ ] An inactivity window loops back for a fresh Timer on each event; it never computes the remaining window from a stored timestamp and the clock.
+- [ ] Every "one event wins ties" requirement is decided by one waiting Step; no RPC decides between ranked events under a lock.
 - [ ] At any moment, at most one waiting Step consumes each Channel. An event every waiter must receive uses one ChannelMap key per waiter.
 - [ ] Compensation after an exhausted Step starts with that Step, because it may have taken effect.
 - [ ] Frequent concurrent appenders publish through an RPC to a Channel consumed by one writing Step; a few synchronous writers share the same Attribute lock.
@@ -61,6 +65,9 @@ Execution:
 - [ ] Long-running Execute heartbeats or streams within its heartbeat timeout and honors cancellation.
 - [ ] SYNC is used where a replay would be costly or unsafe, and wherever recovery relies on NOT_STARTED.
 - [ ] Retry budgets are bounded; a method timeout bounds each attempt.
+- [ ] Every external call has its own timeout, shorter than the Step's method timeout.
+- [ ] A Step whose call can stay silent longer than its heartbeat timeout sets a heartbeat timeout of at least that call's timeout, or heartbeats from a loop of short calls, and sets an explicit retry budget.
+- [ ] No Execute lock is held by a Step that calls an external system, polls, sleeps, or races sibling Steps; the locked commit is a short Step of its own.
 - [ ] No correctness state lives only in Worker memory.
 
 Boundary:

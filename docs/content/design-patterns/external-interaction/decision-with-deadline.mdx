@@ -34,6 +34,7 @@ Only one Condition wins, so only one branch ever starts.
 - `AnyOf` consumes a message only from the Condition that wins. A response that lost stays pending in its Channel.
 - A response that is already queued when the Step starts waiting wins at once. Otherwise the event that commits first wins.
 - Channel priority follows declaration order. Declare the Channels in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
+- When the business says one event wins over another that arrives at the same moment, such as a withdrawal over a decision, the RPCs only publish and this waiting Step decides. `Execute` checks the winner's Channel for a pending message first, even when another Condition fired. Do not let a locked RPC decide between ranked events: lock order is commit order, not business priority.
 - In `Execute`, check which Condition fired: `HasTimerFired` for the Timer, and the Channel results for the responses. A Channel that lost returns no results. Do not treat a missing response as expiry.
 - The Timer starts when the Step starts waiting. It survives Worker and Server restarts. While the Step waits, it holds no Worker.
 - Every response gets a clear answer. The first one is recorded and decides the offer. Every later one gets "window closed". After the Flow closes, Dex rejects the RPC before its handler runs, so the HTTP route reads the closed Flow and answers "window closed" too. A Flow that never existed gets `404`.

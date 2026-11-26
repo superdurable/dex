@@ -45,7 +45,7 @@ Attribute locks serialize Steps and RPCs that declare the same lock within one F
 - A lock does not load data. A read-modify-write of a dynamic instance selects that instance both as a lock and as a load.
 - An RPC that needs a held lock fails at once with the RPC lock-conflict error. It is not queued. Retry it with bounded backoff and keep it idempotent. The holder can be a Step in retry backoff, because a method keeps its locks until the method call ends.
 - A Step takes its locks when Dex hands its attempt to a Worker. See [step.md](step.md#retry-snapshots-and-locks) for queued and retrying attempts.
-- Keep lock scope narrow. Do not hold a lock across a long wait; commit the locked change in a short following Step.
+- Keep lock scope narrow. Do not hold a lock across a long wait or an external call; commit the locked change in a short following Step. A lock on racing sibling Steps makes them run one at a time.
 
 ### Whole-map coordination
 

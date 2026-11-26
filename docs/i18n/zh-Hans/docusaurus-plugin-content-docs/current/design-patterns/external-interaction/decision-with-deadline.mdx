@@ -34,6 +34,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 - `AnyOf` 只消费胜出 Condition 的消息。落败的回应仍留在它的 Channel 中等待。
 - Step 开始等待时已经在排队的回应会立刻胜出。否则先提交的事件胜出。
 - Channel 的优先级按声明顺序决定。按业务优先级声明它们。在示例中，如果接受和拒绝都已在等待，选中的是接受。
+- 如果业务要求同时到达的两个事件中某一个胜出，例如撤回优先于决定，RPC 只负责发布，由这个等待 Step 决定。`Execute` 先检查胜出事件的 Channel 有没有等待中的消息，即使触发的是另一个 Condition。不要让持有锁的 RPC 在有优先级的事件之间做决定：锁的顺序是提交顺序，不是业务优先级。
 - 在 `Execute` 中，判断是哪个 Condition 触发了：用 `HasTimerFired` 判断 Timer，用 Channel 结果判断客户回应。落败的 Channel 没有结果。不要把“没有回应”当作已过期。
 - Timer 从 Step 开始等待时计时。Worker 和 Server 重启后它仍然有效。Step 等待期间不占用 Worker。
 - 每个回应都会得到明确的答复。第一个回应被记录并决定这份报价，之后的回应都得到“窗口已关闭”。Flow 关闭后，Dex 在 handler 运行之前就拒绝这个 RPC，所以 HTTP 路由会读取已关闭的 Flow，同样返回“窗口已关闭”。从未存在的 Flow 返回 `404`。
