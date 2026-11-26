@@ -401,9 +401,13 @@ that snapshot, also in the branch where a Timer was selected first. A stop
 committed after the snapshot may let the already decided action happen once.
 Every later interruptible wait still includes the stop Condition.
 
-One message reaches one consumer, so parallel consumers use a durable stop
-Attribute or one message per branch. The grace then applies per decided action
-or branch. When the business allows only one such action overall, decide the
+One message reaches one consumer, so parallel consumers each get their own
+stop message, such as one per branch on each branch's Channel. That message
+wakes a waiting branch. A durable stop Attribute can record the stop as a
+fact, but it wakes no waiting branch, because `WaitFor` has no Attribute
+Condition. A branch may read that Attribute when another event resumes it,
+when the business accepts that its wait is not interrupted at once. The grace
+then applies per decided action or branch. When the business allows only one such action overall, decide the
 actions one at a time. The decided action carries a stable occurrence ID that
 the receiver recognizes and deduplicates.
 

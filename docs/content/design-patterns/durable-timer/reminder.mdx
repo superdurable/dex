@@ -153,9 +153,9 @@ impl Step for ReminderStep {
 
 ## Production notes {#production-notes}
 
-The example shows a single consumer of `OptOut` and a relative Timer. Its send call has no idempotency key. A production reminder adds two things:
+The example shows a single consumer of `OptOut` and a relative Timer. Its send call has no idempotency key. Production reminders need to handle retries and opt-out:
 
-- Key each send by a stable occurrence ID, such as the Flow ID and the occurrence number. The receiver recognizes and deduplicates that key, so a retried `Execute` delivers that reminder once.
+- Key each send by a stable occurrence ID, such as the Flow ID and the occurrence number. When `Execute` is retried, the receiver uses the key to avoid duplicate delivery.
 - When the Timer wins, check `OptOut` in the `Execute`'s first state snapshot. Retries reuse that snapshot. An opt-out in it stops this reminder. An opt-out committed after the snapshot may let this reminder go out once, and the next wait still includes `OptOut`, so it stops the following one.
 - When the opt-out must stop a reminder up to the decision commit, the opt-out RPC and the deciding Step share a lock, and an unlocked Step sends after the commit.
 
