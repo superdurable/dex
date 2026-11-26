@@ -72,10 +72,12 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 有些流程会给事件排优先级，例如撤回优先于决定，或者同时到达时确认优先于拒绝。保留这样的规则，并说明设计采用哪一种“同时”的含义。两种含义都有效：
 
-- **按服务器提交顺序。** 回应窗口或 lock 一次提交接纳一条回应。最先提交的回应胜出，所以不会出现平局。这就是上面的回应窗口。
+- **按服务器提交顺序。** 回应窗口或 lock 一次提交接纳一条回应。最先提交的回应胜出，所以不会出现平局。这就是上面的回应窗口。回应 RPC 发布回应，只关闭窗口。等待的 Step 的 `Execute` 记录结果。
 - **按检查等待条件时一起就绪的竞争 Channel 排序。** 同一个 `AnyOf` 里一起就绪的 Channel Condition 中，先声明的胜出，`Execute` 使用它消费的消息。这只在 Channel 之间排序。同一个等待里的 Timer 如果也已就绪，会先被选中，消息仍留在 Channel 里。
 
 Timer 胜出后，`Execute` 再检查 Channel 时，看到的是 `Execute` 首次状态快照中已经提交的回应。重试沿用这个快照。这比检查等待条件的时点晚。示例里，`Execute` 先拿到共享的窗口锁，Dex 再建立快照。示例的 `RouteResponseBeforeExpiry` 分支就依赖这一点：它接收在 Timer 胜出之后才提交的回应。
+
+决定一旦被消费，之后的事件不再改变任何东西。不要在决定之后再加一段时钟或 Timer 宽限窗口来接住之后的事件。
 
 ### 在加锁轮次中给所有事件排序 {#locked-round}
 

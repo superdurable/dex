@@ -34,6 +34,11 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
   需要硬性截止时间时，使用
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)（英文）
   或 [截止时间 watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#rules)。
+- <a id="deadline-watchdog"></a>截止时间短于 Flow 时，在第一轮就启动 watchdog：
+  `GoToMany` 同时启动轮询 Step 和 watchdog Step。watchdog 等待截止时间的 Timer。
+  它在记录结果的 Step 所用的锁下，只在工作仍未完成时把工作标记为超期。结果已经记录时，它直接跳过。
+  后续轮次来自 `GoTo`，不是来自这次分叉，所以取消兄弟 Step 不会影响 watchdog。要提前结束它，按 Step 类型取消。
+  截止时间不由存下的时间戳和时钟推算，因为正在重试的一轮会把它推迟。
 - <a id="step-input"></a>Step 输入保持小而且大小固定，例如 job ID 和轮次编号。
   累积的状态，例如收集到的结果，放在 Attribute 里，绝不放进不断变大的 Step 输入。
 - <a id="external-calls"></a>在 `Execute` 中检查作业状态。不要在 `WaitFor` 中轮询外部系统。在这个模式中，`WaitFor` 只声明 Timer。

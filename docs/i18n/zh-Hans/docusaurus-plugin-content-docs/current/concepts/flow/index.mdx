@@ -188,12 +188,13 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 父 Flow 持久地接收每个子 Flow 的结果：
 
 - 子 Flow 在一个 Step 里把结果提交到 Attribute，下一个 Step 再通过 RPC 向父 Flow 报告，这个 RPC 发布到一个 Channel。报告 Step 不能在结果提交之前运行，所以这两个 Step 保持默认的 SYNC durability；见 [Durability](/reference/python/step-options#durability)（英文）。报告带一个稳定的 request ID。也可以让父 Flow 的一个轮询 Step 等待子 Flow 的终态。
-- 父 Flow 为每个子 Flow 保留一条记录，以子 Flow ID 为键，结果和终态是分开的字段。报告或读取补上缺的字段，重复的报告不改变任何东西。每次业务尝试都用自己的子 Flow ID。
-- 同一个逻辑请求的每次启动都推导出相同的 Flow ID 和 request ID。另一个逻辑请求仍可能用同一个 Flow ID 启动 run，即使来自同一个入口或同一个父 run。这时启动会报告 Flow 已经启动：读取那个 run，只有保存的业务身份匹配时才跟踪它。不匹配时，记录一条被拒绝的接纳；父 Flow 会列出它，但从不等待、计数或停止它。只有当业务身份到子 Flow ID 的映射保证只有同一逻辑请求的重放会再次启动它时，才可以跳过这个核验。
+- 父 Flow 为每个子 Flow 保留一条记录，以子 Flow ID 为键，结果和终态是分开的字段。报告或读取补上缺的字段，重复的报告不改变任何东西。
+- 业务编号就是子 Flow ID。按这个编号重试时，用允许已关闭 run 的 ID 复用策略，以同一个 Flow ID 启动新的 run。父 Flow 跟踪自己认领的 run ID。Describe 和 Client 的 Attribute 读取只看最新的 run，所以父 Flow 只接受被认领的 run 发来的报告和读取结果。更新的 run 是另一次尝试，父 Flow 按业务策略处理。
+- 同一个逻辑请求的每次启动都推导出相同的 Flow ID 和 request ID。另一个逻辑请求仍可能用同一个 Flow ID 启动 run，即使来自同一个入口或同一个父 run。这时启动会报告 Flow 已经启动：读取那个 run，只有保存的业务身份匹配时才跟踪它。不匹配时，记录一条被拒绝的接纳；父 Flow 会列出它，但从不等待、计数或停止它。被拒绝是一个独立的状态，不是已结束或已失败。只有当业务身份到子 Flow ID 的映射保证只有同一逻辑请求的重放会再次启动它时，才可以跳过这个核验。
 - 每个子 Flow 有自己的 Flow timeout。它是启动选项，所以每个启动者都要设置它。需要报告超时的子 Flow 用会报告的 timeout handler，而不是 Timer Step。父 Flow 关闭时不会停止它的子 Flow。
 - client 停止子 Flow 后，子 Flow 不会再启动新的 handler，所以它可能永远不会报告。正在运行的 handler 可以忽略取消，所以已经发出的报告仍可能到达。
 - 被停止的子 Flow 怎样结束与父 Flow 无关时，父 Flow 停止子 Flow 后直接往下走。只需要达到所需数量的父 Flow，也这样停止剩下的子 Flow。
-- 父 Flow 的结果或后续动作取决于被停止的子 Flow 怎样结束时，例如要统计它的结果、撤销它的副作用或展示它的结局，父 Flow 根据子 Flow 存储的状态对它对账。停止成功、停止被拒绝，或用于检查未报告子 Flow 的定时器触发后，父 Flow 先 describe 子 Flow。已关闭的子 Flow 记录终态和已存储的结果。仍在运行的子 Flow 稍后再读。确实不存在的子 Flow 按业务策略记录，比如 "unavailable"。其他错误直接返回，让 Step 重试。停止之后仍然到达的报告补进同一条记录。在达到所需数量之后、或在父 Flow 停止其余子 Flow 期间结束的子 Flow，按业务规则决定是否计入父 Flow 的结果。
+- 父 Flow 的结果或后续动作取决于被停止的子 Flow 怎样结束时，例如要统计它的结果、撤销它的副作用或展示它的结局，父 Flow 根据子 Flow 存储的状态对它对账。停止成功、停止被拒绝，或用于检查未报告子 Flow 的定时器触发后，父 Flow 先 describe 子 Flow。已关闭的子 Flow 记录终态和已存储的结果。仍在运行的子 Flow 稍后再读。确实不存在的子 Flow，或最新 run 不是被认领 run 的子 Flow，按业务策略记录，比如 "unavailable"。其他错误直接返回，让 Step 重试。停止之后仍然到达的报告补进同一条记录。在达到所需数量之后、或在父 Flow 停止其余子 Flow 期间结束的子 Flow，按业务规则决定是否计入父 Flow 的结果。
 
 [有业务标识的子 Flow](/design-patterns/subflows/child-flows-with-business-identity) 模式用可运行的代码展示这些规则的一种变体。它的报告 RPC 在锁内直接写父 Flow 的记录，而不是发布到 Channel。启动时发现单号已经被启动，它记录为 `rejected`，而不是读取那个 run 再比对身份。
 

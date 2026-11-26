@@ -27,7 +27,7 @@ The polling Step repeats these steps:
 
 "Not ready yet" is a normal branch of the loop. Prefer it to returning an error and letting retries loop. An error mixes "not ready" with real failures and spends the retry budget.
 
-A plain sleep is enough. Honor cancellation through the language SDK's mechanism. When the external call accepts a cancellation argument, pass it. Give a blocking call that cannot observe cancellation its own timeout, because the Worker slot is released only when the handler returns. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](/reference/server/runtime-data#cancel-honour).
+A plain sleep is enough. Honor cancellation through the language SDK's mechanism. When the external call accepts a cancellation argument, pass it. Prefer giving a blocking call that cannot observe cancellation its own timeout. A stuck call keeps its Worker slot until it returns. The heartbeat or method timeout still ends the attempt, and retries continue. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](/reference/server/runtime-data#cancel-honour).
 
 ## Rules {#rules}
 

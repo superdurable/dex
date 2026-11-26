@@ -223,15 +223,20 @@ The parent receives each child's result durably:
   terminal state.
 - The parent keeps one record per child, keyed by its Flow ID, with the
   outcome and the terminal status as separate fields. A report or a read
-  fills in what is missing, and a repeat changes nothing. Give each business
-  attempt its own child Flow ID.
+  fills in what is missing, and a repeat changes nothing.
+- The business number is the child Flow ID. A retry by that number starts a
+  new run of the same Flow ID, with an ID reuse policy that allows a closed
+  run. The parent tracks the run ID that it claimed. Describe and the Client
+  Attribute read see only the latest run, so the parent accepts reports and
+  reads only from the claimed run. A newer run is another attempt, which the
+  parent handles by business policy.
 - Every start of the same logical request derives the same Flow ID and
   request ID. Another logical request can still start a run with the same
   Flow ID, even from the same entry point or parent run. Then the start
   reports that the Flow already started: read that run and track it only when
   its stored business identity matches. When it does not match, record a
   rejected admission that the parent lists but never waits for, counts, or
-  stops. The check can be skipped only when the mapping from business
+  stops. Rejected is its own state, never ended or failed. The check can be skipped only when the mapping from business
   identity to child Flow ID guarantees that only a replay of the same logical
   request starts it again.
 - Each child has its own Flow timeout. Each starter sets it, because it is a
@@ -249,7 +254,8 @@ The parent receives each child's result durably:
   After a stop, a refused stop, or a timer for unreported children, the
   parent describes the child first. It records a closed child's terminal
   status and stored outcome. It reads a running child again later. A child
-  that does not exist is recorded by business policy, such as "unavailable".
+  that does not exist, or whose latest run is not the claimed one, is
+  recorded by business policy, such as "unavailable".
   It returns any other error, so the Step retries. A report that still
   arrives after the stop fills the same record. Children that finish after a
   quorum, or while the parent stops the rest, count in the parent's result as

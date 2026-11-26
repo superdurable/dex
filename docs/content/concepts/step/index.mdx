@@ -358,8 +358,9 @@ its heartbeat timeout itself, and checks its retry total duration:
 These timeouts end a hung attempt. Dex sends cancellation to the handler and
 retries the attempt by its retry policy. Pass the cancellation signal into
 each call that accepts one. A Worker slot is released only when the handler
-returns. So a blocking call that cannot observe cancellation gets its own
-timeout.
+returns. So prefer giving a blocking call that cannot observe cancellation
+its own timeout. The method or heartbeat timeout still ends the attempt, and
+retries continue.
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>
