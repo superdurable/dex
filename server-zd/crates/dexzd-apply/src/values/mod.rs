@@ -43,6 +43,7 @@ use prost::Message;
 
 use crate::ApplyError;
 use crate::FlowStateReader;
+use crate::command_handlers::command_replies::grpc_code;
 use crate::state_access::{FlowTransaction, RunRows};
 
 /// Why a value from a client or Worker cannot be stored.
@@ -60,9 +61,26 @@ pub(crate) enum ValueRejection {
         result_bytes: u64,
         max_child_flow_result_bytes: u64,
     },
+    /// The published message would leave its Channel with more pending messages than the run's
+    /// maximum.
+    ChannelMessageLimitExceeded {
+        channel_name: String,
+        max_channel_messages: u32,
+    },
 }
 
 impl ValueRejection {
+    /// Returns the gRPC code of a Client or RPC request that this rejection fails:
+    /// RESOURCE_EXHAUSTED for a reached limit, INVALID_ARGUMENT for an unacceptable value.
+    pub(crate) fn grpc_code(&self) -> i32 {
+        match self {
+            Self::ChannelMessageLimitExceeded { .. } => grpc_code::RESOURCE_EXHAUSTED,
+            Self::TooLarge { .. }
+            | Self::UnknownReference { .. }
+            | Self::ChildFlowResultTooLarge { .. } => grpc_code::INVALID_ARGUMENT,
+        }
+    }
+
     pub(crate) fn message(&self) -> String {
         match self {
             Self::TooLarge {
@@ -80,6 +98,13 @@ impl ValueRejection {
             } => format!(
                 "child Flow result of {result_bytes} bytes exceeds the maximum of \
                  {max_child_flow_result_bytes} bytes (limits.maxChildFlowResultBytes)"
+            ),
+            Self::ChannelMessageLimitExceeded {
+                channel_name,
+                max_channel_messages,
+            } => format!(
+                "Channel {channel_name:?} would hold more than the maximum of \
+                 {max_channel_messages} pending messages (limits.maxChannelMessages)"
             ),
         }
     }

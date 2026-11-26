@@ -186,7 +186,9 @@ flowDefinitions:
 limits:
   # Active state of one run; history and superseded values do not count.
   maxFlowStateBytes: 67108864
-  maxChannelMessages: 10000
+  # Pending messages in one Channel of a run; a publish beyond it fails.
+  maxChannelMessages: 1000
+  # Active Step executions in one run; a Step decision or RPC beyond it fails.
   maxConcurrentStepsPerFlow: 1000
   maxSpeculativeCommandsPerFlow: 256
   maxSpeculativeBytesPerNode: 67108864

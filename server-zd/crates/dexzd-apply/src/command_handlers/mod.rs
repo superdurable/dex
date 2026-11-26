@@ -34,6 +34,7 @@ use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::step_commands::{StepHandlerResult, apply_step_command};
 use crate::state_access::{FlowTransaction, RunRows};
+use crate::steps::{active_step_limit_violation, should_enforce_active_step_limit};
 use crate::values::{active_run_storage_bytes, active_run_storage_bytes_without_attempts};
 use crate::{ApplyContext, ApplyError, ApplyOutcome, BehaviorVersion, FlowStateReader};
 
@@ -234,6 +235,21 @@ fn apply_in_scope(
     };
     Ok(match result {
         HandlerResult::Applied(output) => {
+            if should_enforce_active_step_limit(body)
+                && !is_failure_reapply
+                && !scope.is_replay
+                && let Some(run_id) = output.run_id
+            {
+                let rows = RunRows::new(context.flow_hash, run_id);
+                let record = rows.run_record(&transaction)?.ok_or_else(|| {
+                    ApplyError::InvariantViolation {
+                        detail: "applied command did not write its run record".to_owned(),
+                    }
+                })?;
+                if let Some(detail) = active_step_limit_violation(&transaction, rows, &record)? {
+                    return reject_or_fail_attempt_for_limit(context, state, scope, body, detail);
+                }
+            }
             if should_enforce_run_state_limit(body)
                 && !is_failure_reapply
                 && !scope.is_replay
@@ -267,24 +283,7 @@ fn apply_in_scope(
                         "active run state of {active_bytes} bytes exceeds the maximum of \
                          {max_bytes} bytes"
                     );
-                    if let Some(failure) = storage_limit_attempt_failure(body, &detail) {
-                        let mut failure_command = command.clone();
-                        failure_command.command = Some(Command::StepAttemptFailed(failure));
-                        let mut failure_scope =
-                            CommandScope::new(&failure_command, behavior_version);
-                        failure_scope.is_replay = scope.is_replay;
-                        failure_scope.close_barrier_source = scope.close_barrier_source;
-                        failure_scope.recorded_events = scope.recorded_events;
-                        return apply_in_scope(context, state, &failure_scope);
-                    }
-                    return Ok((
-                        ApplyOutcome::rejected(error_reply(
-                            grpc_code::RESOURCE_EXHAUSTED,
-                            ErrorSubStatus::Uncategorized,
-                            detail,
-                        )),
-                        CommandDisposition::Rejected,
-                    ));
+                    return reject_or_fail_attempt_for_limit(context, state, scope, body, detail);
                 }
             }
             let mut outcome = output.into_outcome(transaction.into_writes());
@@ -306,6 +305,36 @@ fn apply_in_scope(
             CommandDisposition::RebuildUnavailable,
         ),
     })
+}
+
+/// Fails a command that a run limit rejects.
+///
+/// Returns the outcome of a non-retryable attempt failure in place of a Step heartbeat or
+/// completion, or a RESOURCE_EXHAUSTED rejection of any other command.
+fn reject_or_fail_attempt_for_limit(
+    context: &ApplyContext,
+    state: &dyn FlowStateReader,
+    scope: &CommandScope<'_>,
+    body: &Command,
+    detail: String,
+) -> Result<(ApplyOutcome, CommandDisposition), ApplyError> {
+    if let Some(failure) = limit_attempt_failure(body, &detail) {
+        let mut failure_command = scope.command.clone();
+        failure_command.command = Some(Command::StepAttemptFailed(failure));
+        let mut failure_scope = CommandScope::new(&failure_command, scope.behavior_version);
+        failure_scope.is_replay = scope.is_replay;
+        failure_scope.close_barrier_source = scope.close_barrier_source;
+        failure_scope.recorded_events = scope.recorded_events;
+        return apply_in_scope(context, state, &failure_scope);
+    }
+    Ok((
+        ApplyOutcome::rejected(error_reply(
+            grpc_code::RESOURCE_EXHAUSTED,
+            ErrorSubStatus::Uncategorized,
+            detail,
+        )),
+        CommandDisposition::Rejected,
+    ))
 }
 
 fn should_enforce_run_state_limit(body: &Command) -> bool {
@@ -394,7 +423,7 @@ fn has_attribute_value(writes: &[AttributeWrite]) -> bool {
         .any(|attribute| !crate::values::is_null_value(attribute.value.as_ref()))
 }
 
-fn storage_limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAttemptFailedCommand> {
+fn limit_attempt_failure(body: &Command, detail: &str) -> Option<StepAttemptFailedCommand> {
     let (invocation, attempt, task_id) = match body {
         Command::StepAttemptHeartbeat(command) => (
             command.invocation.clone(),

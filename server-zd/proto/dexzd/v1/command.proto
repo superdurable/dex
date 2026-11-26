@@ -121,7 +121,10 @@ message RunSettings {
   // Largest active state of the run: current rows and the values they hold, without history
   // records, checkpoints, or superseded values (default 64 MiB).
   uint64 max_run_state_bytes = 10;
-  // Largest number of Step executions in the current attempt (default 10000).
+  // Largest number of active Step executions (WaitFor, Waiting, or Execute) in the current
+  // attempt, without the Flow timeout handler (default 1000). Apply enforces it only when
+  // enforce_active_step_limit is true: a Flow start, Step completion, or RPC that would raise the
+  // count above it fails. Zero means no limit.
   uint32 max_active_step_executions = 11;
   // Largest total size of the result outputs a child Flow delivers to its parent (default
   // 16 MiB). Zero, as in records of older binaries, means no limit.
@@ -143,6 +146,14 @@ message RunSettings {
   // that sets it, true or false, counts the ValueBirth rows of its superseded values and its
   // ValueGarbage rows as history bytes, not state row bytes.
   optional bool offload_history = 16;
+  // Largest number of pending messages in one Channel of the run (default 1000). A publish that
+  // would leave a Channel with more pending messages fails. Zero, as in records of older
+  // binaries, means no limit.
+  uint32 max_channel_messages = 17;
+  // Whether apply enforces max_active_step_executions. Runs created since server-zd 0.1.38 record
+  // true. False, as in records of older binaries, which recorded the maximum without enforcing
+  // it, keeps the run without a Step limit for its whole life.
+  bool enforce_active_step_limit = 18;
 }
 
 // A hard-delete Attribute value that the owner uploaded as its own object before proposing.

@@ -304,7 +304,7 @@ impl Workload<'_> {
                 },
                 RunSettings {
                     offload_history: None,
-                    ..default_run_settings()
+                    ..workload_run_limits()
                 },
             )
             .await;
@@ -374,7 +374,7 @@ impl Workload<'_> {
                 RunSettings {
                     history_segment_target_bytes: 1,
                     offload_history: None,
-                    ..default_run_settings()
+                    ..workload_run_limits()
                 },
             )
             .await;
@@ -2349,6 +2349,16 @@ fn workload_run_settings() -> RunSettings {
     RunSettings {
         checkpoint_command_threshold: 10_000,
         offload_history: None,
+        ..workload_run_limits()
+    }
+}
+
+/// The default run settings with the Step and Channel limits that the recorded testdata holds.
+fn workload_run_limits() -> RunSettings {
+    RunSettings {
+        max_active_step_executions: 10_000,
+        max_channel_messages: 0,
+        enforce_active_step_limit: false,
         ..default_run_settings()
     }
 }

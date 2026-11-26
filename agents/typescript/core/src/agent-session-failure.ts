@@ -127,7 +127,9 @@ function mayHideSessionFailure(snapshot: AgentSnapshot): boolean {
  * @throws {@link AgentSessionFailedError} when the session failed. Its `reason` says why.
  * @throws {FlowNotActiveOrNotFoundError} When the session is not running.
  * @throws {DexServiceError} With `RESOURCE_EXHAUSTED` when the message does not fit under
- * `limits.maxFlowStateBytes`. Nothing was queued, and the session stays as it was.
+ * `limits.maxFlowStateBytes`, or when the session's queue of user messages already holds
+ * `limits.maxChannelMessages` messages. Nothing was queued, and the session stays as it was.
+ * When the queue is full, wait until the session takes queued messages, then send again.
  */
 export async function sendAgentUserMessage(
   client: Client,

@@ -648,6 +648,8 @@ fn legacy_settings() -> RunSettings {
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
+        max_channel_messages: 0,
+        enforce_active_step_limit: false,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 1_500,
         delete_expired_history_objects: false,

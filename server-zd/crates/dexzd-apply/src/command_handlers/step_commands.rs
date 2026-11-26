@@ -119,7 +119,8 @@ fn rejected_result_failure(
     let (kind, server_detail) = match outcome {
         StepCommandOutcome::RejectedResult(
             rejection @ (ValueRejection::TooLarge { .. }
-            | ValueRejection::ChildFlowResultTooLarge { .. }),
+            | ValueRejection::ChildFlowResultTooLarge { .. }
+            | ValueRejection::ChannelMessageLimitExceeded { .. }),
         ) => (StepAttemptFailureKind::ValueTooLarge, rejection.message()),
         StepCommandOutcome::RejectedResult(rejection @ ValueRejection::UnknownReference { .. }) => {
             (StepAttemptFailureKind::InvalidResponse, rejection.message())

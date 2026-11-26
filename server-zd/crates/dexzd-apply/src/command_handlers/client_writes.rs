@@ -212,16 +212,17 @@ pub(crate) fn apply_channel_publish(
     if is_terminal_cleanup_in_progress(&cursor) {
         return Ok(HandlerResult::Rejected(terminal_cleanup_reply()));
     }
-    let published = match apply_channel_publications(transaction, &mut cursor, &request.messages)? {
-        Ok(published) => published,
-        Err(rejection) => {
-            return Ok(HandlerResult::Rejected(error_reply(
-                grpc_code::INVALID_ARGUMENT,
-                ErrorSubStatus::Uncategorized,
-                rejection.message(),
-            )));
-        }
-    };
+    let published =
+        match apply_channel_publications(transaction, &mut cursor, scope, &request.messages)? {
+            Ok(published) => published,
+            Err(rejection) => {
+                return Ok(HandlerResult::Rejected(error_reply(
+                    rejection.grpc_code(),
+                    ErrorSubStatus::Uncategorized,
+                    rejection.message(),
+                )));
+            }
+        };
     let mut messages = request.messages;
     reference_effect_values(
         EffectValueReferences {
