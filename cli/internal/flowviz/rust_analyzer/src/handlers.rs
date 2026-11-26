@@ -83,7 +83,6 @@ impl<'source> RustFlowSource<'source> {
         graph: &mut RustFlowGraph,
     ) {
         let id = format!("step:{}", step.name);
-        self.record_method_external_calls(step, &id, graph);
         if let Some(method) = impl_method(step.declaration, "execute") {
             let handler = HandlerExpressions::new(&step.rust_type, &id, "execute", &method.block);
             self.analyze_decisions(&handler, graph);

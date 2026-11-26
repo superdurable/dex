@@ -6,56 +6,44 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
-use proc_macro2::{Delimiter, Spacing, Span, TokenStream, TokenTree};
+use proc_macro2::Span;
 use serde_json::json;
-use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Block, Expr, FnArg, Generics, Item, Pat, ReturnType, Signature, Token, Type};
+use syn::{Block, Expr, FnArg, Generics, Item, Pat, ReturnType, Signature, Type};
 
 use crate::expressions::{peel, source_text};
+use crate::external_call_macros::macro_argument_expressions;
 use crate::external_call_targets::{
-    LOG_MACROS, PURE_MACROS, PURE_METHOD_NAMES, PathTarget, TypeScope, ValueOrigin, WRITE_MACROS,
+    Certainty, LOG_MACROS, PRINT_MACROS, PURE_MACROS, PathTarget, TypeScope, ValueOrigin,
+    WRITE_MACROS,
 };
-use crate::{RustFlowGraph, RustFlowSource, WorkflowImplementation, impl_method, source_span};
+use crate::{RustFlowGraph, RustFlowSource, impl_method, source_span};
 
 /// Same-file helpers deeper than this count as external calls, as in the Go analyzer.
 const MAXIMUM_HELPER_DEPTH: usize = 6;
 
 /// Dex Flow and Step trait methods whose SDK defaults return the type name.
-const DEX_TRAIT_DEFAULT_METHODS: &[&str] = &["flow_type", "step_type"];
+pub(crate) const DEX_TRAIT_DEFAULT_METHODS: &[&str] = &["flow_type", "step_type"];
 
-/// Methods that copy, borrow, or unwrap a value and return the same kind of value.
-const VALUE_PRESERVING_METHODS: &[&str] = &[
-    "as_deref",
-    "as_mut",
-    "as_ref",
-    "borrow",
-    "clone",
-    "cloned",
-    "copied",
-    "expect",
-    "ok_or",
-    "ok_or_else",
-    "unwrap",
-];
+/// Methods that only copy or borrow a dependency handle; the next call on it is reported.
+const HANDLE_COPY_METHODS: &[&str] = &["as_deref", "as_ref", "borrow", "clone"];
 
-/// Option and Result combinators on a handle; their closure bodies are checked as part of the method.
-const HANDLE_COMBINATOR_METHODS: &[&str] = &[
-    "and_then", "filter", "inspect", "is_none", "is_some", "map", "map_err",
-];
+const STEP_METHOD_PHASES: [&str; 2] = ["execute", "wait_for"];
 
 #[derive(Clone, Debug)]
 struct PossibleExternalCall {
     callee: String,
     span: Span,
+    certainty: Certainty,
 }
 
 /// A same-file function or method whose body the finder can check.
 #[derive(Clone, Copy)]
-struct CheckedFunction<'source> {
+pub(crate) struct CheckedFunction<'source> {
     owner: &'source str,
     signature: &'source Signature,
     impl_generics: Option<&'source Generics>,
@@ -64,66 +52,111 @@ struct CheckedFunction<'source> {
 
 enum CallVerdict {
     Allowed,
-    External,
+    External(Certainty),
     /// The call reaches a same-file helper that makes this external call.
-    ThroughHelper(String),
+    ThroughHelper(String, Certainty),
 }
 
 #[derive(Clone, Copy)]
-enum BindingSource<'ast> {
+pub(crate) enum BindingSource<'ast> {
     Typed(&'ast Type),
     Value(&'ast Expr),
-    /// A name bound inside a pattern that destructures this value.
+    /// The payload of a `Some(name)` or `Ok(name)` pattern matched against this value.
+    Unwrapped(&'ast Expr),
+    /// An element of this iterated value.
+    Element(&'ast Expr),
+    /// A name bound inside another pattern that destructures this value.
     Destructured(&'ast Expr),
     Untyped,
 }
 
 /// Fills methodExternalCalls for Step methods with a fail-closed allowlist.
-struct ExternalCallFinder<'source> {
-    source: &'source RustFlowSource<'source>,
+pub(crate) struct ExternalCallFinder<'source> {
+    pub(crate) source: &'source RustFlowSource<'source>,
     /// Helpers whose result did not depend on the depth bound or a cycle.
     exact_results: BTreeMap<usize, Option<PossibleExternalCall>>,
     in_progress: BTreeSet<usize>,
 }
 
 impl<'source> RustFlowSource<'source> {
+    /// Records markers only for Step methods that hold a lock an RPC also takes.
     pub(crate) fn record_method_external_calls(
         &self,
-        step: &WorkflowImplementation<'source>,
-        id: &str,
+        registered: &BTreeSet<String>,
         graph: &mut RustFlowGraph,
     ) {
+        let shared_methods = shared_lock_methods(graph);
         let mut finder = ExternalCallFinder {
             source: self,
             exact_results: BTreeMap::new(),
             in_progress: BTreeSet::new(),
         };
-        for phase in ["execute", "wait_for"] {
-            let calls = match impl_method(step.declaration, phase) {
-                Some(method) => {
-                    let function = CheckedFunction {
-                        owner: &step.rust_type,
-                        signature: &method.sig,
-                        impl_generics: Some(&step.declaration.generics),
-                        block: &method.block,
-                    };
-                    finder.function_external_calls(function, 0, false).0
-                }
-                None if phase == "execute" => vec![PossibleExternalCall {
-                    callee: "an execute method that dexcli cannot read".to_owned(),
-                    span: step.declaration.span(),
-                }],
-                None => continue,
+        for rust_type in registered {
+            let Some(step) = self.steps.get(rust_type) else {
+                continue;
             };
-            let calls: Vec<_> = calls
-                .iter()
-                .map(|call| json!({"callee": call.callee, "span": source_span(call.span)}))
-                .collect();
-            graph
-                .facts("methodExternalCalls")
-                .push(json!({"nodeId": id, "phase": phase, "calls": calls}));
+            let id = format!("step:{}", step.name);
+            for phase in STEP_METHOD_PHASES {
+                if !shared_methods.contains(&(id.clone(), phase.to_owned())) {
+                    continue;
+                }
+                let mut calls = match impl_method(step.declaration, phase) {
+                    Some(method) => {
+                        let function = CheckedFunction {
+                            owner: &step.rust_type,
+                            signature: &method.sig,
+                            impl_generics: Some(&step.declaration.generics),
+                            block: &method.block,
+                        };
+                        finder.function_external_calls(function, 0, false).0
+                    }
+                    // The SDK default wait_for skips the wait and calls nothing.
+                    None if phase == "wait_for" => Vec::new(),
+                    None => vec![PossibleExternalCall {
+                        callee: "an execute method that dexcli cannot read".to_owned(),
+                        span: step.declaration.span(),
+                        certainty: Certainty::Possible,
+                    }],
+                };
+                calls.sort_by_key(|call| Reverse(call.certainty));
+                let calls: Vec<_> = calls
+                    .iter()
+                    .map(|call| json!({"callee": call.callee, "span": source_span(call.span)}))
+                    .collect();
+                graph
+                    .facts("methodExternalCalls")
+                    .push(json!({"nodeId": id, "phase": phase, "calls": calls}));
+            }
         }
     }
+}
+
+/// Returns each (Step node ID, phase) whose locks intersect the locks of any RPC.
+fn shared_lock_methods(graph: &mut RustFlowGraph) -> BTreeSet<(String, String)> {
+    let mut rpc_locks = BTreeSet::new();
+    let mut method_locks = Vec::new();
+    for edge in graph.graph_items("edges").iter() {
+        if edge["kind"] != "resource_lock" {
+            continue;
+        }
+        let (Some(from), Some(to), Some(phase)) = (
+            edge["from"].as_str(),
+            edge["to"].as_str(),
+            edge["metadata"]["phase"].as_str(),
+        ) else {
+            continue;
+        };
+        if phase == "rpc" {
+            rpc_locks.insert(to.to_owned());
+        } else if STEP_METHOD_PHASES.contains(&phase) {
+            method_locks.push((from.to_owned(), phase.to_owned(), to.to_owned()));
+        }
+    }
+    method_locks
+        .into_iter()
+        .filter(|(_, _, resource)| rpc_locks.contains(resource))
+        .map(|(from, phase, _)| (from, phase))
+        .collect()
 }
 
 impl<'source> ExternalCallFinder<'source> {
@@ -145,9 +178,7 @@ impl<'source> ExternalCallFinder<'source> {
                     Pat::Ident(_) => BindingSource::Typed(&parameter.ty),
                     _ => BindingSource::Untyped,
                 };
-                for name in pattern_names(&parameter.pat) {
-                    bindings.entry(name).or_insert_with(Vec::new).push(source);
-                }
+                bind_names(&mut bindings, &parameter.pat, source);
             }
         }
         BindingCollector {
@@ -167,7 +198,7 @@ impl<'source> ExternalCallFinder<'source> {
         (scan.calls, scan.is_exact)
     }
 
-    /// Returns the first possible external call of a same-file helper, and whether it is exact.
+    /// Returns the most certain first external call of a same-file helper, and whether it is exact.
     fn helper_external_call(
         &mut self,
         function: CheckedFunction<'source>,
@@ -184,12 +215,14 @@ impl<'source> ExternalCallFinder<'source> {
             let deep = PossibleExternalCall {
                 callee: "a helper chain deeper than dexcli follows".to_owned(),
                 span: function.block.span(),
+                certainty: Certainty::Possible,
             };
             return (Some(deep), false);
         }
         self.in_progress.insert(key);
-        let (calls, is_exact) = self.function_external_calls(function, depth + 1, true);
+        let (mut calls, is_exact) = self.function_external_calls(function, depth + 1, true);
         self.in_progress.remove(&key);
+        calls.sort_by_key(|call| Reverse(call.certainty));
         let result = calls.into_iter().next();
         if is_exact {
             self.exact_results.insert(key, result.clone());
@@ -197,7 +230,7 @@ impl<'source> ExternalCallFinder<'source> {
         (result, is_exact)
     }
 
-    fn file_function(&self, name: &str) -> Option<CheckedFunction<'source>> {
+    pub(crate) fn file_function(&self, name: &str) -> Option<CheckedFunction<'source>> {
         let Item::Fn(function) = self.source.declarations.get(name)? else {
             return None;
         };
@@ -209,8 +242,8 @@ impl<'source> ExternalCallFinder<'source> {
         })
     }
 
-    /// Returns every same-file method or associated function named name, of owner or of any type.
-    fn file_methods(&self, owner: Option<&str>, name: &str) -> Vec<CheckedFunction<'source>> {
+    /// Returns every same-file method or associated function of owner named name.
+    pub(crate) fn file_methods(&self, owner: &str, name: &str) -> Vec<CheckedFunction<'source>> {
         let source = self.source;
         source
             .implementations
@@ -219,7 +252,7 @@ impl<'source> ExternalCallFinder<'source> {
                 let implementation: &'source syn::ItemImpl = implementation;
                 let method = impl_method(implementation, name)?;
                 let self_type = crate::type_name(&implementation.self_ty)?;
-                if owner.is_some_and(|owner| owner != self_type) {
+                if owner != self_type {
                     return None;
                 }
                 let owner = source
@@ -236,7 +269,7 @@ impl<'source> ExternalCallFinder<'source> {
             .collect()
     }
 
-    fn return_origin(&self, function: CheckedFunction<'source>) -> ValueOrigin {
+    pub(crate) fn return_origin(&self, function: CheckedFunction<'source>) -> ValueOrigin {
         let ReturnType::Type(_, declared) = &function.signature.output else {
             return ValueOrigin::PureStandardLibrary;
         };
@@ -253,59 +286,89 @@ struct BindingCollector<'collector, 'ast> {
     bindings: &'collector mut BTreeMap<String, Vec<BindingSource<'ast>>>,
 }
 
-impl BindingCollector<'_, '_> {
-    fn bind<'ast>(
-        bindings: &mut BTreeMap<String, Vec<BindingSource<'ast>>>,
-        pattern: &Pat,
-        source: BindingSource<'ast>,
-    ) {
-        for name in pattern_names(pattern) {
-            bindings.entry(name).or_default().push(source);
+fn bind_names<'ast>(
+    bindings: &mut BTreeMap<String, Vec<BindingSource<'ast>>>,
+    pattern: &Pat,
+    source: BindingSource<'ast>,
+) {
+    for name in pattern_names(pattern) {
+        bindings.entry(name).or_default().push(source);
+    }
+}
+
+/// Binds the names of pattern matched against value, keeping tuple elements and Some or Ok payloads.
+fn bind_matched<'ast>(
+    bindings: &mut BTreeMap<String, Vec<BindingSource<'ast>>>,
+    pattern: &'ast Pat,
+    value: &'ast Expr,
+) {
+    match pattern {
+        Pat::Ident(_) => bind_names(bindings, pattern, BindingSource::Value(value)),
+        Pat::Reference(reference) => bind_matched(bindings, &reference.pat, value),
+        Pat::Paren(inner) => bind_matched(bindings, &inner.pat, value),
+        Pat::Type(typed) if matches!(typed.pat.as_ref(), Pat::Ident(_)) => {
+            bind_names(bindings, pattern, BindingSource::Typed(&typed.ty));
         }
+        Pat::Tuple(tuple) => match peel(value) {
+            Expr::Tuple(values) if values.elems.len() == tuple.elems.len() => {
+                for (element, value) in tuple.elems.iter().zip(&values.elems) {
+                    bind_matched(bindings, element, value);
+                }
+            }
+            _ => bind_names(bindings, pattern, BindingSource::Destructured(value)),
+        },
+        Pat::TupleStruct(variant)
+            if variant.elems.len() == 1
+                && variant
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "Some" || segment.ident == "Ok") =>
+        {
+            let payload = variant.elems.first().expect("the pattern has one element");
+            let source = if matches!(payload, Pat::Ident(_)) {
+                BindingSource::Unwrapped(value)
+            } else {
+                BindingSource::Destructured(value)
+            };
+            bind_names(bindings, payload, source);
+        }
+        _ => bind_names(bindings, pattern, BindingSource::Destructured(value)),
     }
 }
 
 impl<'ast> Visit<'ast> for BindingCollector<'_, 'ast> {
     fn visit_local(&mut self, local: &'ast syn::Local) {
-        let initializer = local.init.as_ref().map(|init| init.expr.as_ref());
-        let source = match (&local.pat, initializer) {
-            (Pat::Type(typed), _) if matches!(typed.pat.as_ref(), Pat::Ident(_)) => {
-                BindingSource::Typed(&typed.ty)
-            }
-            (Pat::Ident(_), Some(value)) => BindingSource::Value(value),
-            (_, Some(value)) => BindingSource::Destructured(value),
-            (_, None) => BindingSource::Untyped,
-        };
-        Self::bind(self.bindings, &local.pat, source);
+        match local.init.as_ref() {
+            Some(init) => bind_matched(self.bindings, &local.pat, &init.expr),
+            None => match &local.pat {
+                Pat::Type(typed) if matches!(typed.pat.as_ref(), Pat::Ident(_)) => {
+                    bind_names(self.bindings, &local.pat, BindingSource::Typed(&typed.ty));
+                }
+                pattern => bind_names(self.bindings, pattern, BindingSource::Untyped),
+            },
+        }
         visit::visit_local(self, local);
     }
 
     fn visit_expr_match(&mut self, branch: &'ast syn::ExprMatch) {
         for arm in &branch.arms {
-            Self::bind(
-                self.bindings,
-                &arm.pat,
-                BindingSource::Destructured(&branch.expr),
-            );
+            bind_matched(self.bindings, &arm.pat, &branch.expr);
         }
         visit::visit_expr_match(self, branch);
     }
 
     fn visit_expr_let(&mut self, binding: &'ast syn::ExprLet) {
-        Self::bind(
-            self.bindings,
-            &binding.pat,
-            BindingSource::Destructured(&binding.expr),
-        );
+        bind_matched(self.bindings, &binding.pat, &binding.expr);
         visit::visit_expr_let(self, binding);
     }
 
     fn visit_expr_for_loop(&mut self, iteration: &'ast syn::ExprForLoop) {
-        Self::bind(
-            self.bindings,
-            &iteration.pat,
-            BindingSource::Destructured(&iteration.expr),
-        );
+        let source = match iteration.pat.as_ref() {
+            Pat::Ident(_) => BindingSource::Element(&iteration.expr),
+            _ => BindingSource::Destructured(&iteration.expr),
+        };
+        bind_names(self.bindings, &iteration.pat, source);
         visit::visit_expr_for_loop(self, iteration);
     }
 
@@ -317,7 +380,7 @@ impl<'ast> Visit<'ast> for BindingCollector<'_, 'ast> {
                 }
                 _ => BindingSource::Untyped,
             };
-            Self::bind(self.bindings, input, source);
+            bind_names(self.bindings, input, source);
         }
         visit::visit_expr_closure(self, closure);
     }
@@ -367,10 +430,10 @@ fn collect_pattern_names(pattern: &Pat, names: &mut Vec<String>) {
 }
 
 /// Collects the possible external calls of one function body.
-struct MethodScan<'scan, 'source, 'ast> {
-    finder: &'scan mut ExternalCallFinder<'source>,
-    scope: TypeScope,
-    bindings: BTreeMap<String, Vec<BindingSource<'ast>>>,
+pub(crate) struct MethodScan<'scan, 'source, 'ast> {
+    pub(crate) finder: &'scan mut ExternalCallFinder<'source>,
+    pub(crate) scope: TypeScope,
+    pub(crate) bindings: BTreeMap<String, Vec<BindingSource<'ast>>>,
     depth: usize,
     first_only: bool,
     calls: Vec<PossibleExternalCall>,
@@ -379,40 +442,55 @@ struct MethodScan<'scan, 'source, 'ast> {
 
 impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
     fn add(&mut self, span: Span, callee: String, verdict: CallVerdict) {
-        let callee = match verdict {
+        let (callee, certainty) = match verdict {
             CallVerdict::Allowed => return,
-            CallVerdict::External => callee,
-            CallVerdict::ThroughHelper(inner) => format!("{callee} (calls {inner})"),
+            CallVerdict::External(certainty) => (callee, certainty),
+            CallVerdict::ThroughHelper(inner, certainty) => {
+                (format!("{callee} (calls {inner})"), certainty)
+            }
         };
-        self.calls.push(PossibleExternalCall { callee, span });
+        self.calls.push(PossibleExternalCall {
+            callee,
+            span,
+            certainty,
+        });
     }
 
     fn helper_verdict(&mut self, helpers: Vec<CheckedFunction<'source>>) -> CallVerdict {
+        let mut verdict = CallVerdict::Allowed;
         for helper in helpers {
             let (inner, is_exact) = self.finder.helper_external_call(helper, self.depth);
             self.is_exact = self.is_exact && is_exact;
-            if let Some(inner) = inner {
-                return CallVerdict::ThroughHelper(inner.callee);
+            let Some(inner) = inner else {
+                continue;
+            };
+            let is_more_certain = match &verdict {
+                CallVerdict::ThroughHelper(_, certainty) => inner.certainty > *certainty,
+                _ => true,
+            };
+            if is_more_certain {
+                verdict = CallVerdict::ThroughHelper(inner.callee, inner.certainty);
             }
         }
-        CallVerdict::Allowed
+        verdict
     }
 
-    /// Checks a method of a same-file type; an unmatched name must be a pure standard method.
-    fn file_type_method_verdict(&mut self, owner: Option<&str>, method: &str) -> CallVerdict {
+    /// Checks a method or associated function of a same-file type.
+    fn file_type_method_verdict(&mut self, owner: &str, method: &str) -> CallVerdict {
         let helpers = self.finder.file_methods(owner, method);
         if !helpers.is_empty() {
             return self.helper_verdict(helpers);
         }
-        let is_dex_trait_default = owner.is_some() && DEX_TRAIT_DEFAULT_METHODS.contains(&method);
-        if PURE_METHOD_NAMES.contains(&method) || is_dex_trait_default {
+        if DEX_TRAIT_DEFAULT_METHODS.contains(&method)
+            || self.finder.source.derives_method(owner, method)
+        {
             CallVerdict::Allowed
         } else {
-            CallVerdict::External
+            CallVerdict::External(Certainty::Possible)
         }
     }
 
-    fn is_binding(&self, name: &str) -> bool {
+    pub(crate) fn is_binding(&self, name: &str) -> bool {
         self.bindings.contains_key(name)
     }
 
@@ -421,21 +499,22 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         if let [name] = segments.as_slice()
             && self.is_binding(name)
         {
-            return CallVerdict::External;
+            return CallVerdict::External(Certainty::Possible);
         }
         let last = segments.last().cloned().unwrap_or_default();
         match self.finder.source.path_target(&segments, &self.scope) {
             PathTarget::DexSdk | PathTarget::PureStandardLibrary => CallVerdict::Allowed,
-            PathTarget::DexSdkExternal
-            | PathTarget::ExternalStandardLibrary
-            | PathTarget::External => CallVerdict::External,
+            PathTarget::DexSdkExternal | PathTarget::ExternalStandardLibrary => {
+                CallVerdict::External(Certainty::Definite)
+            }
+            PathTarget::External => CallVerdict::External(Certainty::Possible),
             PathTarget::FileItem(name) if name == last => {
                 if let Some(function) = self.finder.file_function(&name) {
                     return self.helper_verdict(vec![function]);
                 }
                 match self.finder.source.declarations.get(&name) {
                     Some(Item::Struct(_) | Item::Enum(_)) => CallVerdict::Allowed,
-                    _ => CallVerdict::External,
+                    _ => CallVerdict::External(Certainty::Possible),
                 }
             }
             PathTarget::FileItem(owner) => self.associated_call_verdict(&owner, &last),
@@ -451,27 +530,28 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
             // An enum variant constructor runs no code.
             return CallVerdict::Allowed;
         }
-        self.file_type_method_verdict(Some(owner), function)
+        self.file_type_method_verdict(owner, function)
     }
 
     fn method_call_verdict(&mut self, call: &syn::ExprMethodCall) -> CallVerdict {
         let method = call.method.to_string();
         match self.expression_origin(&call.receiver, 0) {
-            ValueOrigin::DexSdk | ValueOrigin::PureStandardLibrary | ValueOrigin::Collection => {
-                CallVerdict::Allowed
-            }
-            // Cloning or unwrapping a dependency handle calls nothing; the next call on it is reported.
-            ValueOrigin::External
-                if VALUE_PRESERVING_METHODS.contains(&method.as_str())
-                    || HANDLE_COMBINATOR_METHODS.contains(&method.as_str()) =>
-            {
+            ValueOrigin::DexSdk
+            | ValueOrigin::PureStandardLibrary
+            | ValueOrigin::Collection(_)
+            | ValueOrigin::Optional(_) => CallVerdict::Allowed,
+            ValueOrigin::External(_) if HANDLE_COPY_METHODS.contains(&method.as_str()) => {
                 CallVerdict::Allowed
             }
             // A chain on an already reported call, such as client.send()?.unwrap(), is reported once.
-            ValueOrigin::External if self.is_reported_call(&call.receiver) => CallVerdict::Allowed,
-            ValueOrigin::External => CallVerdict::External,
-            ValueOrigin::FileType(owner) => self.file_type_method_verdict(Some(&owner), &method),
-            ValueOrigin::Unknown => self.file_type_method_verdict(None, &method),
+            ValueOrigin::External(_) | ValueOrigin::Unknown
+                if self.is_reported_call(&call.receiver) =>
+            {
+                CallVerdict::Allowed
+            }
+            ValueOrigin::External(certainty) => CallVerdict::External(certainty),
+            ValueOrigin::FileType(owner) => self.file_type_method_verdict(&owner, &method),
+            ValueOrigin::Unknown => CallVerdict::External(Certainty::Possible),
         }
     }
 
@@ -483,231 +563,11 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
                     self.path_call_verdict(&function.path)
                 }
                 Expr::Closure(_) => CallVerdict::Allowed,
-                _ => CallVerdict::External,
+                _ => CallVerdict::External(Certainty::Possible),
             },
             _ => CallVerdict::Allowed,
         };
         !matches!(verdict, CallVerdict::Allowed)
-    }
-
-    fn binding_origin(&self, name: &str, depth: usize) -> ValueOrigin {
-        let Some(sources) = self.bindings.get(name) else {
-            return ValueOrigin::Unknown;
-        };
-        let mut origins = sources.iter().map(|source| match source {
-            BindingSource::Typed(declared) => {
-                self.finder.source.type_origin(declared, &self.scope, 0)
-            }
-            BindingSource::Value(value) => self.expression_origin(value, depth + 1),
-            BindingSource::Destructured(value) => match self.expression_origin(value, depth + 1) {
-                ValueOrigin::External => ValueOrigin::External,
-                _ => ValueOrigin::Unknown,
-            },
-            BindingSource::Untyped => ValueOrigin::Unknown,
-        });
-        let first = origins.next().unwrap_or(ValueOrigin::Unknown);
-        origins.fold(first, ValueOrigin::merge)
-    }
-
-    fn expression_origin(&self, expression: &Expr, depth: usize) -> ValueOrigin {
-        if depth >= 16 {
-            return ValueOrigin::Unknown;
-        }
-        match peel(expression) {
-            Expr::Lit(_)
-            | Expr::Array(_)
-            | Expr::Tuple(_)
-            | Expr::Binary(_)
-            | Expr::Unary(_)
-            | Expr::Range(_)
-            | Expr::Cast(_)
-            | Expr::Repeat(_)
-            | Expr::Macro(_) => ValueOrigin::PureStandardLibrary,
-            Expr::Path(value) if value.qself.is_none() => self.path_origin(&value.path, depth),
-            Expr::Field(field) => self.field_origin(field, depth),
-            Expr::Call(call) => self.call_origin(call, depth),
-            Expr::MethodCall(call) => self.method_result_origin(call, depth),
-            Expr::Struct(value) => self.path_origin(&value.path, depth),
-            Expr::Index(index) => match self.expression_origin(&index.expr, depth + 1) {
-                ValueOrigin::External => ValueOrigin::External,
-                _ => ValueOrigin::Unknown,
-            },
-            Expr::If(branch) => {
-                let then_origin = self.block_origin(&branch.then_branch, depth);
-                match &branch.else_branch {
-                    Some((_, alternative)) => {
-                        then_origin.merge(self.expression_origin(alternative, depth + 1))
-                    }
-                    None => then_origin,
-                }
-            }
-            Expr::Match(branch) => branch
-                .arms
-                .iter()
-                .map(|arm| self.expression_origin(&arm.body, depth + 1))
-                .reduce(ValueOrigin::merge)
-                .unwrap_or(ValueOrigin::Unknown),
-            Expr::Block(block) => self.block_origin(&block.block, depth),
-            Expr::Await(awaited) => self.expression_origin(&awaited.base, depth + 1),
-            _ => ValueOrigin::Unknown,
-        }
-    }
-
-    fn block_origin(&self, block: &Block, depth: usize) -> ValueOrigin {
-        crate::expressions::block_tail(block).map_or(ValueOrigin::Unknown, |tail| {
-            self.expression_origin(tail, depth + 1)
-        })
-    }
-
-    fn path_origin(&self, path: &syn::Path, depth: usize) -> ValueOrigin {
-        let segments = path_segments(path);
-        if let [name] = segments.as_slice() {
-            if name == "self" {
-                return self.owner_origin();
-            }
-            if self.is_binding(name) {
-                return self.binding_origin(name, depth);
-            }
-            if self.finder.source.resources.contains_key(name) {
-                return ValueOrigin::DexSdk;
-            }
-        }
-        let source = self.finder.source;
-        match source.path_target(&segments, &self.scope) {
-            PathTarget::DexSdk => ValueOrigin::DexSdk,
-            PathTarget::PureStandardLibrary => ValueOrigin::PureStandardLibrary,
-            PathTarget::SelfType => self.owner_origin(),
-            PathTarget::FileItem(name) => {
-                if let Some((declared, _)) = source.constants.get(&name) {
-                    return source.type_origin(declared, &self.scope, 0);
-                }
-                match source.declarations.get(&name) {
-                    Some(Item::Struct(_) | Item::Enum(_)) => ValueOrigin::FileType(name),
-                    _ => ValueOrigin::Unknown,
-                }
-            }
-            PathTarget::DexSdkExternal
-            | PathTarget::ExternalStandardLibrary
-            | PathTarget::External => ValueOrigin::External,
-        }
-    }
-
-    fn owner_origin(&self) -> ValueOrigin {
-        if self.scope.owner.is_empty() {
-            ValueOrigin::Unknown
-        } else {
-            ValueOrigin::FileType(self.scope.owner.clone())
-        }
-    }
-
-    fn field_origin(&self, field: &syn::ExprField, depth: usize) -> ValueOrigin {
-        let owner = match self.expression_origin(&field.base, depth + 1) {
-            ValueOrigin::FileType(owner) => owner,
-            ValueOrigin::Collection => return ValueOrigin::Unknown,
-            other => return other,
-        };
-        let Some(Item::Struct(declaration)) = self.finder.source.declarations.get(&owner) else {
-            return ValueOrigin::Unknown;
-        };
-        let declared = match &field.member {
-            syn::Member::Named(name) => declaration
-                .fields
-                .iter()
-                .find(|candidate| candidate.ident.as_ref() == Some(name)),
-            syn::Member::Unnamed(index) => declaration.fields.iter().nth(index.index as usize),
-        };
-        let Some(declared) = declared else {
-            return ValueOrigin::Unknown;
-        };
-        let scope = TypeScope::new(&owner, [&declaration.generics]);
-        self.finder.source.type_origin(&declared.ty, &scope, 0)
-    }
-
-    fn call_origin(&self, call: &syn::ExprCall, depth: usize) -> ValueOrigin {
-        let Expr::Path(function) = peel(&call.func) else {
-            return ValueOrigin::External;
-        };
-        let segments = path_segments(&function.path);
-        if let [name] = segments.as_slice()
-            && self.is_binding(name)
-        {
-            return ValueOrigin::External;
-        }
-        let last = segments.last().cloned().unwrap_or_default();
-        let source = self.finder.source;
-        match source.path_target(&segments, &self.scope) {
-            PathTarget::DexSdk => ValueOrigin::DexSdk,
-            PathTarget::PureStandardLibrary => ValueOrigin::container(
-                call.args
-                    .iter()
-                    .map(|argument| self.expression_origin(argument, depth + 1)),
-            ),
-            PathTarget::FileItem(name) if name == last => match self.finder.file_function(&name) {
-                Some(function) => self.finder.return_origin(function),
-                None => ValueOrigin::FileType(name),
-            },
-            PathTarget::FileItem(owner) => self.associated_result_origin(&owner, &last),
-            PathTarget::SelfType => self.associated_result_origin(&self.scope.owner, &last),
-            PathTarget::DexSdkExternal
-            | PathTarget::ExternalStandardLibrary
-            | PathTarget::External => ValueOrigin::External,
-        }
-    }
-
-    fn associated_result_origin(&self, owner: &str, function: &str) -> ValueOrigin {
-        if function.starts_with(char::is_uppercase) {
-            return ValueOrigin::FileType(owner.to_owned());
-        }
-        self.finder
-            .file_methods(Some(owner), function)
-            .into_iter()
-            .map(|method| self.finder.return_origin(method))
-            .reduce(ValueOrigin::merge)
-            .unwrap_or(ValueOrigin::Unknown)
-    }
-
-    fn method_result_origin(&self, call: &syn::ExprMethodCall, depth: usize) -> ValueOrigin {
-        let receiver = self.expression_origin(&call.receiver, depth + 1);
-        if call.method == "clone" {
-            return receiver;
-        }
-        let method = call.method.to_string();
-        match receiver {
-            ValueOrigin::FileType(owner) => {
-                let result = self.associated_result_origin(&owner, &method);
-                if result == ValueOrigin::Unknown
-                    && VALUE_PRESERVING_METHODS.contains(&method.as_str())
-                {
-                    // Unwrapping an Option or Result of a same-file type keeps that type.
-                    return ValueOrigin::FileType(owner);
-                }
-                result
-            }
-            // An element taken from a collection has an unknown type.
-            ValueOrigin::Collection => ValueOrigin::Unknown,
-            other => other,
-        }
-    }
-
-    /// Reports whether a write! target is a String or a fmt::Formatter, so the write does no I/O.
-    fn is_string_writer(&self, target: &Expr) -> bool {
-        let Expr::Path(value) = peel(target) else {
-            return false;
-        };
-        let Some(name) = value.path.get_ident().map(ToString::to_string) else {
-            return false;
-        };
-        let Some(sources) = self.bindings.get(&name) else {
-            return false;
-        };
-        sources.iter().all(|source| match source {
-            BindingSource::Typed(declared) => matches!(
-                crate::type_name(declared).as_deref(),
-                Some("String" | "Formatter")
-            ),
-            BindingSource::Value(initializer) => is_string_value(initializer),
-            BindingSource::Destructured(_) | BindingSource::Untyped => false,
-        })
     }
 
     fn scan_macro(&mut self, value: &syn::Macro) {
@@ -719,16 +579,32 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
             .unwrap_or_default();
         let callee = format!("{name}!");
         let name = name.as_str();
+        if PRINT_MACROS.contains(&name) {
+            self.add(
+                value.span(),
+                callee,
+                CallVerdict::External(Certainty::Definite),
+            );
+            return;
+        }
         if !PURE_MACROS.contains(&name)
             && !LOG_MACROS.contains(&name)
             && !WRITE_MACROS.contains(&name)
         {
-            self.add(value.span(), callee, CallVerdict::External);
+            self.add(
+                value.span(),
+                callee,
+                CallVerdict::External(Certainty::Possible),
+            );
             return;
         }
         let Some(arguments) = macro_argument_expressions(value.tokens.clone()) else {
             let unreadable = format!("{name}! with arguments dexcli cannot read");
-            self.add(value.span(), unreadable, CallVerdict::External);
+            self.add(
+                value.span(),
+                unreadable,
+                CallVerdict::External(Certainty::Possible),
+            );
             return;
         };
         if WRITE_MACROS.contains(&name)
@@ -736,7 +612,11 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
                 .first()
                 .is_some_and(|target| self.is_string_writer(target))
         {
-            self.add(value.span(), callee, CallVerdict::External);
+            self.add(
+                value.span(),
+                callee,
+                CallVerdict::External(Certainty::Possible),
+            );
         }
         self.scan_macro_arguments(&arguments);
     }
@@ -767,8 +647,13 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         self.is_exact = self.is_exact && is_exact;
     }
 
+    /// A helper scan stops at the first definite external call.
     fn is_done(&self) -> bool {
-        self.first_only && !self.calls.is_empty()
+        self.first_only
+            && self
+                .calls
+                .iter()
+                .any(|call| call.certainty == Certainty::Definite)
     }
 }
 
@@ -787,7 +672,8 @@ impl<'ast> Visit<'ast> for MethodScan<'_, '_, 'ast> {
             }
             Expr::Closure(_) => self.visit_expr(&call.func),
             _ => {
-                self.add(call.span(), source_text(&call.func), CallVerdict::External);
+                let verdict = CallVerdict::External(Certainty::Possible);
+                self.add(call.span(), source_text(&call.func), verdict);
                 self.visit_expr(&call.func);
             }
         }
@@ -832,101 +718,9 @@ impl<'ast> Visit<'ast> for MethodScan<'_, '_, 'ast> {
     fn visit_item(&mut self, _item: &'ast Item) {}
 }
 
-fn path_segments(path: &syn::Path) -> Vec<String> {
+pub(crate) fn path_segments(path: &syn::Path) -> Vec<String> {
     path.segments
         .iter()
         .map(|segment| segment.ident.to_string())
         .collect()
-}
-
-fn is_string_value(value: &Expr) -> bool {
-    match peel(value) {
-        Expr::Macro(formatted) => formatted.mac.path.is_ident("format"),
-        Expr::Call(call) => {
-            let Expr::Path(function) = peel(&call.func) else {
-                return false;
-            };
-            let segments = path_segments(&function.path);
-            matches!(
-                segments
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                ["String", "new" | "with_capacity" | "from"]
-            )
-        }
-        Expr::MethodCall(call) => {
-            matches!(call.method.to_string().as_str(), "to_string" | "to_owned")
-        }
-        _ => false,
-    }
-}
-
-/// Parses macro arguments as expressions, reading json! objects and tracing fields; None means unreadable.
-fn macro_argument_expressions(tokens: TokenStream) -> Option<Vec<Expr>> {
-    if let Ok(arguments) = syn::parse::Parser::parse2(
-        Punctuated::<Expr, Token![,]>::parse_terminated,
-        tokens.clone(),
-    ) {
-        return Some(arguments.into_iter().collect());
-    }
-    let mut expressions = Vec::new();
-    for chunk in split_top_level(tokens) {
-        if let [TokenTree::Group(group)] = chunk.as_slice()
-            && matches!(group.delimiter(), Delimiter::Brace | Delimiter::Bracket)
-        {
-            expressions.extend(macro_argument_expressions(group.stream())?);
-            continue;
-        }
-        let value: TokenStream = field_value(&chunk).iter().cloned().collect();
-        if value.is_empty() {
-            continue;
-        }
-        expressions.push(syn::parse2::<Expr>(value).ok()?);
-    }
-    Some(expressions)
-}
-
-fn split_top_level(tokens: TokenStream) -> Vec<Vec<TokenTree>> {
-    let mut chunks = vec![Vec::new()];
-    for token in tokens {
-        match &token {
-            TokenTree::Punct(punct) if matches!(punct.as_char(), ',' | ';') => {
-                chunks.push(Vec::new());
-            }
-            _ => chunks
-                .last_mut()
-                .expect("chunks always holds one element")
-                .push(token),
-        }
-    }
-    chunks.retain(|chunk| !chunk.is_empty());
-    chunks
-}
-
-/// Returns the value of a `name = value`, `key: value`, or `%value` macro field.
-fn field_value(chunk: &[TokenTree]) -> &[TokenTree] {
-    let mut start = 0;
-    for (index, token) in chunk.iter().enumerate() {
-        let TokenTree::Punct(punct) = token else {
-            continue;
-        };
-        let follows_joint = index > 0
-            && matches!(&chunk[index - 1], TokenTree::Punct(previous) if previous.spacing() == Spacing::Joint);
-        if matches!(punct.as_char(), '=' | ':')
-            && punct.spacing() == Spacing::Alone
-            && !follows_joint
-        {
-            start = index + 1;
-            break;
-        }
-    }
-    let mut value = &chunk[start..];
-    while let [TokenTree::Punct(sigil), rest @ ..] = value
-        && matches!(sigil.as_char(), '%' | '?')
-    {
-        value = rest;
-    }
-    value
 }

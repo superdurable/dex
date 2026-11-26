@@ -112,9 +112,10 @@ const PRELUDE_NAMES: &[&str] = &[
 ];
 
 /// Standard-library wrappers whose methods reach the wrapped value.
-const TRANSPARENT_WRAPPER_TYPES: &[&str] = &[
-    "Arc", "Box", "Cow", "LazyLock", "OnceLock", "Option", "Rc", "Result",
-];
+const TRANSPARENT_WRAPPER_TYPES: &[&str] = &["Arc", "Box", "Cow", "LazyLock", "OnceLock", "Rc"];
+
+/// Option, Result, and the Dex SDK Result aliases: their payload is the first type argument.
+const OPTIONAL_TYPES: &[&str] = &["HandlerResult", "Option", "Result", "SdkResult"];
 
 /// Standard traits whose `impl Trait` values only convert or format data.
 const CONVERSION_TRAITS: &[&str] = &["AsRef", "Borrow", "Debug", "Display", "Into", "ToString"];
@@ -137,158 +138,8 @@ const DEX_SDK_EXTERNAL_ITEMS: &[&str] = &["BlobCache", "Client", "FileCredential
 /// serde_json functions that read or write through an I/O reader or writer.
 const SERDE_JSON_EXTERNAL_FUNCTIONS: &[&str] = &["from_reader", "to_writer", "to_writer_pretty"];
 
-/// Method names that do no I/O on standard-library values, for values of unknown type.
-pub(crate) const PURE_METHOD_NAMES: &[&str] = &[
-    "abs",
-    "all",
-    "and",
-    "and_then",
-    "any",
-    "as_bytes",
-    "as_deref",
-    "as_mut",
-    "as_millis",
-    "as_ref",
-    "as_secs",
-    "as_slice",
-    "as_str",
-    "borrow",
-    "bytes",
-    "char_indices",
-    "chain",
-    "chars",
-    "checked_add",
-    "checked_div",
-    "checked_mul",
-    "checked_sub",
-    "chunks",
-    "clamp",
-    "clear",
-    "clone",
-    "cloned",
-    "cmp",
-    "collect",
-    "concat",
-    "contains",
-    "contains_key",
-    "copied",
-    "count",
-    "dedup",
-    "default",
-    "ends_with",
-    "entry",
-    "enumerate",
-    "eq",
-    "eq_ignore_ascii_case",
-    "err",
-    "expect",
-    "extend",
-    "filter",
-    "filter_map",
-    "find",
-    "first",
-    "flat_map",
-    "flatten",
-    "fmt",
-    "fold",
-    "for_each",
-    "fuse",
-    "from",
-    "get",
-    "get_mut",
-    "get_or_insert_with",
-    "hash",
-    "insert",
-    "inspect",
-    "into",
-    "into_iter",
-    "is_empty",
-    "is_err",
-    "is_none",
-    "is_ok",
-    "is_some",
-    "iter",
-    "iter_mut",
-    "join",
-    "keys",
-    "last",
-    "len",
-    "lines",
-    "map",
-    "map_err",
-    "map_or",
-    "map_or_else",
-    "max",
-    "max_by_key",
-    "min",
-    "min_by_key",
-    "ne",
-    "next",
-    "nth",
-    "ok",
-    "ok_or",
-    "ok_or_else",
-    "or",
-    "or_default",
-    "or_else",
-    "or_insert",
-    "or_insert_with",
-    "parse",
-    "partial_cmp",
-    "partition",
-    "peekable",
-    "pop",
-    "position",
-    "product",
-    "pow",
-    "push",
-    "push_str",
-    "remove",
-    "repeat",
-    "replace",
-    "retain",
-    "rev",
-    "rfind",
-    "saturating_add",
-    "saturating_sub",
-    "skip",
-    "sort",
-    "sort_by",
-    "sort_by_key",
-    "sort_unstable",
-    "split",
-    "split_once",
-    "split_whitespace",
-    "splitn",
-    "starts_with",
-    "step_by",
-    "strip_prefix",
-    "strip_suffix",
-    "sum",
-    "take",
-    "take_while",
-    "then",
-    "then_some",
-    "to_ascii_lowercase",
-    "to_ascii_uppercase",
-    "to_lowercase",
-    "to_owned",
-    "to_string",
-    "to_uppercase",
-    "to_vec",
-    "trim",
-    "trim_end",
-    "trim_start",
-    "truncate",
-    "unwrap",
-    "unwrap_or",
-    "unwrap_or_default",
-    "unwrap_or_else",
-    "values",
-    "windows",
-    "wrapping_add",
-    "zip",
-];
+/// Methods a derived standard trait adds, by trait; derived impls only copy or build fields.
+const DERIVED_TRAIT_METHODS: &[(&str, &str)] = &[("Clone", "clone"), ("Default", "default")];
 
 /// Macros that do no I/O; their arguments are still checked.
 pub(crate) const PURE_MACROS: &[&str] = &[
@@ -336,6 +187,9 @@ pub(crate) const LOG_MACROS: &[&str] = &[
 /// Macros that format into their first argument.
 pub(crate) const WRITE_MACROS: &[&str] = &["write", "writeln"];
 
+/// Macros that write to the process's standard output or error.
+pub(crate) const PRINT_MACROS: &[&str] = &["dbg", "eprint", "eprintln", "print", "println"];
+
 /// What a path names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PathTarget {
@@ -350,6 +204,15 @@ pub(crate) enum PathTarget {
     External,
 }
 
+/// How sure the analyzer is that an external call does I/O.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Certainty {
+    /// An unresolved item, such as one from another file, that may be pure.
+    Possible,
+    /// A Dex Client, standard-library I/O, printing, or an injected trait object.
+    Definite,
+}
+
 /// Where a value comes from, which decides whether its methods may do I/O.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ValueOrigin {
@@ -357,42 +220,51 @@ pub(crate) enum ValueOrigin {
     PureStandardLibrary,
     /// A value of a type declared in this file.
     FileType(String),
-    External,
-    /// A standard collection whose elements are not pure standard values.
-    Collection,
+    External(Certainty),
+    /// A standard collection; holds its element origin.
+    Collection(Box<ValueOrigin>),
+    /// An Option or Result; holds its payload origin.
+    Optional(Box<ValueOrigin>),
     Unknown,
 }
 
 impl ValueOrigin {
-    /// Returns PureStandardLibrary for a collection of pure elements, and Collection otherwise.
-    pub(crate) fn collection(elements: impl IntoIterator<Item = Self>) -> Self {
-        if elements
-            .into_iter()
-            .all(|element| matches!(element, Self::PureStandardLibrary | Self::DexSdk))
-        {
-            Self::PureStandardLibrary
-        } else {
-            Self::Collection
-        }
-    }
-
     pub(crate) fn merge(self, other: Self) -> Self {
         match (self, other) {
-            (Self::External, _) | (_, Self::External) => Self::External,
+            (Self::External(left), Self::External(right)) => Self::External(left.max(right)),
+            (Self::External(certainty), _) | (_, Self::External(certainty)) => {
+                Self::External(certainty)
+            }
             (left, right) if left == right => left,
             _ => Self::Unknown,
         }
     }
 
-    /// Returns External when any element is External, and PureStandardLibrary otherwise.
+    /// Returns the most certain External element, and PureStandardLibrary otherwise.
     pub(crate) fn container(elements: impl IntoIterator<Item = Self>) -> Self {
-        if elements
+        elements
             .into_iter()
-            .any(|element| element == Self::External)
-        {
-            Self::External
-        } else {
-            Self::PureStandardLibrary
+            .filter_map(|element| match element {
+                Self::External(certainty) => Some(certainty),
+                _ => None,
+            })
+            .max()
+            .map_or(Self::PureStandardLibrary, Self::External)
+    }
+
+    /// Returns PureStandardLibrary for a collection of pure elements, and a Collection otherwise.
+    pub(crate) fn collection(element: Self) -> Self {
+        match element {
+            Self::PureStandardLibrary | Self::DexSdk => Self::PureStandardLibrary,
+            element => Self::Collection(Box::new(element)),
+        }
+    }
+
+    /// Returns the payload of an Option or Result, as the `?` operator or `unwrap` does.
+    pub(crate) fn unwrapped(self) -> Self {
+        match self {
+            Self::Optional(payload) => *payload,
+            other => other,
         }
     }
 }
@@ -483,7 +355,7 @@ impl RustFlowSource<'_> {
                         .last()
                         .is_some_and(|name| SERDE_JSON_EXTERNAL_FUNCTIONS.contains(&name.as_str()));
                     return if is_io {
-                        PathTarget::External
+                        PathTarget::ExternalStandardLibrary
                     } else {
                         PathTarget::PureStandardLibrary
                     };
@@ -530,6 +402,36 @@ impl RustFlowSource<'_> {
         !roots.is_empty() && roots.iter().all(|root| *root == "dex_sdk")
     }
 
+    /// Reports whether a same-file struct or enum derives the standard trait that adds method.
+    pub(crate) fn derives_method(&self, owner: &str, method: &str) -> bool {
+        let attributes = match self.declarations.get(owner) {
+            Some(Item::Struct(declaration)) => &declaration.attrs,
+            Some(Item::Enum(declaration)) => &declaration.attrs,
+            _ => return false,
+        };
+        let Some((derived, _)) = DERIVED_TRAIT_METHODS
+            .iter()
+            .find(|(_, derived_method)| *derived_method == method)
+        else {
+            return false;
+        };
+        attributes
+            .iter()
+            .filter(|attribute| attribute.path().is_ident("derive"))
+            .any(|attribute| {
+                let mut is_derived = false;
+                let parsed = attribute.parse_nested_meta(|meta| {
+                    is_derived |= meta
+                        .path
+                        .segments
+                        .last()
+                        .is_some_and(|segment| segment.ident == derived);
+                    Ok(())
+                });
+                parsed.is_ok() && is_derived
+            })
+    }
+
     pub(crate) fn type_origin(&self, value: &Type, scope: &TypeScope, depth: usize) -> ValueOrigin {
         if depth >= 16 {
             return ValueOrigin::Unknown;
@@ -539,10 +441,10 @@ impl RustFlowSource<'_> {
             Type::Paren(inner) => self.type_origin(&inner.elem, scope, depth + 1),
             Type::Group(inner) => self.type_origin(&inner.elem, scope, depth + 1),
             Type::Array(array) => {
-                ValueOrigin::collection([self.type_origin(&array.elem, scope, depth + 1)])
+                ValueOrigin::collection(self.type_origin(&array.elem, scope, depth + 1))
             }
             Type::Slice(slice) => {
-                ValueOrigin::collection([self.type_origin(&slice.elem, scope, depth + 1)])
+                ValueOrigin::collection(self.type_origin(&slice.elem, scope, depth + 1))
             }
             Type::Tuple(tuple) => ValueOrigin::container(
                 tuple
@@ -553,11 +455,10 @@ impl RustFlowSource<'_> {
             Type::ImplTrait(bounds) if is_conversion_bound(&bounds.bounds) => {
                 ValueOrigin::PureStandardLibrary
             }
-            Type::TraitObject(_) | Type::ImplTrait(_) | Type::BareFn(_) | Type::Ptr(_) => {
-                ValueOrigin::External
-            }
+            Type::TraitObject(_) | Type::ImplTrait(_) => ValueOrigin::External(Certainty::Definite),
+            Type::BareFn(_) | Type::Ptr(_) => ValueOrigin::External(Certainty::Possible),
             Type::Path(path) if path.qself.is_none() => self.type_path_origin(path, scope, depth),
-            Type::Path(_) => ValueOrigin::External,
+            Type::Path(_) => ValueOrigin::External(Certainty::Possible),
             _ => ValueOrigin::Unknown,
         }
     }
@@ -591,20 +492,31 @@ impl RustFlowSource<'_> {
             })
             .unwrap_or_default();
         let last = segments.last().map(String::as_str).unwrap_or_default();
+        let first_argument = || {
+            arguments
+                .first()
+                .map_or(ValueOrigin::PureStandardLibrary, |inner| {
+                    self.type_origin(inner, scope, depth + 1)
+                })
+        };
         match self.path_target(&segments, scope) {
+            PathTarget::DexSdk | PathTarget::PureStandardLibrary
+                if OPTIONAL_TYPES.contains(&last) =>
+            {
+                ValueOrigin::Optional(Box::new(first_argument()))
+            }
             PathTarget::DexSdk => ValueOrigin::DexSdk,
             PathTarget::PureStandardLibrary if TRANSPARENT_WRAPPER_TYPES.contains(&last) => {
-                arguments
-                    .first()
-                    .map_or(ValueOrigin::PureStandardLibrary, |inner| {
-                        self.type_origin(inner, scope, depth + 1)
-                    })
+                first_argument()
             }
             PathTarget::PureStandardLibrary if COLLECTION_TYPES.contains(&last) => {
+                // A map's elements are its values, its last type argument.
                 ValueOrigin::collection(
                     arguments
-                        .iter()
-                        .map(|argument| self.type_origin(argument, scope, depth + 1)),
+                        .last()
+                        .map_or(ValueOrigin::PureStandardLibrary, |element| {
+                            self.type_origin(element, scope, depth + 1)
+                        }),
                 )
             }
             PathTarget::PureStandardLibrary => ValueOrigin::container(
@@ -625,9 +537,10 @@ impl RustFlowSource<'_> {
                 Some(Item::Struct(_) | Item::Enum(_)) => ValueOrigin::FileType(name),
                 _ => ValueOrigin::Unknown,
             },
-            PathTarget::DexSdkExternal
-            | PathTarget::ExternalStandardLibrary
-            | PathTarget::External => ValueOrigin::External,
+            PathTarget::DexSdkExternal | PathTarget::ExternalStandardLibrary => {
+                ValueOrigin::External(Certainty::Definite)
+            }
+            PathTarget::External => ValueOrigin::External(Certainty::Possible),
         }
     }
 

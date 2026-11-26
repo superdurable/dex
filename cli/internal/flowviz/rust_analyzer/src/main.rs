@@ -9,6 +9,8 @@
 //! Parse Rust workflow source for `dexcli visualize`.
 
 mod expressions;
+mod external_call_macros;
+mod external_call_origins;
 mod external_call_targets;
 mod external_calls;
 mod handlers;
@@ -353,13 +355,14 @@ impl<'source> RustFlowSource<'source> {
         flow.report_unresolved_name("flow_type", graph);
         self.add_persistence(flow, graph);
         let registered = self.registered_steps(flow, graph);
-        for rust_type in registered {
-            if let Some(step) = self.steps.get(&rust_type) {
+        for rust_type in &registered {
+            if let Some(step) = self.steps.get(rust_type) {
                 step.report_unresolved_name("step_type", graph);
                 self.analyze_step(step, graph);
             }
         }
         self.analyze_flow_handlers(flow, graph);
+        self.record_method_external_calls(&registered, graph);
     }
 
     fn select_flow(
