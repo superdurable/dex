@@ -92,8 +92,7 @@ impl PartitionTimerWake {
         }
     }
 
-    /// Records an armed timer and wakes the service if it is due before the planned wake.
-    /// Call it after the index row commits.
+    /// Records a committed timer and wakes the service if its planned pass would be late.
     pub(super) fn note_armed(&self, fire_at_micros: i64) {
         // Always recorded: the next pass may start below its read cursor.
         self.earliest_armed_micros
@@ -179,7 +178,7 @@ impl PartitionTimerService {
         }
     }
 
-    async fn run(mut self) {
+    pub(super) async fn run(mut self) {
         let mut backoff = self.context.retry_backoff();
         loop {
             if self.context.shutdown.is_cancelled() {

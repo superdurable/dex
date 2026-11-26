@@ -127,9 +127,8 @@ async fn a_timer_due_after_the_planned_wake_fires_without_an_extra_pass() {
     let run_id = harness.start_flow(start_request(FLOW_ID), settings());
     let base = harness.clock.now_unix_micros();
     let committed_reads = &harness.flow_effect_operations.committed_reads;
-    let reads = || committed_reads.load(Ordering::SeqCst);
 
-    let reads_before_first = reads();
+    let reads_before_first = committed_reads.load(Ordering::SeqCst);
     seed_timer(
         &harness,
         FLOW_ID,
@@ -140,11 +139,11 @@ async fn a_timer_due_after_the_planned_wake_fires_without_an_extra_pass() {
     notify_armed(&harness, FLOW_ID, base + 5 * SECOND_MICROS);
     harness.settle().await;
     assert!(
-        reads() > reads_before_first,
+        committed_reads.load(Ordering::SeqCst) > reads_before_first,
         "an earlier timer wakes a pass"
     );
 
-    let reads_before_later = reads();
+    let reads_before_later = committed_reads.load(Ordering::SeqCst);
     seed_timer(
         &harness,
         FLOW_ID,
@@ -154,7 +153,11 @@ async fn a_timer_due_after_the_planned_wake_fires_without_an_extra_pass() {
     );
     notify_armed(&harness, FLOW_ID, base + 10 * SECOND_MICROS);
     harness.settle().await;
-    assert_eq!(reads(), reads_before_later, "a later timer wakes no pass");
+    assert_eq!(
+        committed_reads.load(Ordering::SeqCst),
+        reads_before_later,
+        "a later timer wakes no pass"
+    );
 
     sleep_until_micros(&harness, base + 5 * SECOND_MICROS).await;
     harness.settle().await;
@@ -394,6 +397,55 @@ async fn a_wall_clock_moved_back_keeps_the_backoff_of_a_fired_timer_still_in_the
     harness.settle().await;
     assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 2);
     harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timer_armed_during_a_pass_after_the_old_planned_wake_fires_on_time() {
+    const FLOW_ID: &str = "armed-during-pass-sentinel";
+    // No rebuild, so the snapshot hook reaches only the timer service this test runs.
+    let harness = EffectHarness::new();
+    harness
+        .flow_effect_operations
+        .add_override(timers_fired_override());
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    let partition = harness.partition_of(FLOW_ID);
+    let base = harness.clock.now_unix_micros();
+    let wake = Arc::new(PartitionTimerWake::new(
+        Arc::clone(&harness.clock) as Arc<dyn WallClock>
+    ));
+    let service = PartitionTimerService::new(
+        Arc::clone(harness.effect_context()),
+        partition,
+        Arc::clone(&wake),
+    );
+    let service_task = tokio::spawn(service.run());
+    // The empty partition plans its next pass at 60 seconds.
+    harness.settle().await;
+
+    // At 10 seconds a pass plans 70 seconds; a timer due at 61 is armed during it.
+    sleep_until_micros(&harness, base + 10 * SECOND_MICROS).await;
+    let fire_at = base + 61 * SECOND_MICROS;
+    let racing_timer = TimerArmedAfterSnapshot {
+        partition,
+        run: harness.run_location(FLOW_ID, run_id),
+        fire_at_micros: fire_at,
+        wake: Arc::clone(&wake),
+    };
+    *harness
+        .flow_effect_operations
+        .committed_reader_hook
+        .lock()
+        .expect("lock") = Some(Box::new(move |state| racing_timer.commit_and_notify(state)));
+    wake.note_armed(harness.clock.now_unix_micros());
+    harness.settle().await;
+    sleep_until_micros(&harness, fire_at + 10 * MILLI_MICROS).await;
+    harness.settle().await;
+
+    let fires = fires_of(&harness, run_id, &wait_timer(0));
+    assert_eq!(fires.len(), 1, "it fires at 61 seconds, not 70: {fires:?}");
+    assert!(fires[0] >= fire_at);
+    harness.shutdown().await;
+    service_task.await.expect("the timer service stops");
 }
 
 #[tokio::test(start_paused = true)]
