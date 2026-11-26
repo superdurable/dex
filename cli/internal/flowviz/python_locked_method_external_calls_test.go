@@ -127,6 +127,10 @@ class Reminder:
 def format_reminder(text):
     return text.strip().title()`
 
+const pythonReboundLocalBody = `value = input
+        value = value.strip()
+        ReminderFlow.counter.set(context, len(value.upper()))`
+
 const pythonPureStepMethods = `    def mark_sent(self, context, sent_at):
         ReminderFlow.ending.set(context, sent_at > 0)`
 
@@ -139,6 +143,8 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 		messages []string
 		// isExecuteClean requires an analyzed SendReminderStep execute with no possible external call.
 		isExecuteClean bool
+		// isExecuteUnchecked requires no SendReminderStep execute marker, because it shares no lock with an RPC.
+		isExecuteUnchecked bool
 		// hasOtherError marks a source that another analyzer rule already makes invalid.
 		hasOtherError bool
 	}{
@@ -151,7 +157,8 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 			isExecuteClean: true,
 		},
 		"lock shared only between Steps": {
-			source: pythonLockedMethodCase{rpcLock: endingLock, executeLock: counterLock, deliverLock: counterLock, executeBody: "self.mailer.send(input)", deliverBody: "self.mailer.send(input)"},
+			source:             pythonLockedMethodCase{rpcLock: endingLock, executeLock: counterLock, deliverLock: counterLock, executeBody: "self.mailer.send(input)", deliverBody: "self.mailer.send(input)"},
+			isExecuteUnchecked: true,
 		},
 		"locked execute with only SDK, pure standard library, and pure helper calls": {
 			source:         pythonLockedMethodCase{rpcLock: endingLock, executeLock: endingLock, executeBody: pythonPureExecuteBody, stepMethods: pythonPureStepMethods, moduleExtra: pythonPureHelperSource},
@@ -187,8 +194,9 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 			messages: []string{"and calls deliver_with (calls mailer.get); Dex fails that RPC"},
 		},
 		"wait for calls a callable value while holding an RPC lock": {
-			source:   pythonLockedMethodCase{rpcLock: endingLock, waitLock: endingLock, waitBody: "notify = self.mailer.send\n        notify(input)"},
-			messages: []string{"WaitFor of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls notify;"},
+			source:             pythonLockedMethodCase{rpcLock: endingLock, waitLock: endingLock, waitBody: "notify = self.mailer.send\n        notify(input)"},
+			messages:           []string{"WaitFor of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls notify;"},
+			isExecuteUnchecked: true,
 		},
 		"callback passed to map": {
 			source:   pythonLockedMethodCase{rpcLock: endingLock, executeLock: endingLock, executeBody: "list(map(self.mailer.send, [input]))"},
@@ -214,7 +222,60 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 			hasOtherError: true,
 		},
 		"no RPC lock": {
-			source: pythonLockedMethodCase{executeLock: endingLock, executeBody: "self.mailer.send(input)"},
+			source:             pythonLockedMethodCase{executeLock: endingLock, executeBody: "self.mailer.send(input)"},
+			isExecuteUnchecked: true,
+		},
+		"rebound local under an RPC lock": {
+			source:         pythonLockedMethodCase{rpcLock: endingLock, executeLock: endingLock, executeBody: pythonReboundLocalBody},
+			isExecuteClean: true,
+		},
+		"rebound local without locks": {
+			source:             pythonLockedMethodCase{executeBody: pythonReboundLocalBody},
+			isExecuteUnchecked: true,
+		},
+		"rebound local in a loop under an RPC lock": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock,
+				executeBody: "value = input\n        for _ in range(2):\n            value = value.strip()\n        ReminderFlow.counter.set(context, len(value.upper()))",
+			},
+			isExecuteClean: true,
+		},
+		"rebound injected service under an RPC lock": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock,
+				executeBody: "service = input\n        service = self.mailer\n        service.get(input)",
+			},
+			messages: []string{"and calls service.get;"},
+		},
+		"constructor __new__ opens a file": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "LocalCtor()",
+				moduleExtra: "class LocalCtor:\n    def __new__(cls):\n        open(\"/tmp/ledger\")\n        return super().__new__(cls)",
+			},
+			messages: []string{"and calls LocalCtor (calls open);"},
+		},
+		"inherited constructor calls urllib.request": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "Child(input)",
+				moduleExtra: "class Base:\n    def __init__(self, text):\n        urllib.request.urlopen(text)\n\n\nclass Child(Base):\n    pass",
+			},
+			messages: []string{"and calls Child (calls urllib.request.urlopen);"},
+		},
+		"constructor inherited from a third-party base": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "Session()",
+				modulePrelude: "import requests",
+				moduleExtra:   "class Session(requests.Session):\n    pass",
+			},
+			messages: []string{"and calls Session (a constructor dexcli cannot read);"},
+		},
+		"metaclass call opens a file": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "Built()",
+				moduleExtra: "class Meta(type):\n    def __call__(cls):\n        open(\"/tmp/ledger\")\n\n\nclass Built(metaclass=Meta):\n    pass",
+			},
+			messages:      []string{"and calls Built (calls open);"},
+			hasOtherError: true,
 		},
 	}
 	for _, name := range slices.Sorted(maps.Keys(testCases)) {
@@ -236,6 +297,11 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 			executeIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
 				return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"
 			})
+			if testCase.isExecuteUnchecked {
+				require.Equal(t, -1, executeIndex, "%+v", graph.methodExternalCalls)
+				require.Equal(t, !testCase.hasOtherError, graph.Valid, "%+v", graph.Diagnostics)
+				return
+			}
 			require.NotEqual(t, -1, executeIndex, "%+v", graph.methodExternalCalls)
 			if testCase.isExecuteClean {
 				require.Empty(t, graph.methodExternalCalls[executeIndex].Calls)
