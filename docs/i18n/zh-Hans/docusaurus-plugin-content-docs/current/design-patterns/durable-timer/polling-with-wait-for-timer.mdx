@@ -33,7 +33,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
   轮次上限限制的是检查次数，不是耗时：每一轮还要花时间在外部调用、重试和排队上。
   需要不受轮询重试推迟的持久截止时间时，使用
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)（英文）
-  或 [截止时间 watchdog](#deadline-watchdog)。
+  或下面的截止时间 watchdog。
 - <a id="deadline-watchdog"></a>截止时间短于 Flow 时，使用截止时间 watchdog。
   处理起始事件的决定同时调度轮询 Step 和 watchdog Step。watchdog 的 `WaitFor` 返回截止时间的 Timer。
   轮询 Step 调用外部系统，不持有锁。它看到作业完成时，转到一个短的结果 Step。

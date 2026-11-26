@@ -35,7 +35,7 @@ Each round of the polling Step runs these steps:
   external call, retries, and queueing. For a durable deadline that polling
   retries cannot delay, use the
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)
-  or a [deadline watchdog](#deadline-watchdog).
+  or the deadline watchdog below.
 - <a id="deadline-watchdog"></a>Use a deadline watchdog for a deadline
   shorter than the Flow. The decision that handles the starting event
   schedules the polling Step and a watchdog Step together. The watchdog's
