@@ -9,6 +9,8 @@
 //! Parse Rust workflow source for `dexcli visualize`.
 
 mod expressions;
+mod external_call_targets;
+mod external_calls;
 mod handlers;
 mod metadata;
 mod waits;
@@ -59,7 +61,7 @@ impl RustFlowGraph {
             analysis: json!({
                 "graph": {"schemaVersion": "2.0", "valid": true, "source": {"language": "rust", "path": path},
                           "flow": {"name": ""}, "nodes": [], "edges": [], "diagnostics": []},
-                "annotations": [], "attributes": [], "viewRPCs": []
+                "annotations": [], "attributes": [], "viewRPCs": [], "methodExternalCalls": []
             }),
             node_ids: BTreeSet::new(),
         }
@@ -121,6 +123,9 @@ struct RustFlowSource<'source> {
     declarations: BTreeMap<String, &'source Item>,
     constants: BTreeMap<String, (&'source Type, &'source Expr)>,
     import_aliases: BTreeMap<String, String>,
+    /// Full use paths by the local name they bring into scope.
+    use_paths: BTreeMap<String, Vec<String>>,
+    glob_imports: Vec<Vec<String>>,
     attribute_lines: BTreeSet<usize>,
     implementations: Vec<&'source ItemImpl>,
     flows: Vec<WorkflowImplementation<'source>>,
@@ -143,6 +148,8 @@ impl<'source> RustFlowSource<'source> {
             declarations: BTreeMap::new(),
             constants: BTreeMap::new(),
             import_aliases: BTreeMap::new(),
+            use_paths: BTreeMap::new(),
+            glob_imports: Vec::new(),
             attribute_lines: BTreeSet::new(),
             implementations: Vec::new(),
             flows: Vec::new(),
@@ -196,7 +203,10 @@ impl<'source> RustFlowSource<'source> {
                         item.span(),
                     );
                 }
-                Item::Use(import) => self.index_import_aliases(&import.tree),
+                Item::Use(import) => {
+                    self.index_import_aliases(&import.tree);
+                    self.index_use_paths(&import.tree, &mut Vec::new());
+                }
                 _ => {}
             }
         }
