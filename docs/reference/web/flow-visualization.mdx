@@ -543,7 +543,7 @@ The warning **locked_method_external_call** is experimental. It can report false
 
 - **locked_method_external_call** (warning): a **WaitFor** or **Execute** registers a lock that an RPC of the same Flow also registers, and the method may call an external system. The message names the method, the lock, the RPC, and the first possible external call. Go, TypeScript, Python, Java, and Rust sources are checked.
 
-The analyzer decides what counts as an external call with an allowlist, so it does not miss one. In every language, a same-file helper is followed up to six levels deep, and it is allowed only when it makes only allowed calls. A Dex client or Worker counts as an external call in every language, because it reaches the Dex server and another Flow is an external system.
+The analyzer decides what counts as an external call with an allowlist, so it does not miss one. In every language, a helper the analyzer can read is followed up to six levels deep, and it is allowed only when it makes only allowed calls. A Dex client or Worker counts as an external call in every language, because it reaches the Dex server and another Flow is an external system.
 
 ### Go allowlist {#locks-shared-with-rpcs-go}
 
