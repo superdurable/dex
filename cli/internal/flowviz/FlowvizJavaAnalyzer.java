@@ -1057,10 +1057,13 @@ class FlowvizJavaAnalyzer {
             "java.nio.charset.StandardCharsets", "java.nio.charset.Charset",
             "java.net.URI", "java.net.URLEncoder", "java.net.URLDecoder", "java.security.MessageDigest",
             "org.slf4j.Logger", "org.slf4j.LoggerFactory");
+    // Class metadata that never initializes the class; getEnumConstants runs enum constructors.
+    private static final Set<String> ALLOWED_CLASS_METHODS = Set.of("getName", "getSimpleName", "getCanonicalName",
+            "getTypeName", "getPackageName", "isInstance", "cast", "isEnum", "isRecord", "isInterface", "isArray",
+            "isPrimitive", "isAssignableFrom", "getModifiers", "getComponentType", "equals", "hashCode", "toString");
     private static final Set<String> ALLOWED_SYSTEM_METHODS = Set.of("currentTimeMillis", "nanoTime", "arraycopy",
             "identityHashCode", "lineSeparator", "getenv", "getProperty");
     private static final Map<String, Set<String>> DENIED_JDK_METHODS = Map.of(
-            "Class", Set.of("getResource", "getResourceAsStream"),
             "TimeUnit", Set.of("sleep", "timedJoin", "timedWait"));
     // Known SDK return types; T is the receiver's type argument, A the first argument's, C a class literal's.
     private static final Map<String, String> SDK_RETURN_TYPES = Map.ofEntries(
@@ -1526,6 +1529,19 @@ class FlowvizJavaAnalyzer {
             return super.visitMemberReference(reference, unused);
         }
 
+        @Override public Void visitTry(TryTree statement, Void unused) {
+            super.visitTry(statement, unused);
+            for (var resource : statement.getResources()) {
+                if (!(resource instanceof VariableTree variable)) continue;
+                var type = typeOfVariable(variable);
+                // The implicit close of a stream resource runs its close handlers.
+                if (type.jdkClass() != null && java.util.stream.BaseStream.class.isAssignableFrom(type.jdkClass())) {
+                    calls.add(object("callee", variable.getName() + ".close", "span", span(variable)));
+                }
+            }
+            return null;
+        }
+
         @Override public Void visitEnhancedForLoop(EnhancedForLoopTree loop, Void unused) {
             var variable = loop.getVariable();
             if (isInferred(variable)) {
@@ -1604,12 +1620,20 @@ class FlowvizJavaAnalyzer {
                 case SAME_FILE: {
                     var methods = sameFileMethods(receiver.declaration(), name, arguments, false);
                     if (!methods.isEmpty()) return candidatesCall(callee, methods, site);
-                    return isImplicitMethod(receiver.declaration(), name, argumentCount) ? null : external(callee, site);
+                    if (!isImplicitMethod(receiver.declaration(), name, argumentCount)) return external(callee, site);
+                    // values and valueOf initialize the enum, which runs its constructors.
+                    var isEnumInitialization = receiver.declaration().tree.getKind() == Tree.Kind.ENUM &&
+                            (name.equals("values") || name.equals("valueOf"));
+                    return isEnumInitialization ? candidatesCall(callee, sameFileConstructors(receiver.declaration(), null), site) : null;
                 }
                 case SAME_PACKAGE_DATA:
                     return isSamePackageImplicitMethod(receiver, name, argumentCount) ? null : external(callee, site);
                 case PURE:
                     if (receiver.name().equals("java.lang.System") && !ALLOWED_SYSTEM_METHODS.contains(name)) return external(callee, site);
+                    if (receiver.jdkClass() == Class.class && !ALLOWED_CLASS_METHODS.contains(name)) return external(callee, site);
+                    // Closing a stream runs the close handlers registered on it.
+                    if (receiver.jdkClass() != null && java.util.stream.BaseStream.class.isAssignableFrom(receiver.jdkClass()) &&
+                            name.equals("close")) return external(callee, site);
                     var simple = receiver.jdkClass() == null ? "" : receiver.jdkClass().getSimpleName();
                     return DENIED_JDK_METHODS.getOrDefault(simple, Set.of()).contains(name) ? external(callee, site) : null;
                 case FUNCTIONAL: {
@@ -1628,6 +1652,8 @@ class FlowvizJavaAnalyzer {
             if (data == null || data.methods().contains(name)) return false;
             if (OBJECT_METHODS.contains(name)) return true;
             if (data.tree().getKind() == Tree.Kind.ENUM) {
+                // A sibling enum constructor is not analyzed, so initializing such an enum counts as external.
+                if (data.hasConstructor() && (name.equals("values") || name.equals("valueOf"))) return false;
                 return Set.of("values", "valueOf", "name", "ordinal", "compareTo", "getDeclaringClass").contains(name);
             }
             return argumentCount <= 0 && data.components().containsKey(name);
@@ -1733,7 +1759,7 @@ class FlowvizJavaAnalyzer {
             return !parameters.isEmpty() && parameters.get(parameters.size() - 1).toString().contains("...");
         }
 
-        /** Keeps candidates whose parameter types accept the argument types; when none or several remain, all are checked. */
+        /** Drops only candidates whose parameters provably reject an argument; every remaining candidate is checked. */
         private List<SameFileMethod> applicableMethods(List<SameFileMethod> candidates, List<? extends ExpressionTree> arguments) {
             if (arguments == null || candidates.size() < 2) return candidates;
             var argumentTypes = arguments.stream().map(argument -> typeOf(unwrap(argument))).toList();
@@ -1742,41 +1768,69 @@ class FlowvizJavaAnalyzer {
                 var checked = isVarargs(candidate.method()) ? parameters.size() - 1 : parameters.size();
                 for (int index = 0; index < checked && index < argumentTypes.size(); index++) {
                     var parameter = finder.resolveType(parameters.get(index).getType(), candidate.owner());
-                    if (!isAssignable(argumentTypes.get(index), parameter)) return false;
+                    if (isProvablyIncompatible(argumentTypes.get(index), parameter)) return false;
                 }
                 return true;
             }).toList();
             return applicable.isEmpty() ? candidates : applicable;
         }
 
-        /** Reports whether a value of type argument may be passed as parameter; unknown types are assignable. */
-        private boolean isAssignable(ValueType argument, ValueType parameter) {
-            if (argument.kind() == ValueKind.UNKNOWN || parameter.kind() == ValueKind.UNKNOWN) return true;
-            if (parameter.kind() == ValueKind.PURE && "java.lang.Object".equals(parameter.name())) return true;
+        /** Reports whether a value of type argument can never be passed as parameter; anything unresolved stays compatible. */
+        private boolean isProvablyIncompatible(ValueType argument, ValueType parameter) {
+            if (argument.kind() == ValueKind.UNKNOWN || parameter.kind() == ValueKind.UNKNOWN) return false;
+            if (parameter.jdkClass() == Object.class) return false;
             if (argument.kind() == ValueKind.PRIMITIVE || parameter.kind() == ValueKind.PRIMITIVE) {
-                return isNumericOrBoxed(argument) && isNumericOrBoxed(parameter);
+                return !(isNumericOrBoxed(argument) && isNumericOrBoxed(parameter));
             }
-            if (argument.kind() == ValueKind.SAME_FILE && parameter.kind() == ValueKind.SAME_FILE) {
-                return isSubclass(argument.declaration(), parameter.declaration(), new HashSet<>());
-            }
-            if (argument.jdkClass() != null && parameter.jdkClass() != null) return parameter.jdkClass().isAssignableFrom(argument.jdkClass());
-            if (parameter.kind() == ValueKind.FUNCTIONAL) return argument.kind() == ValueKind.FUNCTIONAL;
-            if (argument.kind() != parameter.kind()) return false;
-            return argument.kind() == ValueKind.ARRAY || simpleName(argument.name()).equals(simpleName(parameter.name()));
+            if (argument.kind() == ValueKind.SAME_FILE) return !mayBeSubtype(argument.declaration(), parameter, new HashSet<>());
+            if (argument.jdkClass() != null && parameter.jdkClass() != null) return !parameter.jdkClass().isAssignableFrom(argument.jdkClass());
+            if (argument.jdkClass() != null) return parameter.kind() == ValueKind.SAME_FILE || parameter.kind() == ValueKind.SDK;
+            // A lambda fits only a functional interface; a same-file interface may be one.
+            if (argument.kind() == ValueKind.FUNCTIONAL && argument.jdkClass() == null) return parameter.jdkClass() != null &&
+                    parameter.kind() != ValueKind.FUNCTIONAL;
+            return false;
         }
 
-        private boolean isNumericOrBoxed(ValueType type) {
-            if (type.kind() == ValueKind.PRIMITIVE) return true;
-            return type.jdkClass() != null && (Number.class.isAssignableFrom(type.jdkClass()) ||
-                    type.jdkClass() == Boolean.class || type.jdkClass() == Character.class || type.jdkClass() == Object.class);
-        }
-
-        private boolean isSubclass(Declaration declaration, Declaration target, Set<Declaration> visited) {
+        /** Reports whether a same-file class may be a subtype of parameter, following its supertypes into the JDK and SDK. */
+        private boolean mayBeSubtype(Declaration declaration, ValueType parameter, Set<Declaration> visited) {
             if (declaration == null || !visited.add(declaration)) return false;
-            if (declaration == target) return true;
+            if (parameter.kind() == ValueKind.SAME_FILE && parameter.declaration() == declaration) return true;
             List<Tree> supertypes = new ArrayList<>(declaration.tree.getImplementsClause());
             if (declaration.tree.getExtendsClause() != null) supertypes.add(declaration.tree.getExtendsClause());
-            return supertypes.stream().anyMatch(supertype -> isSubclass(resolveClass(rawType(supertype), declaration), target, visited));
+            List<ValueType> resolved = new ArrayList<>();
+            for (var supertype : supertypes) resolved.add(finder.resolveType(supertype, declaration));
+            var implicit = switch (declaration.tree.getKind()) {
+                case ENUM -> Enum.class;
+                case RECORD -> Record.class;
+                default -> Object.class;
+            };
+            resolved.add(finder.classifyJdkClass(implicit));
+            for (var supertype : resolved) {
+                switch (supertype.kind()) {
+                    case SAME_FILE:
+                        if (mayBeSubtype(supertype.declaration(), parameter, visited)) return true;
+                        break;
+                    case SDK, SDK_CONNECTION:
+                        // SDK type hierarchies are not modeled, so an SDK supertype may reach any non-local parameter.
+                        if (parameter.kind() != ValueKind.SAME_FILE) return true;
+                        break;
+                    default:
+                        if (supertype.jdkClass() == null) return true;
+                        if (parameter.jdkClass() != null && parameter.jdkClass().isAssignableFrom(supertype.jdkClass())) return true;
+                }
+            }
+            return false;
+        }
+
+        /** Reports whether a primitive or a boxed value may convert to type, for example int to Comparable. */
+        private boolean isNumericOrBoxed(ValueType type) {
+            if (type.kind() == ValueKind.PRIMITIVE) return true;
+            if (type.jdkClass() == null) return type.kind() != ValueKind.SAME_FILE && type.kind() != ValueKind.ARRAY;
+            for (var boxed : List.of(Integer.class, Long.class, Double.class, Float.class, Short.class, Byte.class,
+                    Character.class, Boolean.class)) {
+                if (type.jdkClass().isAssignableFrom(boxed) || boxed.isAssignableFrom(type.jdkClass())) return true;
+            }
+            return false;
         }
 
         /** Returns the return type shared by every candidate, or unknown when they differ. */
