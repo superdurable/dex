@@ -43,9 +43,11 @@ Each round of the polling Step runs these steps:
   external system and holds no lock. When it sees a finished job, it moves to
   a short result Step. The result Step and the watchdog's `Execute` share one
   Attribute lock. Each writes the terminal state only while it is still open.
-  Whoever commits first ends the other. A result cancels the watchdog by Step
-  type when the Flow has one such watchdog. An overdue mark ends polling: the
-  next round reads the terminal state and stops. The deadline never comes
+  The polling Step's failure route also goes to the result Step. The winner
+  writes the terminal state once and returns `GracefulComplete`, or goes to
+  the existing close branch. The loser returns `DeadEnd`. With one polling
+  Step and one watchdog, the winner cancels the other by Step type, so the
+  Flow completes when the winner commits. The deadline never comes
   from a stored timestamp and the clock, because a round that is retrying
   would delay it. The Timer starts when the watchdog's `WaitFor` result
   commits; see [Timer firing time](/reference/server/runtime-data#timer-firing-time).

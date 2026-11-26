@@ -226,13 +226,12 @@ The parent receives each child's result durably:
   fills in what is missing, and a repeat changes nothing.
 - The business number is the child Flow ID. A resend of the same start
   request keeps its request ID. A deliberate reopen is a new start request
-  with a new request ID. Every ID reuse policy that the starters use rejects
-  an active run; see
+  with a new request ID. It uses an ID reuse policy that allows the needed
+  earlier closed state and rejects an active run; see
   [ID reuse policies](/reference/go/start-flow-options#flow-id-request-id-and-already-started).
   The parent tracks the run ID that it claimed. It accepts only reads,
-  reports, and stops that it can tie to that run. Describe and the Client
-  Attribute read see only the latest run, so the parent confirms the run ID
-  around each read; see the
+  reports, and stops that it can tie to that run. When it reads the outcome
+  by Flow ID, it confirms the run ID before and after the read; see the
   [Production checklist](/design-patterns/subflows/child-flows-with-business-identity#production-checklist).
   A newer run is another attempt, which the parent handles by business
   policy.
@@ -261,10 +260,10 @@ The parent receives each child's result durably:
   child ended, such as counting its result, undoing its side effects, or
   showing its outcome, the parent reconciles it from the child's stored state.
   After a stop, a refused stop, or a timer for unreported children, the
-  parent describes the child first. It records a closed child's terminal
-  status and stored outcome. It reads a running child again later. A child
-  that does not exist, or whose latest run is not the claimed one, is
-  recorded by business policy, such as "unavailable".
+  parent describes the child first. A child that does not exist, or whose
+  latest run is not the claimed one, is recorded by business policy, such as
+  "unavailable". The parent reads a running claimed run again later. For a
+  closed claimed run, it records the terminal status and the stored outcome.
   It returns any other error, so the Step retries. A report that still
   arrives after the stop fills the same record. Children that finish after a
   quorum, or while the parent stops the rest, count in the parent's result as

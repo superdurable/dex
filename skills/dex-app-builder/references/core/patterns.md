@@ -376,25 +376,25 @@ StartJob.execute(request)
     jobId = provider.startJob(...)
     return goToMany(CheckJobStatus({jobId, round = 1}), WatchDeadline(jobId))   // one decision schedules both
 
-CheckJobStatus.execute(context, input)                 // no lock
-    if JobOutcome is set: return deadEnd()             // the watchdog committed first
+CheckJobStatus.execute(context, input)                 // no lock; failure route -> RecordJobResult(failed)
     status = provider.getStatus(input.jobId, cancel = context's cancellation signal)
     if status is finished: return goTo(RecordJobResult, status)
     return goTo(CheckJobStatus, {input.jobId, input.round + 1})
 
-RecordJobResult.execute(status)    [lock JobOutcome]   // short; no external call
-    if JobOutcome is set: return deadEnd()             // overdue already recorded
-    JobOutcome = status
-    return deadEnd().cancelSteps(WatchDeadline)        // or the next business Step, with the same cancel
+RecordJobResult.execute(outcome)   [lock JobOutcome]   // short; no external call
+    if JobOutcome is set: return deadEnd()             // lost to the watchdog
+    JobOutcome = outcome
+    return gracefulComplete(outcome).cancelSteps(WatchDeadline)
 
 WatchDeadline.waitFor(jobId) -> until(Timer(deadline))
 WatchDeadline.execute(jobId)       [lock JobOutcome]
-    if JobOutcome is unset: JobOutcome = overdue       // the next polling round reads it and stops
-    return deadEnd()
+    if JobOutcome is set: return deadEnd()             // lost to the result
+    JobOutcome = overdue
+    return gracefulComplete(overdue).cancelSteps(CheckJobStatus)
 ```
 
-- The provider call stays in the unlocked polling Step, so the watchdog never waits for a call or its retries. The short result Step and the watchdog share the lock, and each writes the terminal state only while it is open.
-- Whoever commits first ends the other. A result cancels the watchdog by Step type when the Flow has one such watchdog; with several watchdogs of one type, wake each through its own completion Channel. Otherwise GracefulComplete waits for the watchdog. Overdue ends polling: the next round reads the terminal state.
+- This extends the polling skeleton above only when a deadline spans rounds. The provider call stays in the unlocked polling Step, so the watchdog never waits for a call or its retries. The short result Step and the watchdog share the lock, and each writes the terminal state only while it is open.
+- The winner writes the terminal state once and completes, or goes to the existing close branch; the loser returns DeadEnd. With one poller and one watchdog, the winner cancels the other by Step type, so the Flow completes when the winner commits. With several watchdogs of one type, wake each through its own completion Channel.
 - Later rounds come from goTo, not from the fork, so a sibling cancel does not reach the watchdog.
 - The Timer starts when the watchdog's WaitFor result commits, and Execute can start late after it fires; see [Timer firing time](https://docs.superdurable.io/reference/server/runtime-data#timer-firing-time).
 - Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
