@@ -543,18 +543,20 @@ The warning **locked_method_external_call** is experimental. It can report false
 
 - **locked_method_external_call** (warning): a **WaitFor** or **Execute** registers a lock that an RPC of the same Flow also registers, and the method may call an external system. The message names the method, the lock, the RPC, and the first possible external call. Go, TypeScript, Python, Java, and Rust sources are checked.
 
-The analyzer decides what counts as an external call with an allowlist, so it does not miss one. In every language, a helper the analyzer can read is followed up to six levels deep, and it is allowed only when it makes only allowed calls. A Dex client or Worker counts as an external call in every language, because it reaches the Dex server and another Flow is an external system.
+The check is bounded static analysis with an allowlist. A call outside the allowlist counts as a possible external call. A helper the analyzer can read is followed up to six levels deep, and it is allowed only when it makes only allowed calls. A helper past that depth, or a method body the analyzer cannot read, counts as a possible external call. The analyzer reads source text only, so it can miss a call that dynamic dispatch selects at run time, such as reflection, a value cast to a different type, or a callback stored and called later. A Dex client or Worker counts as an external call in every language, because it reaches the Dex server and another Flow is an external system.
+
+The analyzer checks only a **WaitFor** or **Execute** that holds a lock some RPC of the Flow also takes. It skips the other Step methods, because they cannot cause this warning.
 
 ### Go allowlist {#locks-shared-with-rpcs-go}
 
 In Go, a call is allowed when it is one of these:
 
-- a call into the Dex SDK packages `sdk-go/dex` and `sdk-go/logging`, such as a method of the handler's **dex.Context** or an Attribute, or a method of **context.Context**. Methods of **dex.Client**, such as **StartFlow**, count as external calls, because they reach the Dex server and another Flow is an external system;
+- a call into the Dex SDK packages `sdk-go/dex` and `sdk-go/logging`, such as a method of the handler's **dex.Context** or an Attribute, or a method of **context.Context**. The SDK entries that reach the Dex server, read files, or run application callbacks count as external calls: **NewClient**, **NewWorker**, **FileCredential**, **APIKeyCredential**, **NewFilePayloadEncryptionKeyProvider**, **ReadFlowDefinitionFiles**, and the methods of **Client**, **Worker**, **Credential**, **PayloadCodec**, **AESGCMPayloadCodec**, **PayloadEncryptionKeyProvider**, and **FilePayloadEncryptionKeyProvider**;
 - a built-in function or a type conversion;
 - a standard-library call that does no I/O, such as **strings**, **strconv**, **encoding/json**, **math**, **sort**, **slices**, **errors**, **time** formatting and arithmetic, **fmt.Sprintf** and **fmt.Errorf**, and **log** or **log/slog**. **fmt.Print**, **fmt.Fprint**, **json.NewEncoder**, **json.NewDecoder**, **time.Sleep**, and timers count as external calls;
 - a function or method of the Flow's package whose body, checked up to six helper levels deep, makes only allowed calls.
 
-Every other call counts as a possible external call: a method on an interface, such as an injected client; a call through a function value or a function-typed field; a function used as a value, such as a callback argument; a third-party package or another package of your module; and standard-library I/O such as **net/http**, **os**, and **database/sql**.
+Every other call counts as a possible external call: a method on an interface, such as an injected client; a call through a function value or a function-typed field; a function used as a value, such as a callback argument; a third-party package or another package of your module; and standard-library I/O such as **net/http**, **os**, and **database/sql**. A Step method or same-package helper declared without a body also counts.
 
 Go locks come from **ExecuteLockAttributes** and **WaitForLockAttributes**, including the options a movement passes with **WithStepOptions**, and from **RPCOptions.LockAttributes**.
 
@@ -568,6 +570,8 @@ In TypeScript, a call is allowed when it is one of these:
 - a function, a class constructor, or a method on `this` declared in the same file.
 
 Every other call counts, such as **fetch**, **setTimeout**, `fs`, `http`, a method of another object, and an import from another module.
+
+A default-library call that takes a callback, such as **map** or **then**, calls that callback. A function literal or a same-file function passed there is checked like any other code. An imported function, a function value the analyzer cannot resolve, or another object's method passed there counts as a possible external call.
 
 TypeScript locks come from **executeLockAttributes** and **waitForLockAttributes** in **getStepOptions**, and from the RPC's **lockAttributes**.
 
@@ -584,6 +588,8 @@ In Python, a call is allowed when it is one of these:
 
 Every other call counts, such as `requests`, `subprocess`, a method of an injected object, and an import from another module of your project.
 
+Constructing a same-module class runs its metaclass `__call__`, `__new__`, `__init__`, and `__post_init__`, including those it inherits from same-module bases. The analyzer checks each of them. A base or metaclass from another module counts as a possible external call, unless it is a built-in, a pure standard-library class, or a Dex SDK class.
+
 Python locks come from **execute_lock_attributes** and **wait_for_lock_attributes**, and from `@rpc(lock_attributes=...)`.
 
 ### Java allowlist {#locks-shared-with-rpcs-java}
@@ -592,11 +598,13 @@ In Java, a call is allowed when it is one of these:
 
 - a call into `io.superdurable.dex`, such as the handler's **Context** or an Attribute. **Client**, **Worker**, **PullWorker**, **WorkerDispatcher**, **BlobCache**, and **Registry** count as external calls;
 - a call into `org.slf4j`;
-- a JDK call that does no I/O: **String**, **StringBuilder**, **Math**, the boxed types, and exceptions in `java.lang`; `java.util`, except **Timer**, **TimerTask**, **Scanner**, and **ServiceLoader**; and `java.time`, `java.math`, `java.text`, `java.util.stream`, `java.util.regex`, `java.util.function`, and `java.util.logging`;
+- a member of a JDK class on a per-class allowlist of classes that do no I/O, such as **String**, **StringBuilder**, **Math**, the boxed types, the `java.util` collections, **Optional**, **UUID**, the `java.util.stream` and `java.util.regex` types, the `java.time` value types, **BigDecimal**, and **MessageDigest**. A JDK class off the list counts, even in an allowed package, such as **java.util.Formatter** and **ResourceBundle**;
 - **System.currentTimeMillis**, **System.nanoTime**, **System.getenv**, and **System.getProperty**;
 - a method of the same file, or an implicit member of a record or enum in another file of the same package.
 
 Every other call counts, such as **System.out.println**, `java.io`, `java.net` connections, reflection, **Object.wait**, and a method of an injected interface.
+
+The analyzer types the result of a known SDK method, such as **Context.getAttribute** or **Context.pendingChannelMessages**, from its type arguments. The result of any other SDK method has an unknown type, so a call on it counts as a possible external call. For an overloaded method or constructor, the analyzer keeps the declarations whose parameter types accept the argument types. When none or several remain, it checks all of them.
 
 Java locks come from **StepOptions.Builder.addExecuteLock** and **addWaitForLock**, including the options a movement passes, and from the `@RPC` **lockAttributes** and **lockAttributeMaps**.
 
@@ -612,15 +620,19 @@ In Rust, a call is allowed when it is one of these:
 
 Every other call counts, such as `println!`, `std::fs`, `std::net`, `tokio::time::sleep`, a trait method on a generic value, and an item from another module of your crate.
 
+The analyzer tracks where each value comes from. It looks through **Option**, **Result**, **HandlerResult**, and `?`, so a **Client** a helper returns keeps counting as a client. Deserialized data, such as the Step input or a value read from an Attribute, cannot hold a service, so standard-like pure methods on it are allowed. A method call on a value of unknown origin counts as a possible external call, whatever its name.
+
+The warning names definite external calls first, such as a **Client** method, standard-library I/O, or printing. Possible ones follow, such as an item from another file that may be pure.
+
 Rust locks come from **StepOptions::execute_lock** and **StepOptions::wait_for_lock** in the Step's **options** method, and from **Rpc::lock**.
 
 ### Lock instances and limits {#locks-shared-with-rpcs-limits}
 
-Only registration locks count. Flow timeout handlers take their locks from the start options, so they are not checked.
+The check reads the Step lock sources listed for each language and the locks an RPC registers. It does not read the locks a single RPC call passes, and it does not check Flow timeout handlers.
 
 Java compares AttributeMap locks by instance when both sides name a constant instance. A computed instance matches every instance. Go, TypeScript, Python, and Rust compare AttributeMap locks by AttributeMap, so a lock on another instance also matches.
 
-TypeScript, Python, and Rust analyze one file at a time. A function or type that another file of your project declares counts as an external call. Java reads only the records and enums of sibling files.
+TypeScript, Python, and Rust analyze one file at a time. A function or type that another file of your project declares counts as a possible external call. Java reads only the records and enums of sibling files.
 
 ## Application lints {#application-lints}
 
