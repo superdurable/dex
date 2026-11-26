@@ -73,13 +73,6 @@ NEGATIVE_DELIVERY_DELAY_PREFIX = "negative delivery delay for shipment: "
 INVALID_RECONCILE_INTERVAL_MESSAGE = "reconcile interval must be positive"
 
 
-class ShipmentNotClaimedError(Exception):
-    """Asks a shipment to retry its report after the order claims its run."""
-
-    def __init__(self) -> None:
-        super().__init__("childflows: the order has not claimed this shipment run yet")
-
-
 @dataclass(frozen=True)
 class Shipment:
     """One parcel of an order, identified by its shipment number."""
@@ -142,6 +135,15 @@ class TrackedShipment:
 
 
 @dataclass(frozen=True)
+class StartedShipment:
+    """What StartShipment hands to ClaimShipment."""
+
+    tracked: TrackedShipment
+    # True when another request owns the shipment number.
+    rejected: bool = field(default=False, metadata={"dex_json_omit_default": True})
+
+
+@dataclass(frozen=True)
 class ShipmentRecord:
     """The order's record of one shipment. ``run_id`` is the claimed run.
 
@@ -156,12 +158,24 @@ class ShipmentRecord:
     outcome: str = field(default="", metadata={"dex_json_omit_default": True})
 
 
+@dataclass(frozen=True)
+class EndedShipment:
+    """A claimed shipment run that ended, with what the order read from it."""
+
+    shipment_number: str = field(metadata={"dex_json_name": "shipmentNumber"})
+    shipment_run_id: str = field(metadata={"dex_json_name": "shipmentRunId"})
+    reading: ShipmentRecord
+
+
 # The shipment's committed outcome. The order reads it when no report arrives.
 SHIPMENT_OUTCOME = Attribute("shipmentOutcome", str)
 
 # One record per shipment, keyed by shipment number.
 SHIPMENT_RECORDS = AttributeMap("shipmentRecords", ShipmentRecord)
-# Serializes every write to the shipment records; it stores no value.
+# Reports that arrive before the claim, keyed by shipment number.
+# Each value maps a shipment run ID to that run's first report.
+PENDING_SHIPMENT_REPORTS = AttributeMap("pendingShipmentReports", dict[str, ShipmentReport])
+# Serializes every write to the shipment records and pending reports; it stores no value.
 SHIPMENT_RECORDS_LOCK = Attribute("shipmentRecordsLock", bool)
 
 
@@ -229,9 +243,12 @@ def shipment_start_request_id(order_flow_id: str, shipment: Shipment) -> str:
 
 
 # dex:group group-id:start group-label:"Start shipments"
-# dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
+# dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 class StartShipment(Step[TrackedShipment]):
-    """Starts ShipmentFlow with the shipment number as its Flow ID and claims its run."""
+    """Starts ShipmentFlow with the shipment number as its Flow ID.
+
+    It takes no lock: a report must never wait for the start call or its retries.
+    """
 
     def __init__(
         self,
@@ -240,10 +257,6 @@ class StartShipment(Step[TrackedShipment]):
     ) -> None:
         self.client_provider = client_provider
         self.shipment_flow = shipment_flow
-
-    def get_step_options(self) -> StepOptions:
-        """Takes the records lock, so the claim and the rejection never race a report."""
-        return StepOptions(execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),))
 
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, tracked: TrackedShipment
@@ -263,29 +276,56 @@ class StartShipment(Step[TrackedShipment]):
             )
         except FlowAlreadyStartedError:
             # Another request owns this shipment number; this order does not track it.
+            return go_to(ClaimShipment, StartedShipment(tracked=tracked, rejected=True))
+        return go_to(
+            ClaimShipment,
+            StartedShipment(tracked=dataclasses.replace(tracked, shipment_run_id=run_id)),
+        )
+
+
+# dex:group group-id:start group-label:"Start shipments"
+# dex:explanation text:"Claims the started run and merges a report that arrived before the claim."
+class ClaimShipment(Step[StartedShipment]):
+    """Records the claimed run, or the rejection, and merges a pending report of that run."""
+
+    def get_step_options(self) -> StepOptions:
+        """Takes the records lock, so the claim never races a report."""
+        return StepOptions(
+            execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
+            execute_load_attribute_maps=(PENDING_SHIPMENT_REPORTS,),
+        )
+
+    def execute(self, context: Context, started: StartedShipment) -> StepDecision:
+        number = started.tracked.shipment.shipment_number
+        pending: dict[str, ShipmentReport] | None = PENDING_SHIPMENT_REPORTS.get(context, number)
+        # The claim or the rejection settles every early report of this shipment.
+        if pending is not None:
+            PENDING_SHIPMENT_REPORTS.delete(context, number)
+        if started.rejected:
             SHIPMENT_RECORDS.set(context, number, ShipmentRecord(status=SHIPMENT_REJECTED))
             return graceful_complete()
+        run_id = started.tracked.shipment_run_id
         # Claim the run: reports and reads of any other run of this number are ignored.
+        report = (pending or {}).get(run_id)
+        outcome = report.outcome if report is not None else ""
         SHIPMENT_RECORDS.set(
-            context, number, ShipmentRecord(status=SHIPMENT_STARTED, run_id=run_id)
+            context,
+            number,
+            ShipmentRecord(status=SHIPMENT_STARTED, run_id=run_id, outcome=outcome),
         )
-        return go_to(AwaitShipment, dataclasses.replace(tracked, shipment_run_id=run_id))
+        return go_to(AwaitShipment, started.tracked)
 
 
 # dex:group group-id:track group-label:"Track shipment"
-# dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
+# dex:explanation text:"Reads the claimed shipment run at each interval until it ends."
 class AwaitShipment(Step[TrackedShipment]):
-    """Reads the claimed shipment run at each interval until it ends, then records it."""
+    """Reads the claimed shipment run at each interval until it ends.
+
+    It takes no lock: a report must never wait for the reads or their retries.
+    """
 
     def __init__(self, client_provider: Callable[[], AsyncClient]) -> None:
         self.client_provider = client_provider
-
-    def get_step_options(self) -> StepOptions:
-        """Takes the same lock as the report RPC and loads the records."""
-        return StepOptions(
-            execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
-            execute_load_attribute_maps=(SHIPMENT_RECORDS,),
-        )
 
     def wait_for(self, context: Context, tracked: TrackedShipment) -> Wait:
         return Wait.until(
@@ -301,15 +341,38 @@ class AwaitShipment(Step[TrackedShipment]):
         )
         if reading.status == FlowStatus.RUNNING.value:
             return go_to(AwaitShipment, tracked)
+        return go_to(
+            RecordShipmentEnd,
+            EndedShipment(
+                shipment_number=number,
+                shipment_run_id=tracked.shipment_run_id,
+                reading=reading,
+            ),
+        )
+
+
+# dex:group group-id:track group-label:"Track shipment"
+# dex:explanation text:"Records how the claimed shipment run ended."
+class RecordShipmentEnd(Step[EndedShipment]):
+    """Merges the terminal status, and the read outcome when no report filled it."""
+
+    def get_step_options(self) -> StepOptions:
+        """Takes the same lock as the report RPC and loads the records."""
+        return StepOptions(
+            execute_lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
+            execute_load_attribute_maps=(SHIPMENT_RECORDS,),
+        )
+
+    def execute(self, context: Context, ended: EndedShipment) -> StepDecision:
         # Merge with the record, which may already hold the reported outcome.
-        record, _ = load_shipment_record(context, number)
+        record, _ = load_shipment_record(context, ended.shipment_number)
         SHIPMENT_RECORDS.set(
             context,
-            number,
+            ended.shipment_number,
             ShipmentRecord(
-                status=reading.status,
-                run_id=tracked.shipment_run_id,
-                outcome=record.outcome or reading.outcome,
+                status=ended.reading.status,
+                run_id=ended.shipment_run_id,
+                outcome=record.outcome or ended.reading.outcome,
             ),
         )
         return graceful_complete()
@@ -383,36 +446,52 @@ class OrderFulfillmentFlow(Flow[Order]):
     ) -> None:
         self.start_shipments = StartShipments()
         self.start_shipment = StartShipment(client_provider, shipment_flow)
+        self.claim_shipment = ClaimShipment()
         self.await_shipment = AwaitShipment(client_provider)
+        self.record_shipment_end = RecordShipmentEnd()
 
     def get_steps(self) -> StepList[Order]:
         return StepList.start_step(self.start_shipments).other_steps(
-            self.start_shipment, self.await_shipment
+            self.start_shipment,
+            self.claim_shipment,
+            self.await_shipment,
+            self.record_shipment_end,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(SHIPMENT_RECORDS, SHIPMENT_RECORDS_LOCK)
+        return PersistenceSchema.of(
+            SHIPMENT_RECORDS, PENDING_SHIPMENT_REPORTS, SHIPMENT_RECORDS_LOCK
+        )
 
     @rpc(
         lock_attributes=(SHIPMENT_RECORDS_LOCK.lock(),),
-        load_attribute_maps=(SHIPMENT_RECORDS,),
+        load_attribute_maps=(SHIPMENT_RECORDS, PENDING_SHIPMENT_REPORTS),
     )
     def record_shipment_outcome(self, context: Context, report: ShipmentReport) -> None:
         """Fills the outcome of a shipment's record.
 
         It accepts only the run this order claimed. The first report wins, and
-        any other report changes nothing.
-
-        Raises:
-            ShipmentNotClaimedError: The order is still starting that shipment.
+        any other report changes nothing. Before the claim, it keeps the first
+        report of each run for ClaimShipment to merge.
         """
         record, found = load_shipment_record(context, report.shipment_number)
-        if found and record.status == SHIPMENT_STARTING:
-            raise ShipmentNotClaimedError()
-        # Ignore an unknown or rejected shipment, another run, and a repeated report.
+        # Ignore an unknown shipment and a report without a run.
+        if not found or not report.shipment_run_id:
+            return
+        if record.status == SHIPMENT_STARTING:
+            pending: dict[str, ShipmentReport] = (
+                PENDING_SHIPMENT_REPORTS.get(context, report.shipment_number) or {}
+            )
+            if report.shipment_run_id not in pending:
+                PENDING_SHIPMENT_REPORTS.set(
+                    context,
+                    report.shipment_number,
+                    {**pending, report.shipment_run_id: report},
+                )
+            return
+        # Ignore a rejected shipment, another run, and a repeated report.
         if (
-            not found
-            or not record.run_id
+            not record.run_id
             or record.run_id != report.shipment_run_id
             or record.outcome
         ):

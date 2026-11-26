@@ -51,6 +51,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -111,29 +112,49 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
     }
 
     /**
-     * Asks a shipment to retry its report after the order claims its run. The report RPC throws
-     * it while the order is still starting that shipment.
+     * What {@link StartShipment} hands to {@link ClaimShipment}.
+     *
+     * @param tracked the started shipment, with its run ID unless it was rejected
+     * @param rejected true when another request owns the shipment number
      */
-    public static final class ShipmentNotClaimedException extends RuntimeException {
-        private static final long serialVersionUID = 1L;
+    public record StartedShipment(TrackedShipment tracked, boolean rejected) {
+    }
 
-        /** Creates the exception with the shared not-claimed message. */
-        public ShipmentNotClaimedException() {
-            super("childflows: the order has not claimed this shipment run yet");
-        }
+    /**
+     * A claimed shipment run that ended, with what the order read from it.
+     *
+     * @param shipmentNumber the shipment number
+     * @param shipmentRunId the claimed run
+     * @param reading the terminal status and the outcome the order read
+     */
+    public record EndedShipment(
+            String shipmentNumber, String shipmentRunId, ShipmentRecord reading) {
     }
 
     /** Holds one record per shipment, keyed by shipment number. */
     public static final AttributeMap<ShipmentRecord> shipmentRecords =
             AttributeMap.define("shipmentRecords", ShipmentRecord.class);
 
-    /** Serializes every write to shipmentRecords; it stores no value. */
+    /**
+     * The early reports of one shipment: each shipment run ID maps to that run's first report.
+     */
+    public static final class PendingShipmentReports extends LinkedHashMap<String, ShipmentReport> {
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** Holds reports that arrive before the claim, keyed by shipment number. */
+    public static final AttributeMap<PendingShipmentReports> pendingShipmentReports =
+            AttributeMap.define("pendingShipmentReports", PendingShipmentReports.class);
+
+    /** Serializes every write to shipmentRecords and pendingShipmentReports; it stores no value. */
     public static final Attribute<Boolean> shipmentRecordsLock =
             Attribute.define("shipmentRecordsLock", Boolean.class);
 
     private final StartShipments startShipments = new StartShipments();
     private final StartShipment startShipment;
+    private final ClaimShipment claimShipment = new ClaimShipment();
     private final AwaitShipment awaitShipment;
+    private final RecordShipmentEnd recordShipmentEnd = new RecordShipmentEnd();
 
     public OrderFulfillmentFlow(
             final ObjectProvider<Client> clientProvider, final ShipmentFlow shipmentFlow) {
@@ -143,31 +164,44 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
 
     @Override
     public StepList<Order> getSteps() {
-        return StepList.startStep(startShipments).otherSteps(startShipment, awaitShipment);
+        return StepList.startStep(startShipments)
+                .otherSteps(startShipment, claimShipment, awaitShipment, recordShipmentEnd);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(shipmentRecords, shipmentRecordsLock);
+        return PersistenceSchema.of(shipmentRecords, pendingShipmentReports, shipmentRecordsLock);
     }
 
     /**
      * Fills the outcome of a shipment's record. It accepts only the run this order claimed; the
-     * first report wins, and any other report changes nothing.
+     * first report wins, and any other report changes nothing. Before the claim, it keeps the
+     * first report of each run for {@link ClaimShipment} to merge.
      *
      * @param context the RPC context
      * @param report the shipment run's report
-     * @throws ShipmentNotClaimedException while the order is still starting that shipment
      */
-    @RPC(lockAttributes = {"shipmentRecordsLock"}, loadAttributeMaps = {"shipmentRecords"})
+    @RPC(
+            lockAttributes = {"shipmentRecordsLock"},
+            loadAttributeMaps = {"shipmentRecords", "pendingShipmentReports"})
     public void recordShipmentOutcome(final Context context, final ShipmentReport report) {
         final Optional<ShipmentRecord> found = loadShipmentRecord(context, report.shipmentNumber());
-        if (found.isPresent() && SHIPMENT_STARTING.equals(found.get().status())) {
-            throw new ShipmentNotClaimedException();
+        // Ignore an unknown shipment and a report without a run.
+        if (found.isEmpty() || report.shipmentRunId() == null || report.shipmentRunId().isEmpty()) {
+            return;
         }
-        // Ignore an unknown or rejected shipment, another run, and a repeated report.
-        if (found.isEmpty()
-                || found.get().runId() == null
+        if (SHIPMENT_STARTING.equals(found.get().status())) {
+            final PendingShipmentReports stored =
+                    pendingShipmentReports.get(context, report.shipmentNumber());
+            final PendingShipmentReports pending =
+                    stored != null ? stored : new PendingShipmentReports();
+            if (pending.putIfAbsent(report.shipmentRunId(), report) == null) {
+                pendingShipmentReports.set(context, report.shipmentNumber(), pending);
+            }
+            return;
+        }
+        // Ignore a rejected shipment, another run, and a repeated report.
+        if (found.get().runId() == null
                 || !found.get().runId().equals(report.shipmentRunId())
                 || found.get().outcome() != null) {
             return;
@@ -290,7 +324,7 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
     }
 
     // dex:group group-id:start group-label:"Start shipments"
-    // dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
+    // dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
     static final class StartShipment implements Step<TrackedShipment> {
         private final ObjectProvider<Client> clientProvider;
         private final ShipmentFlow shipmentFlow;
@@ -305,12 +339,7 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
             return TrackedShipment.class;
         }
 
-        /** Takes the records lock, so the claim and the rejection never race a report. */
-        @Override
-        public StepOptions getStepOptions() {
-            return lockShipmentRecords();
-        }
-
+        /** Takes no lock: a report must never wait for the start call or its retries. */
         @Override
         public StepDecision execute(final Context context, final TrackedShipment tracked) {
             final Client client = clientProvider.getObject();
@@ -330,19 +359,55 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
                                 .build());
             } catch (final FlowAlreadyStartedException alreadyStarted) {
                 // Another request owns this shipment number; this order does not track it.
+                return StepDecision.goTo(
+                        ClaimShipment.class, new StartedShipment(tracked, true));
+            }
+            return StepDecision.goTo(ClaimShipment.class, new StartedShipment(new TrackedShipment(
+                    tracked.shipment(), tracked.reconcileIntervalSeconds(), runId), false));
+        }
+    }
+
+    // dex:group group-id:start group-label:"Start shipments"
+    // dex:explanation text:"Claims the started run and merges a report that arrived before the claim."
+    static final class ClaimShipment implements Step<StartedShipment> {
+        @Override
+        public Class<StartedShipment> getInputType() {
+            return StartedShipment.class;
+        }
+
+        /** Takes the records lock, so the claim never races a report. */
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLock(AttributeLock.of(shipmentRecordsLock))
+                    .addExecuteLoadAttributeMap(pendingShipmentReports)
+                    .build();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final StartedShipment started) {
+            final String number = started.tracked().shipment().shipmentNumber();
+            final PendingShipmentReports pending = pendingShipmentReports.get(context, number);
+            // The claim or the rejection settles every early report of this shipment.
+            if (pending != null) {
+                pendingShipmentReports.delete(context, number);
+            }
+            if (started.rejected()) {
                 shipmentRecords.set(
                         context, number, new ShipmentRecord(SHIPMENT_REJECTED, null, null));
                 return StepDecision.gracefulComplete();
             }
+            final String runId = started.tracked().shipmentRunId();
             // Claim the run: reports and reads of any other run of this number are ignored.
-            shipmentRecords.set(context, number, new ShipmentRecord(SHIPMENT_STARTED, runId, null));
-            return StepDecision.goTo(AwaitShipment.class, new TrackedShipment(
-                    tracked.shipment(), tracked.reconcileIntervalSeconds(), runId));
+            final ShipmentReport report = pending != null ? pending.get(runId) : null;
+            final String outcome = report != null ? report.outcome() : null;
+            shipmentRecords.set(context, number, new ShipmentRecord(SHIPMENT_STARTED, runId, outcome));
+            return StepDecision.goTo(AwaitShipment.class, started.tracked());
         }
     }
 
     // dex:group group-id:track group-label:"Track shipment"
-    // dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
+    // dex:explanation text:"Reads the claimed shipment run at each interval until it ends."
     static final class AwaitShipment implements Step<TrackedShipment> {
         private final ObjectProvider<Client> clientProvider;
 
@@ -355,21 +420,13 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
             return TrackedShipment.class;
         }
 
-        /** Takes the same lock as the report RPC and loads the records. */
-        @Override
-        public StepOptions getStepOptions() {
-            return StepOptions.newBuilder()
-                    .addExecuteLock(AttributeLock.of(shipmentRecordsLock))
-                    .addExecuteLoadAttributeMap(shipmentRecords)
-                    .build();
-        }
-
         @Override
         public Wait waitFor(final Context context, final TrackedShipment tracked) {
             return Wait.until(
                     Timer.byDuration(Duration.ofSeconds(tracked.reconcileIntervalSeconds())));
         }
 
+        /** Takes no lock: a report must never wait for the reads or their retries. */
         @Override
         public StepDecision execute(final Context context, final TrackedShipment tracked) {
             final String number = tracked.shipment().shipmentNumber();
@@ -378,14 +435,8 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
             if (statusName(FlowStatus.RUNNING).equals(reading.status())) {
                 return StepDecision.goTo(AwaitShipment.class, tracked);
             }
-            // Merge with the record, which may already hold the reported outcome.
-            final String storedOutcome = loadShipmentRecord(context, number)
-                    .map(ShipmentRecord::outcome)
-                    .orElse(null);
-            final String outcome = storedOutcome != null ? storedOutcome : reading.outcome();
-            shipmentRecords.set(context, number,
-                    new ShipmentRecord(reading.status(), tracked.shipmentRunId(), outcome));
-            return StepDecision.gracefulComplete();
+            return StepDecision.goTo(RecordShipmentEnd.class,
+                    new EndedShipment(number, tracked.shipmentRunId(), reading));
         }
 
         /**
@@ -438,6 +489,36 @@ public class OrderFulfillmentFlow implements Flow<OrderFulfillmentFlow.Order> {
             return runId != null && runId.equals(info.getRunId())
                     ? Optional.of(info)
                     : Optional.empty();
+        }
+    }
+
+    // dex:group group-id:track group-label:"Track shipment"
+    // dex:explanation text:"Records how the claimed shipment run ended."
+    static final class RecordShipmentEnd implements Step<EndedShipment> {
+        @Override
+        public Class<EndedShipment> getInputType() {
+            return EndedShipment.class;
+        }
+
+        /** Takes the same lock as the report RPC and loads the records. */
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLock(AttributeLock.of(shipmentRecordsLock))
+                    .addExecuteLoadAttributeMap(shipmentRecords)
+                    .build();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final EndedShipment ended) {
+            // Merge with the record, which may already hold the reported outcome.
+            final String storedOutcome = loadShipmentRecord(context, ended.shipmentNumber())
+                    .map(ShipmentRecord::outcome)
+                    .orElse(null);
+            final String outcome = storedOutcome != null ? storedOutcome : ended.reading().outcome();
+            shipmentRecords.set(context, ended.shipmentNumber(),
+                    new ShipmentRecord(ended.reading().status(), ended.shipmentRunId(), outcome));
+            return StepDecision.gracefulComplete();
         }
     }
 }

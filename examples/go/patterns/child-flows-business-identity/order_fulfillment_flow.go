@@ -67,6 +67,20 @@ type TrackedShipment struct {
 	ShipmentRunID string `json:"shipmentRunId,omitempty"`
 }
 
+// StartedShipment is what StartShipment hands to ClaimShipment.
+type StartedShipment struct {
+	Tracked TrackedShipment `json:"tracked"`
+	// Rejected is true when another request owns the shipment number.
+	Rejected bool `json:"rejected,omitempty"`
+}
+
+// EndedShipment is a claimed shipment run that ended, with what the order read from it.
+type EndedShipment struct {
+	ShipmentNumber string         `json:"shipmentNumber"`
+	ShipmentRunID  string         `json:"shipmentRunId"`
+	Reading        ShipmentRecord `json:"reading"`
+}
+
 // ShipmentReport is what a shipment run sends to its order when it ends.
 type ShipmentReport struct {
 	ShipmentNumber string `json:"shipmentNumber"`
@@ -85,11 +99,12 @@ type ShipmentRecord struct {
 var (
 	// ShipmentRecords holds one record per shipment, keyed by shipment number.
 	ShipmentRecords = dex.DefineAttributeMap[ShipmentRecord]("shipmentRecords")
-	// ShipmentRecordsLock serializes every write to ShipmentRecords; it stores no value.
-	ShipmentRecordsLock = dex.DefineAttribute[bool]("shipmentRecordsLock")
-	// ErrShipmentNotClaimed asks a shipment to retry its report after the order claims its run.
-	ErrShipmentNotClaimed = errors.New("childflows: the order has not claimed this shipment run yet")
-	errClientUnavailable  = errors.New("childflows: Client is not ready")
+	// PendingShipmentReports holds reports that arrive before the claim, keyed by shipment number.
+	// Each value maps a shipment run ID to that run's first report.
+	PendingShipmentReports = dex.DefineAttributeMap[map[string]ShipmentReport]("pendingShipmentReports")
+	// ShipmentRecordsLock serializes every write to ShipmentRecords and PendingShipmentReports; it stores no value.
+	ShipmentRecordsLock  = dex.DefineAttribute[bool]("shipmentRecordsLock")
+	errClientUnavailable = errors.New("childflows: Client is not ready")
 )
 
 // OrderFulfillmentFlow ships an order as one ShipmentFlow per shipment.
@@ -115,7 +130,9 @@ func (flow *OrderFulfillmentFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(StartShipments{}),
 		dex.DefineStep(StartShipment{getClient: flow.getClient, shipmentFlow: flow.shipmentFlow}),
+		dex.DefineStep(ClaimShipment{}),
 		dex.DefineStep(AwaitShipment{getClient: flow.getClient}),
+		dex.DefineStep(RecordShipmentEnd{}),
 	}
 }
 
@@ -123,7 +140,7 @@ func (flow *OrderFulfillmentFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.RecordShipmentOutcome, &dex.RPCOptions{
 			LockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
-			LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+			LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords, PendingShipmentReports},
 		}),
 		dex.DefineRPC(flow.GetDexSummary, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
 		dex.DefineRPC(flow.GetDexDisplay, &dex.RPCOptions{LoadAttributeMaps: []dex.AttributeDef{ShipmentRecords}}),
@@ -160,23 +177,31 @@ func (*OrderFulfillmentFlow) GetDexDisplay(ctx dex.Context, _ dex.None) (*dex.RP
 
 func (*OrderFulfillmentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{ShipmentRecords, ShipmentRecordsLock},
+		Attributes: []dex.AttributeDef{ShipmentRecords, PendingShipmentReports, ShipmentRecordsLock},
 	}
 }
 
 // RecordShipmentOutcome fills the outcome of a shipment's record. It accepts only the run
 // this order claimed; the first report wins, and any other report changes nothing.
-// It returns ErrShipmentNotClaimed while the order is still starting that shipment.
+// Before the claim, it keeps the first report of each run for ClaimShipment to merge.
+// It returns an error only when the records cannot be read or written.
 func (*OrderFulfillmentFlow) RecordShipmentOutcome(ctx dex.Context, report ShipmentReport) (*dex.RPCResult[dex.None], error) {
 	record, found, err := loadShipmentRecord(ctx, report.ShipmentNumber)
 	if err != nil {
 		return nil, err
 	}
-	if found && record.Status == ShipmentStarting {
-		return nil, ErrShipmentNotClaimed
+	// Ignore an unknown shipment and a report without a run.
+	if !found || report.ShipmentRunID == "" {
+		return &dex.RPCResult[dex.None]{}, nil
 	}
-	// Ignore an unknown or rejected shipment, another run, and a repeated report.
-	if !found || record.RunID == "" || record.RunID != report.ShipmentRunID || record.Outcome != "" {
+	if record.Status == ShipmentStarting {
+		if err := keepPendingReport(ctx, report); err != nil {
+			return nil, err
+		}
+		return &dex.RPCResult[dex.None]{}, nil
+	}
+	// Ignore a rejected shipment, another run, and a repeated report.
+	if record.RunID == "" || record.RunID != report.ShipmentRunID || record.Outcome != "" {
 		return &dex.RPCResult[dex.None]{}, nil
 	}
 	record.Outcome = report.Outcome
@@ -244,18 +269,14 @@ func ShipmentStartRequestID(orderFlowID string, shipment Shipment) (string, erro
 }
 
 // dex:group group-id:start group-label:"Start shipments"
-// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number and claims its run."
+// dex:explanation text:"Starts the shipment as a top-level Flow named by its shipment number."
 type StartShipment struct {
 	dex.StepDefaultsNoWaitFor[TrackedShipment]
 	getClient    func() *dex.Client
 	shipmentFlow *ShipmentFlow
 }
 
-// GetStepOptions takes the records lock, so the claim and the rejection never race a report.
-func (StartShipment) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)}}
-}
-
+// Execute takes no lock: a report must never wait for the start call or its retries.
 func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*dex.StepDecision, error) {
 	client := step.getClient()
 	if client == nil {
@@ -279,41 +300,68 @@ func (step StartShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	var alreadyStarted *dex.FlowAlreadyStartedError
 	if errors.As(err, &alreadyStarted) {
 		// Another request owns this shipment number; this order does not track it.
+		return dex.GoTo(ClaimShipment{}, StartedShipment{Tracked: tracked, Rejected: true}), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	tracked.ShipmentRunID = runID
+	return dex.GoTo(ClaimShipment{}, StartedShipment{Tracked: tracked}), nil
+}
+
+// dex:group group-id:start group-label:"Start shipments"
+// dex:explanation text:"Claims the started run and merges a report that arrived before the claim."
+type ClaimShipment struct {
+	dex.StepDefaultsNoWaitFor[StartedShipment]
+}
+
+// GetStepOptions takes the records lock, so the claim never races a report.
+func (ClaimShipment) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+		ExecuteLoadAttributeMaps: []dex.AttributeDef{PendingShipmentReports},
+	}
+}
+
+func (ClaimShipment) Execute(ctx dex.Context, started StartedShipment) (*dex.StepDecision, error) {
+	number := started.Tracked.Shipment.ShipmentNumber
+	pending, err := loadPendingReports(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	// The claim or the rejection settles every early report of this shipment.
+	if pending != nil {
+		if err := PendingShipmentReports.Delete(ctx, number); err != nil {
+			return nil, err
+		}
+	}
+	if started.Rejected {
 		if err := ShipmentRecords.Set(ctx, number, ShipmentRecord{Status: ShipmentRejected}); err != nil {
 			return nil, err
 		}
 		return dex.GracefulComplete(nil), nil
 	}
-	if err != nil {
-		return nil, err
-	}
+	runID := started.Tracked.ShipmentRunID
 	// Claim the run: reports and reads of any other run of this number are ignored.
-	if err := ShipmentRecords.Set(ctx, number, ShipmentRecord{Status: ShipmentStarted, RunID: runID}); err != nil {
+	record := ShipmentRecord{Status: ShipmentStarted, RunID: runID, Outcome: pending[runID].Outcome}
+	if err := ShipmentRecords.Set(ctx, number, record); err != nil {
 		return nil, err
 	}
-	tracked.ShipmentRunID = runID
-	return dex.GoTo(AwaitShipment{}, tracked), nil
+	return dex.GoTo(AwaitShipment{}, started.Tracked), nil
 }
 
 // dex:group group-id:track group-label:"Track shipment"
-// dex:explanation text:"Reads the claimed shipment run at each interval and records how it ended."
+// dex:explanation text:"Reads the claimed shipment run at each interval until it ends."
 type AwaitShipment struct {
 	dex.StepDefaults
 	getClient func() *dex.Client
-}
-
-// GetStepOptions takes the same lock as the report RPC and loads the records.
-func (AwaitShipment) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		ExecuteLockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
-		ExecuteLoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
-	}
 }
 
 func (AwaitShipment) WaitFor(_ dex.Context, tracked TrackedShipment) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(time.Duration(tracked.ReconcileIntervalSeconds) * time.Second)), nil
 }
 
+// Execute takes no lock: a report must never wait for the reads or their retries.
 func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*dex.StepDecision, error) {
 	client := step.getClient()
 	if client == nil {
@@ -327,17 +375,39 @@ func (step AwaitShipment) Execute(ctx dex.Context, tracked TrackedShipment) (*de
 	if reading.Status == dex.FlowRunning.String() {
 		return dex.GoTo(AwaitShipment{}, tracked), nil
 	}
+	return dex.GoTo(RecordShipmentEnd{}, EndedShipment{
+		ShipmentNumber: number,
+		ShipmentRunID:  tracked.ShipmentRunID,
+		Reading:        reading,
+	}), nil
+}
+
+// dex:group group-id:track group-label:"Track shipment"
+// dex:explanation text:"Records how the claimed shipment run ended."
+type RecordShipmentEnd struct {
+	dex.StepDefaultsNoWaitFor[EndedShipment]
+}
+
+// GetStepOptions takes the same lock as the report RPC and loads the records.
+func (RecordShipmentEnd) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes:    []dex.AttributeLock{dex.LockAttribute(ShipmentRecordsLock)},
+		ExecuteLoadAttributeMaps: []dex.AttributeDef{ShipmentRecords},
+	}
+}
+
+func (RecordShipmentEnd) Execute(ctx dex.Context, ended EndedShipment) (*dex.StepDecision, error) {
 	// Merge with the record, which may already hold the reported outcome.
-	record, _, err := loadShipmentRecord(ctx, number)
+	record, _, err := loadShipmentRecord(ctx, ended.ShipmentNumber)
 	if err != nil {
 		return nil, err
 	}
-	record.Status = reading.Status
-	record.RunID = tracked.ShipmentRunID
+	record.Status = ended.Reading.Status
+	record.RunID = ended.ShipmentRunID
 	if record.Outcome == "" {
-		record.Outcome = reading.Outcome
+		record.Outcome = ended.Reading.Outcome
 	}
-	if err := ShipmentRecords.Set(ctx, number, record); err != nil {
+	if err := ShipmentRecords.Set(ctx, ended.ShipmentNumber, record); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete(nil), nil
@@ -352,6 +422,34 @@ func loadShipmentRecord(ctx dex.Context, number string) (ShipmentRecord, bool, e
 		return ShipmentRecord{}, false, nil
 	}
 	return record, err == nil, err
+}
+
+// loadPendingReports returns the loaded early reports of a shipment, keyed by run ID.
+// It returns nil when the shipment has none, and an error when they cannot be read.
+func loadPendingReports(ctx dex.Context, number string) (map[string]ShipmentReport, error) {
+	pending, err := PendingShipmentReports.Get(ctx, number)
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		return nil, nil
+	}
+	return pending, err
+}
+
+// keepPendingReport stores the first report of each run of a shipment the order has not claimed yet.
+// It returns an error when the pending reports cannot be read or written.
+func keepPendingReport(ctx dex.Context, report ShipmentReport) error {
+	pending, err := loadPendingReports(ctx, report.ShipmentNumber)
+	if err != nil {
+		return err
+	}
+	if _, kept := pending[report.ShipmentRunID]; kept {
+		return nil
+	}
+	if pending == nil {
+		pending = map[string]ShipmentReport{}
+	}
+	pending[report.ShipmentRunID] = report
+	return PendingShipmentReports.Set(ctx, report.ShipmentNumber, pending)
 }
 
 // reconcileShipment reads the claimed run of a shipment: its status first, then its outcome.

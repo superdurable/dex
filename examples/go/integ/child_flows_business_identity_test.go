@@ -159,6 +159,70 @@ func TestChildFlowsBusinessIdentityIgnoresAReopenedShipmentNumber(t *testing.T) 
 		readShipmentRecord(t, orderID, number))
 }
 
+// Withholding the Worker's Client keeps every StartShipment retrying, so the reports below
+// arrive deterministically before any claim.
+func TestChildFlowsBusinessIdentityMergesReportsThatArriveBeforeTheClaim(t *testing.T) {
+	orderID := newFlowID(t, "order")
+	claimed := childflows.Shipment{ShipmentNumber: orderID + "-1", Destination: "Seattle", DeliveryDelaySeconds: 3600}
+	other := childflows.Shipment{ShipmentNumber: orderID + "-2", Destination: "Boise", DeliveryDelaySeconds: 3600}
+	owned := childflows.Shipment{ShipmentNumber: orderID + "-3", Destination: "Austin", DeliveryDelaySeconds: 3600}
+	workerClientWithheld.Store(true)
+	t.Cleanup(func() { workerClientWithheld.Store(false) })
+	startOrder(t, orderID, childflows.Order{
+		Shipments:                []childflows.Shipment{claimed, other, owned},
+		ReconcileIntervalSeconds: 3600,
+	})
+	for _, shipment := range []childflows.Shipment{claimed, other, owned} {
+		waitForShipmentRecord(t, orderID, shipment.ShipmentNumber, childflows.ShipmentRecord{Status: childflows.ShipmentStarting})
+	}
+
+	// Start the first shipment with the order's own request, so the order's retry gets this run.
+	requestID, err := childflows.ShipmentStartRequestID(orderID, claimed)
+	require.NoError(t, err)
+	timeout := childflows.ShipmentTimeout
+	claimedRunID, err := integClient.StartFlow(integrationContext(t), registry.Shipment, claimed.ShipmentNumber,
+		childflows.ShipmentRequest{OrderFlowID: orderID, Shipment: claimed},
+		dex.StartFlowOptions{
+			Timeout:        &timeout,
+			IDReusePolicy:  dex.IDReuseDisallow,
+			RequestID:      &requestID,
+			AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true},
+		})
+	require.NoError(t, err)
+	// Another request owns the third shipment number, so the order rejects it.
+	_, err = integClient.StartFlow(integrationContext(t), registry.Shipment, owned.ShipmentNumber,
+		childflows.ShipmentRequest{OrderFlowID: "another-order", Shipment: owned},
+		dex.StartFlowOptions{IDReusePolicy: dex.IDReuseDisallow})
+	require.NoError(t, err)
+
+	// A report under the wrong number arrives first; it must not hide the claimed run's report.
+	for _, report := range []childflows.ShipmentReport{
+		{ShipmentNumber: other.ShipmentNumber, ShipmentRunID: claimedRunID, Outcome: "delivered to Boise"},
+		{ShipmentNumber: claimed.ShipmentNumber, ShipmentRunID: claimedRunID, Outcome: "delivered to Seattle"},
+		{ShipmentNumber: claimed.ShipmentNumber, ShipmentRunID: claimedRunID, Outcome: "delivered to Portland"},
+		{ShipmentNumber: owned.ShipmentNumber, ShipmentRunID: "another-run", Outcome: "delivered to Austin"},
+	} {
+		invokeWorkflowPatternRPC(t, orderID, registry.OrderFulfillment.RecordShipmentOutcome, report, nil)
+	}
+	require.Equal(t, map[string]childflows.ShipmentReport{
+		claimedRunID: {ShipmentNumber: claimed.ShipmentNumber, ShipmentRunID: claimedRunID, Outcome: "delivered to Seattle"},
+	}, readPendingShipmentReports(t, orderID, claimed.ShipmentNumber))
+
+	workerClientWithheld.Store(false)
+	waitForShipmentRecord(t, orderID, claimed.ShipmentNumber, childflows.ShipmentRecord{
+		Status: childflows.ShipmentStarted, RunID: claimedRunID, Outcome: "delivered to Seattle",
+	})
+	waitForShipmentRecord(t, orderID, owned.ShipmentNumber, childflows.ShipmentRecord{Status: childflows.ShipmentRejected})
+	otherRunID := waitForClaimedRun(t, orderID, other.ShipmentNumber)
+	require.Equal(t, childflows.ShipmentRecord{Status: childflows.ShipmentStarted, RunID: otherRunID},
+		readShipmentRecord(t, orderID, other.ShipmentNumber))
+	// The claim and the rejection leave no early report behind.
+	for _, shipment := range []childflows.Shipment{claimed, other, owned} {
+		requireNoPendingShipmentReports(t, orderID, shipment.ShipmentNumber)
+	}
+	terminateFlows(t, claimed.ShipmentNumber, other.ShipmentNumber, owned.ShipmentNumber, orderID)
+}
+
 func TestChildFlowsBusinessIdentityFailsAnInvalidOrder(t *testing.T) {
 	for _, testCase := range []struct {
 		name    string
@@ -291,6 +355,25 @@ func requireNoShipmentRecord(t *testing.T, orderID string, shipmentNumber string
 		dex.ReadAttributeMapInstance(childflows.ShipmentRecords, shipmentNumber, &record))
 	require.NoError(t, err)
 	require.False(t, result.IsMapInstanceSet(childflows.ShipmentRecords, shipmentNumber), "record of %s", shipmentNumber)
+}
+
+func readPendingShipmentReports(t *testing.T, orderID string, shipmentNumber string) map[string]childflows.ShipmentReport {
+	t.Helper()
+	var pending map[string]childflows.ShipmentReport
+	result, err := integClient.GetAttributes(integrationContext(t), orderID,
+		dex.ReadAttributeMapInstance(childflows.PendingShipmentReports, shipmentNumber, &pending))
+	require.NoError(t, err)
+	require.True(t, result.IsMapInstanceSet(childflows.PendingShipmentReports, shipmentNumber), "pending reports of %s", shipmentNumber)
+	return pending
+}
+
+func requireNoPendingShipmentReports(t *testing.T, orderID string, shipmentNumber string) {
+	t.Helper()
+	var pending map[string]childflows.ShipmentReport
+	result, err := integClient.GetAttributes(integrationContext(t), orderID,
+		dex.ReadAttributeMapInstance(childflows.PendingShipmentReports, shipmentNumber, &pending))
+	require.NoError(t, err)
+	require.False(t, result.IsMapInstanceSet(childflows.PendingShipmentReports, shipmentNumber), "pending reports of %s", shipmentNumber)
 }
 
 func terminateFlows(t *testing.T, flowIDs ...string) {
