@@ -57,10 +57,12 @@ available while the run waits. A Step keeps its locks through its retry
 backoff. So `IssueRefund`, which can back off for minutes, takes no lock,
 and `RecordIssuedRefund` writes the status after it.
 
-One gap remains at the 7-day deadline. A message accepted after the
-deadline passes but before `handle_timeout` runs stays in the
-`customer-messages` Channel. The support team that takes over the case sees
-it in Dex Web.
+At the 7-day deadline, an RPC can still accept a message before the timeout
+handler acquires the `case-status` lock. The message may be processed,
+remain pending, or be consumed by a Step that the timeout handler then
+cancels. This example does not guarantee that every late message remains in
+the `customer-messages` Channel. Pending messages can be inspected in Dex
+Web.
 
 ## Files
 
