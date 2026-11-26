@@ -293,17 +293,29 @@ class FirstExecutionGate:
         self.flow_id = flow_id
         self.entered = asyncio.Event()
         self.released = asyncio.Event()
+        self.finished = asyncio.Event()
+        self.context: Context | None = None
         self._original_execute = step.execute
 
     def execute(self, context: Context, input: Any) -> Any:
         if context.flow_id != self.flow_id or self.entered.is_set():
             return self._original_execute(context, input)
+        self.context = context
         self.entered.set()
         return self._execute_after_release(context, input)
 
     async def _execute_after_release(self, context: Context, input: Any) -> Any:
-        await asyncio.wait_for(self.released.wait(), WAIT_TIMEOUT.total_seconds())
-        return self._original_execute(context, input)
+        try:
+            await asyncio.wait_for(self.released.wait(), WAIT_TIMEOUT.total_seconds())
+            return self._original_execute(context, input)
+        finally:
+            self.finished.set()
+
+    def is_canceled(self) -> bool:
+        """Returns whether Dex canceled the held execution."""
+        return self.finished.is_set() or (
+            self.context is not None and self.context.is_cancellation_requested()
+        )
 
 
 async def test_rpc_cannot_slip_in_while_a_step_changes_the_stage(
@@ -409,6 +421,43 @@ async def test_lesson5_timeout_handler_escalates_the_case(
     assert await completed_output(client, flow_id) == "escalated-deadline"
     status = (await client.get_attributes(flow_id, CASE_STATUS)).get(CASE_STATUS)
     assert status == "escalated-deadline"
+    escalations = app.refund_timers_notifications.list_sent(f"escalate-deadline-{flow_id}")
+    assert len(escalations) == 1
+
+
+async def test_lesson5_deadline_cancels_a_pending_documents_request(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = app.refund_durable_timers
+    flow_id = new_flow_id("refund-timers-deadline-documents")
+    documents_gate = FirstExecutionGate(flow_id, flow.send_documents_request)
+    monkeypatch.setattr(flow.send_documents_request, "execute", documents_gate.execute)
+    closing_gate = FirstExecutionGate(flow_id, flow.send_closing_notification)
+    monkeypatch.setattr(flow.send_closing_notification, "execute", closing_gate.execute)
+    await start_refund(app, client, flow_id)
+    await asyncio.wait_for(documents_gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+
+    try:
+        await skip_refund_timer(client, flow_id, "refund-deadline")
+        await asyncio.wait_for(closing_gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+        status = (await client.get_attributes(flow_id, CASE_STATUS)).get(CASE_STATUS)
+        assert status == "escalated-deadline"
+        # The deadline decision canceled the documents email that was still pending.
+        deadline = asyncio.get_running_loop().time() + WAIT_TIMEOUT.total_seconds()
+        while not documents_gate.is_canceled():
+            assert asyncio.get_running_loop().time() < deadline, "documents Step not canceled"
+            await asyncio.sleep(0.1)
+        documents_gate.released.set()
+        await asyncio.wait_for(documents_gate.finished.wait(), WAIT_TIMEOUT.total_seconds())
+    finally:
+        documents_gate.released.set()
+        closing_gate.released.set()
+
+    assert await completed_output(client, flow_id) == "escalated-deadline"
+    assert app.refund_timers_notifications.list_sent(f"documents-request-{flow_id}") == []
     escalations = app.refund_timers_notifications.list_sent(f"escalate-deadline-{flow_id}")
     assert len(escalations) == 1
 

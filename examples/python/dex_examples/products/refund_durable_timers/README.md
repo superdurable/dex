@@ -60,21 +60,29 @@ backoff. So `IssueRefund`, which can back off for minutes, takes no lock,
 and `RecordIssuedRefund` writes the status after it.
 
 For the same reason, no Step that holds the `case-status` lock sends email.
-Each such Step commits its status decision and hands the email to the next
-Step, which takes no lock. `SendDocumentsRequest` sends the documents request.
-`SendClosingNotification` sends the closing email and completes the Flow. A
-slow or retried send never makes an RPC fail with `RpcLockConflictError`.
-Each email's idempotency key names the Flow ID and its decision, so a retry
-sends no duplicate.
+A locked Step whose decision needs an email commits the status and hands the
+email to the next Step, which takes no lock. `RequestSupportingDocuments`
+hands off to `SendDocumentsRequest`. `CloseInactiveCase`,
+`EscalateUnsettledRefund`, and `CloseCase` hand off to
+`SendClosingNotification`, which sends the closing email and completes the
+Flow. A slow or retried send never makes an RPC fail with
+`RpcLockConflictError`. Each email's idempotency key names the Flow ID and
+its decision, so a retry sends no duplicate.
 
 The timeout handler follows the same rule. Under the `case-status` lock it
 checks for a final decision, a `closed-` or `escalated-` status. If one is
 committed, the handler ends with `dead_end()` and the pending
-`SendClosingNotification` completes the Flow with that decision. Otherwise it
-commits `escalated-deadline` and moves to `SendClosingNotification`. Steps
-keep running until that Step force-completes the Flow. So every Step that
-writes `case-status` first checks for `escalated-deadline` and ends with
-`dead_end()` instead of overwriting it.
+`SendClosingNotification` completes the Flow with that decision. Otherwise
+one decision commits `escalated-deadline`, cancels `RequestSupportingDocuments`
+and `SendDocumentsRequest`, and moves to `SendClosingNotification`. That move
+gives the support email the handler's one-minute timeout and five attempts.
+After the email, `SendClosingNotification` force-completes the Flow and
+cancels every Step still running. Until then other Steps keep running, so
+every Step that writes `case-status` first checks for `escalated-deadline`
+and ends with `dead_end()` instead of overwriting it. `SendDocumentsRequest`
+also skips the email when its execution is already canceled. A documents
+email already handed to the email service before the cancellation may still
+be delivered.
 
 At the 7-day deadline, an RPC can still accept a message before the timeout
 handler acquires the `case-status` lock. The message may be processed,
@@ -190,9 +198,9 @@ before the Flow ID.
    heartbeat variant after 30. Add `--heartbeat-check-interval 1` to reach
    the heartbeat variant's 30 checks in about 30 seconds.
 5. **Graceful timeout.** Start `refund6` and fire `refund-deadline`. The
-   timeout handler emails the support team, `case-status` becomes
-   `escalated-deadline`, and the run completes with that outcome, even though
-   a Step was still waiting.
+   timeout handler sets `case-status` to `escalated-deadline`.
+   `SendClosingNotification` then emails the support team and force-completes
+   the run with that outcome, even though a Step was still waiting.
 
 ## Run it on the shared example server
 
