@@ -1,0 +1,326 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+package flowviz
+
+import (
+	"maps"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+const typeScriptLockedMethodSource = `import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { sendMail } from "./mailer.js";
+import {
+  Attribute,
+  Client,
+  StepList,
+  Wait,
+  booleanCodec,
+  doubleCodec,
+  goTo,
+  gracefulComplete,
+  rpc,
+  stringCodec,
+  type Context,
+  type Flow,
+  type PersistenceSchema,
+  type RPCResult,
+  type Step,
+  type StepDecision,
+  type StepOptions,
+} from "@superdurable/dex";
+
+const ending = new Attribute("Ending", booleanCodec);
+const counter = new Attribute("Counter", doubleCodec);
+
+interface Mailer {
+  send(to: string): Promise<void>;
+}
+
+// dex:group group-id:reminders group-label:"Reminders"
+// dex:explanation text:"Send one reminder."
+class SendReminderStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public constructor(private readonly flow: ReminderFlow) {}
+
+  public getStepType(): string {
+    return "SendReminderStep";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {waitForLockAttributes: [WAIT_LOCK], executeLockAttributes: [EXECUTE_LOCK]};
+  }
+
+  public waitFor(context: Context, input: string): Wait {
+    WAIT_BODY
+    return Wait.skipImmediately();
+  }
+
+  public execute(context: Context, input: string): StepDecision {
+    EXECUTE_BODY
+    return goTo(DeliverStep, input);
+  }
+
+  private countWords(input: string): number {
+    return input.split(" ").filter(word => word !== "").length;
+  }
+}
+
+// dex:group group-id:reminders group-label:"Reminders"
+// dex:explanation text:"Deliver the reminder."
+class DeliverStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public constructor(private readonly flow: ReminderFlow) {}
+
+  public getStepType(): string {
+    return "DeliverStep";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {executeLockAttributes: [DELIVER_LOCK]};
+  }
+
+  public execute(context: Context, input: string): StepDecision {
+    DELIVER_BODY
+    return gracefulComplete();
+  }
+}
+
+export class ReminderFlow implements Flow<string> {
+  public readonly send = new SendReminderStep(this);
+  public readonly deliver = new DeliverStep(this);
+
+  public constructor(public readonly mailer: Mailer, public readonly client: Client) {}
+
+  public getFlowType(): string {
+    return "ReminderFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.send).otherSteps(this.deliver);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {attributes: [ending, counter]};
+  }
+
+  @rpc({inputCodec: stringCodec, outputCodec: stringCodec, lockAttributes: [RPC_LOCK]})
+  public stopReminders(context: Context, input: string): RPCResult<string> {
+    ending.set(context, true);
+    return {output: input};
+  }
+}
+
+EXTRA_SOURCE
+`
+
+type typeScriptLockedMethodCase struct {
+	rpcLock     string
+	waitLock    string
+	executeLock string
+	deliverLock string
+	waitBody    string
+	executeBody string
+	deliverBody string
+	extraSource string
+}
+
+const typeScriptPureExecuteBody = `const names: string[] = [input.trim().toUpperCase(), String(counter.get(context)), context.flowId.toLowerCase()];
+    names.sort((left, right) => left.localeCompare(right));
+    console.log(JSON.stringify({names, at: new Date().toISOString(), max: Math.max(1, names.length)}));
+    const lengths = new Map<string, number>(names.map(name => [name, name.length]));
+    const label = new Intl.NumberFormat("en-US").format(lengths.size);
+    counter.set(context, lengths.size + formatReminder(label).length + this.countWords(input));
+    const digest = createHash("sha256").update(Buffer.from(input).toString("base64")).digest("hex");
+    const keys = JSON.stringify({digest}, ["digest"]) + names.map(String).filter(Boolean).join(",");
+    ending.set(context, Number.parseInt(digest.slice(0, 1), 16) > keys.length || names.some(name => isBlank(name)));`
+
+const typeScriptPureHelperSource = `function formatReminder(input: string): string {
+  return ` + "`reminder for ${input.trim()}`" + `.padEnd(3);
+}
+
+function isBlank(value: string): boolean {
+  return value.trim() === "";
+}`
+
+const typeScriptLockedMessageSuffix = "; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step."
+
+const typeScriptSecondFlowSource = `// dex:group group-id:other group-label:"Other"
+// dex:explanation text:"Finish the other Flow."
+class OtherStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "OtherStep";
+  }
+
+  public execute(_context: Context, _input: string): StepDecision {
+    return gracefulComplete();
+  }
+}
+
+export class OtherFlow implements Flow<string> {
+  public readonly other = new OtherStep();
+
+  public getFlowType(): string {
+    return "OtherFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.other);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {};
+  }
+}`
+
+func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
+	testCases := map[string]struct {
+		source typeScriptLockedMethodCase
+		// messages lists every locked_method_external_call message fragment, in report order.
+		messages []string
+	}{
+		"execute calls an injected service while holding an RPC lock": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);"},
+			messages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls this.flow.mailer.send" + typeScriptLockedMessageSuffix},
+		},
+		"call moved to the next unlocked Step": {
+			source: typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "ending.set(context, false);", deliverBody: "void this.flow.mailer.send(input);"},
+		},
+		"lock shared only between Steps": {
+			source: typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "counter.lock()", deliverLock: "counter.lock()", executeBody: "void this.flow.mailer.send(input);", deliverBody: "void this.flow.mailer.send(input);"},
+		},
+		"locked execute with only SDK, pure built-in, and pure helper calls": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: typeScriptPureExecuteBody,
+				extraSource: typeScriptPureHelperSource,
+			},
+		},
+		"helper calls fetch": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "notifyCustomer(input);",
+				extraSource: "function notifyCustomer(input: string): void {\n  void fetch(\"https://example.com/\" + input);\n}",
+			},
+			messages: []string{"and calls notifyCustomer (calls fetch)" + typeScriptLockedMessageSuffix},
+		},
+		"execute calls the Dex Client under the shared lock": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.client.stopFlow(input);"},
+			messages: []string{"and calls this.flow.client.stopFlow" + typeScriptLockedMessageSuffix},
+		},
+		"execute constructs a Dex Client": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void new Client(undefined as never, undefined as never);"},
+			messages: []string{"and calls new Client" + typeScriptLockedMessageSuffix},
+		},
+		"wait for calls a function value while holding an RPC lock": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", waitLock: "ending.lock()", waitBody: "const notify = this.flow.mailer.send;\n    void notify(input);"},
+			messages: []string{"WaitFor of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls notify" + typeScriptLockedMessageSuffix},
+		},
+		"timer sleep": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void new Promise(resolve => setTimeout(resolve, 1000));"},
+			messages: []string{"and calls setTimeout" + typeScriptLockedMessageSuffix},
+		},
+		"execute reads a file": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "ending.set(context, readFileSync(input, \"utf8\") === \"\");"},
+			messages: []string{"and calls readFileSync" + typeScriptLockedMessageSuffix},
+		},
+		"map receives an imported callback": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void [input].map(sendMail);"},
+			messages: []string{"and calls sendMail" + typeScriptLockedMessageSuffix},
+		},
+		"then receives an injected method": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void Promise.resolve(input).then(this.flow.mailer.send);"},
+			messages: []string{"and calls this.flow.mailer.send" + typeScriptLockedMessageSuffix},
+		},
+		"no RPC lock": {
+			source: typeScriptLockedMethodCase{executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);"},
+		},
+		"file with two Flows draws the Step locks": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);",
+				extraSource: typeScriptSecondFlowSource,
+			},
+			messages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls this.flow.mailer.send" + typeScriptLockedMessageSuffix},
+		},
+	}
+	for _, name := range slices.Sorted(maps.Keys(testCases)) {
+		testCase := testCases[name]
+		t.Run(name, func(t *testing.T) {
+			graph := analyzeTypeScriptLockedMethodSource(t, testCase.source)
+			var messages []string
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Code == "locked_method_external_call" {
+					require.Equal(t, "warning", diagnostic.Severity)
+					require.NotNil(t, diagnostic.Span)
+					messages = append(messages, diagnostic.Message)
+				}
+			}
+			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
+			for index, fragment := range testCase.messages {
+				require.Contains(t, messages[index], fragment)
+			}
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+	}
+}
+
+func TestTypeScriptLockedMethodExternalCallMarksOnlyPhasesWithSharedLocks(t *testing.T) {
+	graph := analyzeTypeScriptLockedMethodSource(t, typeScriptLockedMethodCase{
+		rpcLock: "ending.lock()", executeLock: "ending.lock()", deliverLock: "counter.lock()", executeBody: typeScriptPureExecuteBody,
+		waitBody: "void this.flow.mailer.send(input);", deliverBody: "void this.flow.mailer.send(input);", extraSource: typeScriptPureHelperSource,
+	})
+	require.Empty(t, graph.Diagnostics)
+	markers := make(map[string][]string)
+	for _, marker := range graph.methodExternalCalls {
+		callees := make([]string, 0, len(marker.Calls))
+		for _, call := range marker.Calls {
+			callees = append(callees, call.Callee)
+		}
+		markers[marker.NodeID+" "+marker.Phase] = callees
+	}
+	require.Equal(t, map[string][]string{"step:SendReminderStep execute": {}}, markers)
+}
+
+// A single-Flow graph leaves Step locks undrawn; the shared-lock intersection must still see them.
+func TestTypeScriptLockedMethodSingleFlowUsesUndrawnStepLocks(t *testing.T) {
+	graph := analyzeTypeScriptLockedMethodSource(t, typeScriptLockedMethodCase{
+		rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);",
+	})
+	requireStepLocksOnlyUndrawn(t, graph)
+	messages := lockedMethodWarningMessages(graph)
+	require.Len(t, messages, 1, "%+v", graph.Diagnostics)
+	require.Contains(t, messages[0], "Execute of SendReminderStep holds lock Ending")
+}
+
+func analyzeTypeScriptLockedMethodSource(t *testing.T, source typeScriptLockedMethodCase) *Graph {
+	t.Helper()
+	compilerDirectory := trustedTypeScriptCompilerDirectory(t)
+	replacer := strings.NewReplacer(
+		"RPC_LOCK", source.rpcLock,
+		"WAIT_LOCK", source.waitLock,
+		"EXECUTE_LOCK", source.executeLock,
+		"DELIVER_LOCK", source.deliverLock,
+		"WAIT_BODY", source.waitBody,
+		"EXECUTE_BODY", source.executeBody,
+		"DELIVER_BODY", source.deliverBody,
+		"EXTRA_SOURCE", source.extraSource,
+	)
+	sourcePath := filepath.Join(t.TempDir(), "workflow.ts")
+	writeTestFile(t, sourcePath, replacer.Replace(typeScriptLockedMethodSource))
+	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow", TypeScriptCompilerDirectory: compilerDirectory})
+	require.NoError(t, err)
+	return graph
+}

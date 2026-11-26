@@ -931,6 +931,9 @@ func goTypeCarriesMovement(valueType types.Type) bool {
 // contextReachesNonSDKCode reports whether the handler's dex.Context is used other than as an SDK call argument or
 // receiver. Reading an Attribute needs the context, so only then are the handler's reads fully known.
 func (checker *goDeclaredLockChecker) contextReachesNonSDKCode(handler goHandlerSummary) bool {
+	if handler.method.Body == nil {
+		return true
+	}
 	parameters := handler.method.Type.Params
 	if parameters == nil || len(parameters.List) == 0 || len(parameters.List[0].Names) == 0 {
 		return false

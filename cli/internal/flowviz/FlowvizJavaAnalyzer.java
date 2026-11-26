@@ -90,6 +90,7 @@ class FlowvizJavaAnalyzer {
     private final Map<String, Declaration> registeredSteps = new LinkedHashMap<>();
     private final Set<MethodTree> unresolvedTypeNames = new HashSet<>();
     private final Map<String, Object> flowDefinition = object("name", "");
+    private final ExternalCallFinder externalCalls = new ExternalCallFinder();
     private Map<String, Object> startInput;
 
     private FlowvizJavaAnalyzer(String path, String source, CompilationUnitTree unit, SourcePositions positions) {
@@ -105,7 +106,8 @@ class FlowvizJavaAnalyzer {
                 "source", object("language", "java", "path", path), "flow", flowDefinition,
                 "nodes", nodes.values(), "edges", edges, "diagnostics", diagnostics);
         return object("graph", graph, "annotations", annotations, "attributes", attributes, "viewRPCs", views,
-                "startInput", startInput, "persistenceResourceIds", visibleResources.keySet());
+                "startInput", startInput, "persistenceResourceIds", visibleResources.keySet(),
+                "methodExternalCalls", externalCalls.markers);
     }
 
     private void analyze(String requestedFlow) {
@@ -126,11 +128,17 @@ class FlowvizJavaAnalyzer {
         analyzeRegistration(declaration);
         analyzePersistence(declaration);
         for (var entry : registeredSteps.entrySet()) {
-            if (entry.getValue() != null) analyzeStep(entry.getKey(), entry.getValue());
+            if (entry.getValue() != null) {
+                analyzeStep(entry.getKey(), entry.getValue());
+                continue;
+            }
+            var reason = "Step " + nodes.get(entry.getKey()).get("name") + " declared outside this source file";
+            for (var phase : List.of("execute", "wait_for")) externalCalls.addUncheckedMethod(entry.getKey(), phase, reason);
         }
         analyzeTimeout(declaration);
         analyzeRPCs(declaration);
         collectStartInput(declaration);
+        externalCalls.scanLockedMethods();
     }
 
     private void reportFlowSelection(String requested, List<Declaration> candidates, List<Declaration> selected) {
@@ -224,12 +232,18 @@ class FlowvizJavaAnalyzer {
             var scope = new MethodScope(step, execute);
             analyzeDecisions(id, "execute", scope);
             analyzeAccess(id, "execute", scope, new HashSet<>(), new HashSet<>());
+            externalCalls.addStepMethod(id, "execute", scope);
         } else {
             diagnostic("error", "step_handler_not_in_file", "Step " + nodes.get(id).get("name") +
                     " execute must be defined in the source file", span(step.tree));
+            externalCalls.addUncheckedMethod(id, "execute", "an execute declared outside this source file");
         }
         var waitFor = step.method("waitFor");
-        if (waitFor != null) analyzeWait(id, new MethodScope(step, waitFor));
+        if (waitFor != null) {
+            var scope = new MethodScope(step, waitFor);
+            analyzeWait(id, scope);
+            externalCalls.addStepMethod(id, "wait_for", scope);
+        }
         analyzeOptions(id, step, step.method("getStepOptions"), "execute");
     }
 
@@ -709,9 +723,9 @@ class FlowvizJavaAnalyzer {
             if (resource == null || !resource.kind.equals("attribute")) return;
             var metadata = object("phase", method.equals("addWaitForLock") ? "wait_for" : phase);
             if (resource.isMap && argument(lock, 1) != null) {
-                var instance = argument(lock, 1);
-                var literal = stringValue(scope.initializer(instance), scope.owner);
-                metadata.put("instance", literal == null ? instance.toString() : literal);
+                // A computed instance may equal any RPC instance, so only a constant is recorded.
+                var instance = stringValue(scope.initializer(argument(lock, 1)), scope.owner);
+                if (instance != null) metadata.put("instance", instance);
             }
             edge("resource_lock", owner, retain(resource), "Lock", lock, "metadata", metadata);
         }
@@ -986,6 +1000,1215 @@ class FlowvizJavaAnalyzer {
             return modifiers.getAnnotations().stream().anyMatch(annotation -> Set.of(
                     "JsonValue", "JsonCreator", "JsonSerialize", "JsonDeserialize", "JsonUnwrapped", "JsonIgnore", "JsonIgnoreProperties")
                     .contains(simpleName(annotation.getAnnotationType().toString())));
+        }
+    }
+
+    private static final int MAXIMUM_HELPER_DEPTH = 6;
+    private static final String SDK_PACKAGE = "io.superdurable.dex";
+    // These SDK types open connections to the Dex server or run Workers.
+    private static final Set<String> SDK_CONNECTION_TYPES = Set.of("Client", "Worker", "PullWorker", "WorkerDispatcher",
+            "BlobCache", "NativeBlobCache", "NativeBlobCacheBridge", "FlowServiceTlsTransport", "Registry");
+    // SDK type names a wildcard SDK import can resolve; other names stay unresolved.
+    private static final Set<String> SDK_WILDCARD_TYPES = Set.of("Attribute", "AttributeIndex", "AttributeLock", "AttributeMap",
+            "AttributeMapInstance", "BufferedTextStream", "CancellationSteps", "Channel", "ChannelMap", "ChannelMessage", "Condition",
+            "ConditionCombination", "Context", "Flow", "FlowTimeoutHandlerOptions", "GracefulCompletion", "Join", "JoinRound",
+            "PersistenceSchema", "RPC", "RPCResult", "RetryPolicy", "Step", "StepDecision", "StepList", "StepMovement", "StepOptions",
+            "Stream", "SubFlow", "SubFlowOptions", "Timer", "Wait", "Client", "Worker", "PullWorker", "Registry");
+    // JDK classes that do no I/O, by top-level class; members of other JDK classes count as external.
+    private static final Set<String> PURE_JDK_CLASSES = Set.of(
+            "java.lang.String", "java.lang.StringBuilder", "java.lang.StringBuffer", "java.lang.Math", "java.lang.StrictMath",
+            "java.lang.Integer", "java.lang.Long", "java.lang.Short", "java.lang.Byte", "java.lang.Double", "java.lang.Float",
+            "java.lang.Boolean", "java.lang.Character", "java.lang.Number", "java.lang.Object", "java.lang.Enum",
+            "java.lang.Record", "java.lang.CharSequence", "java.lang.Iterable", "java.lang.Comparable", "java.lang.Void",
+            "java.lang.Class", "java.lang.System", "java.lang.Runnable",
+            "java.util.List", "java.util.ArrayList", "java.util.LinkedList", "java.util.Map", "java.util.HashMap",
+            "java.util.LinkedHashMap", "java.util.TreeMap", "java.util.SortedMap", "java.util.NavigableMap", "java.util.EnumMap",
+            "java.util.IdentityHashMap", "java.util.Set", "java.util.HashSet", "java.util.LinkedHashSet", "java.util.TreeSet",
+            "java.util.SortedSet", "java.util.NavigableSet", "java.util.EnumSet", "java.util.Collection", "java.util.Collections",
+            "java.util.Arrays", "java.util.Queue", "java.util.Deque", "java.util.ArrayDeque", "java.util.PriorityQueue",
+            "java.util.Iterator", "java.util.ListIterator", "java.util.SequencedCollection", "java.util.SequencedMap",
+            "java.util.SequencedSet", "java.util.Optional", "java.util.OptionalInt", "java.util.OptionalLong",
+            "java.util.OptionalDouble", "java.util.Objects", "java.util.UUID", "java.util.Base64", "java.util.HexFormat",
+            "java.util.StringJoiner", "java.util.Locale", "java.util.Random", "java.util.BitSet", "java.util.Comparator",
+            "java.util.AbstractMap", "java.util.IntSummaryStatistics", "java.util.LongSummaryStatistics",
+            "java.util.DoubleSummaryStatistics",
+            "java.util.stream.Stream", "java.util.stream.IntStream", "java.util.stream.LongStream",
+            "java.util.stream.DoubleStream", "java.util.stream.Collectors", "java.util.stream.Collector",
+            "java.util.regex.Pattern", "java.util.regex.Matcher", "java.util.regex.MatchResult",
+            "java.util.concurrent.ConcurrentHashMap", "java.util.concurrent.ConcurrentMap",
+            "java.util.concurrent.ConcurrentLinkedQueue", "java.util.concurrent.ConcurrentLinkedDeque",
+            "java.util.concurrent.ConcurrentSkipListMap", "java.util.concurrent.ConcurrentSkipListSet",
+            "java.util.concurrent.CopyOnWriteArrayList", "java.util.concurrent.CopyOnWriteArraySet",
+            "java.util.concurrent.ThreadLocalRandom", "java.util.concurrent.TimeUnit",
+            "java.util.concurrent.atomic.AtomicInteger", "java.util.concurrent.atomic.AtomicLong",
+            "java.util.concurrent.atomic.AtomicBoolean", "java.util.concurrent.atomic.AtomicReference",
+            "java.util.concurrent.atomic.LongAdder",
+            "java.util.logging.Logger", "java.util.logging.Level",
+            "java.time.Instant", "java.time.Duration", "java.time.Period", "java.time.LocalDate", "java.time.LocalTime",
+            "java.time.LocalDateTime", "java.time.ZonedDateTime", "java.time.OffsetDateTime", "java.time.OffsetTime",
+            "java.time.ZoneId", "java.time.ZoneOffset", "java.time.DayOfWeek", "java.time.Month", "java.time.Year",
+            "java.time.YearMonth", "java.time.MonthDay", "java.time.Clock",
+            "java.time.format.DateTimeFormatter", "java.time.format.FormatStyle",
+            "java.time.temporal.ChronoUnit", "java.time.temporal.ChronoField", "java.time.temporal.TemporalAdjusters",
+            "java.time.temporal.Temporal", "java.time.temporal.TemporalAmount", "java.time.temporal.TemporalUnit",
+            "java.math.BigDecimal", "java.math.BigInteger", "java.math.MathContext", "java.math.RoundingMode",
+            "java.text.NumberFormat", "java.text.DecimalFormat", "java.text.Normalizer",
+            "java.nio.ByteBuffer", "java.nio.CharBuffer", "java.nio.ByteOrder",
+            "java.nio.charset.StandardCharsets", "java.nio.charset.Charset",
+            "java.net.URI", "java.net.URLEncoder", "java.net.URLDecoder", "java.security.MessageDigest",
+            "org.slf4j.Logger", "org.slf4j.LoggerFactory");
+    // Class metadata that never initializes the class; getEnumConstants runs enum constructors.
+    private static final Set<String> ALLOWED_CLASS_METHODS = Set.of("getName", "getSimpleName", "getCanonicalName",
+            "getTypeName", "getPackageName", "isInstance", "cast", "isEnum", "isRecord", "isInterface", "isArray",
+            "isPrimitive", "isAssignableFrom", "getModifiers", "getComponentType", "equals", "hashCode", "toString");
+    private static final Set<String> ALLOWED_SYSTEM_METHODS = Set.of("currentTimeMillis", "nanoTime", "arraycopy",
+            "identityHashCode", "lineSeparator", "getenv", "getProperty");
+    private static final Map<String, Set<String>> DENIED_JDK_METHODS = Map.of(
+            "TimeUnit", Set.of("sleep", "timedJoin", "timedWait"));
+    // Known SDK return types; T is the receiver's type argument, A the first argument's, C a class literal's.
+    private static final Map<String, String> SDK_RETURN_TYPES = Map.ofEntries(
+            Map.entry("Context.getAttribute", "A"), Map.entry("Context.channelResults", "List<A>"),
+            Map.entry("Context.pendingChannelMessages", "List<ChannelMessage<A>>"),
+            Map.entry("Context.getLastHeartbeatValue", "C"), Map.entry("Context.getStepExecutionLocal", "C"),
+            Map.entry("Context.getFlowId", "String"), Map.entry("Context.getRunId", "String"),
+            Map.entry("Context.getStepExecutionId", "String"), Map.entry("Context.getFromStepExecutionId", "String"),
+            Map.entry("Context.getFlowStartedAt", "Instant"), Map.entry("Context.getFirstAttemptAt", "Instant"),
+            Map.entry("Context.getAttempt", "int"), Map.entry("Context.channelSize", "int"),
+            Map.entry("Context.hasTimerFired", "boolean"), Map.entry("Context.isCancellationRequested", "boolean"),
+            Map.entry("Context.hasLastHeartbeatValue", "boolean"), Map.entry("Context.waitForMethodFailed", "boolean"),
+            Map.entry("Context.isGracefulCompletionConditionCompleted", "boolean"),
+            Map.entry("Context.supportsGracefulCompletionCondition", "boolean"),
+            Map.entry("Attribute.get", "T"), Map.entry("Attribute.getName", "String"),
+            Map.entry("AttributeMap.get", "T"), Map.entry("AttributeMap.instance", "AttributeMapInstance<T>"),
+            Map.entry("AttributeMap.getMapSize", "int"), Map.entry("AttributeMap.getAllInstanceKeys", "List<String>"),
+            Map.entry("AttributeMap.getName", "String"), Map.entry("AttributeMapInstance.getInstance", "String"),
+            Map.entry("Channel.getConditionResults", "List<T>"), Map.entry("Channel.pendingMessages", "List<ChannelMessage<T>>"),
+            Map.entry("Channel.findPendingMessage", "ChannelMessage<T>"), Map.entry("Channel.size", "int"),
+            Map.entry("Channel.getName", "String"), Map.entry("Channel.forOne", "Condition"), Map.entry("Channel.forN", "Condition"),
+            Map.entry("Channel.atLeast", "Condition"), Map.entry("Channel.atMost", "Condition"), Map.entry("Channel.range", "Condition"),
+            Map.entry("ChannelMap.getConditionResults", "List<T>"),
+            Map.entry("ChannelMap.pendingMessages", "List<ChannelMessage<T>>"),
+            Map.entry("ChannelMap.findPendingMessage", "ChannelMessage<T>"), Map.entry("ChannelMap.size", "int"),
+            Map.entry("ChannelMap.getMapSize", "int"), Map.entry("ChannelMap.getAllInstanceKeys", "List<String>"),
+            Map.entry("ChannelMap.getName", "String"), Map.entry("ChannelMap.forOne", "Condition"),
+            Map.entry("ChannelMap.forN", "Condition"), Map.entry("ChannelMap.atLeast", "Condition"),
+            Map.entry("ChannelMap.atMost", "Condition"), Map.entry("ChannelMap.range", "Condition"),
+            Map.entry("ChannelMessage.getValue", "T"), Map.entry("ChannelMessage.getMessageId", "String"),
+            Map.entry("Stream.getName", "String"), Map.entry("Stream.getStreamName", "String"),
+            Map.entry("Join.getBranchResults", "List<T>"), Map.entry("Join.getRemainingBranchResults", "List<T>"),
+            Map.entry("Join.endBranch", "StepDecision"), Map.entry("Join.fork", "List<StepMovement>"),
+            Map.entry("Join.forkWithRoundKey", "List<StepMovement>"), Map.entry("Join.getChannelMap", "ChannelMap<T>"),
+            Map.entry("Join.forAllBranches", "Condition"), Map.entry("Join.forBranches", "Condition"),
+            Map.entry("Join.forFirstBranch", "Condition"), Map.entry("Join.forRemainingBranches", "Condition"),
+            Map.entry("Join.getName", "String"), Map.entry("JoinRound.getRoundKey", "String"),
+            Map.entry("JoinRound.getBranchCount", "int"), Map.entry("BufferedTextStream.create", "BufferedTextStream"),
+            Map.entry("StepDecision.*", "StepDecision"), Map.entry("Wait.*", "Wait"), Map.entry("Timer.byDuration", "Condition"),
+            Map.entry("GracefulCompletion.requested", "Condition"), Map.entry("SubFlow.run", "Condition"),
+            Map.entry("StepMovement.of", "StepMovement"), Map.entry("AttributeLock.of", "AttributeLock"),
+            Map.entry("RPCResult.of", "RPCResult"), Map.entry("RPCResult.withCancelingSteps", "RPCResult"),
+            Map.entry("ConditionCombination.of", "ConditionCombination"), Map.entry("PersistenceSchema.of", "PersistenceSchema"),
+            Map.entry("StepOptions.newBuilder", "StepOptions.Builder"), Map.entry("StepOptions.Builder.*", "StepOptions.Builder"),
+            Map.entry("StepOptions.Builder.build", "StepOptions"),
+            Map.entry("SubFlowOptions.newBuilder", "SubFlowOptions.Builder"),
+            Map.entry("SubFlowOptions.Builder.*", "SubFlowOptions.Builder"), Map.entry("SubFlowOptions.Builder.build", "SubFlowOptions"),
+            Map.entry("RetryPolicy.newBuilder", "RetryPolicy.Builder"), Map.entry("RetryPolicy.Builder.*", "RetryPolicy.Builder"),
+            Map.entry("RetryPolicy.Builder.build", "RetryPolicy"),
+            Map.entry("StartFlowOptions.newBuilder", "StartFlowOptions.Builder"),
+            Map.entry("StartFlowOptions.Builder.*", "StartFlowOptions.Builder"),
+            Map.entry("StartFlowOptions.Builder.build", "StartFlowOptions"));
+    // Reflection reaches any code; wait blocks the thread.
+    private static final Set<String> DENIED_METHOD_NAMES = Set.of("forName", "getMethod", "getMethods", "getDeclaredMethod",
+            "getDeclaredMethods", "getConstructor", "getConstructors", "getDeclaredConstructor", "getDeclaredConstructors",
+            "getField", "getDeclaredField", "invoke", "newInstance", "setAccessible", "wait");
+    private static final Set<String> OBJECT_METHODS = Set.of("equals", "hashCode", "toString", "getClass");
+
+    private enum ValueKind { SDK, SDK_CONNECTION, PURE, FUNCTIONAL, SAME_FILE, SAME_PACKAGE_DATA, PRIMITIVE, ARRAY, UNKNOWN }
+
+    /** A record or enum declared in another file of the source's package; only its implicit members are checked. */
+    private record SamePackageData(ClassTree tree, Map<String, Tree> components, boolean hasConstructor, Set<String> methods) {}
+
+    /** The analyzer's view of an expression's static type; isTypeName marks a class used for static access. */
+    private record ValueType(ValueKind kind, String name, Class<?> jdkClass, Declaration declaration,
+                             List<ValueType> arguments, boolean isTypeName) {
+        static ValueType of(ValueKind kind, String name) {
+            return new ValueType(kind, name, null, null, List.of(), false);
+        }
+
+        ValueType withArguments(List<ValueType> values) {
+            return new ValueType(kind, name, jdkClass, declaration, values, isTypeName);
+        }
+
+        ValueType asTypeName() {
+            return new ValueType(kind, name, jdkClass, declaration, arguments, true);
+        }
+
+        ValueType argument(int index) {
+            return index < arguments.size() ? arguments.get(index) : of(ValueKind.UNKNOWN, "?");
+        }
+    }
+
+    private record ExternalCallResult(Map<String, Object> call, boolean isExact) {}
+
+    /** Fills methodExternalCalls for Step methods with an allowlist; see locked_method_external_calls.go. */
+    private final class ExternalCallFinder {
+        final List<Map<String, Object>> markers = new ArrayList<>();
+        // exactResults caches helpers whose result did not depend on the depth bound or a cycle.
+        private final Map<MethodTree, Optional<Map<String, Object>>> exactResults = new IdentityHashMap<>();
+        private final Set<MethodTree> inProgress = Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Map<String, ValueType> resolvedTypeNames = new HashMap<>();
+        private final Map<String, Optional<ClassTree>> samePackageFiles = new HashMap<>();
+        final Map<String, SamePackageData> samePackageTypes = new HashMap<>();
+
+        private record PendingStepMethod(String stepID, String phase, MethodScope scope, String reason) {}
+
+        private final List<PendingStepMethod> pendingMethods = new ArrayList<>();
+
+        void addStepMethod(String stepID, String phase, MethodScope scope) {
+            var reason = scope.method.getBody() == null ? "a " + scope.method.getName() + " without a body" : null;
+            pendingMethods.add(new PendingStepMethod(stepID, phase, scope, reason));
+        }
+
+        void addUncheckedMethod(String stepID, String phase, String reason) {
+            pendingMethods.add(new PendingStepMethod(stepID, phase, null, reason));
+        }
+
+        /** Emits markers only for Step methods that hold a lock an RPC also takes, once every lock edge is known. */
+        void scanLockedMethods() {
+            for (var pending : pendingMethods) {
+                if (!sharesRPCLock(pending.stepID(), pending.phase())) continue;
+                if (pending.reason() != null) {
+                    markers.add(object("nodeId", pending.stepID(), "phase", pending.phase(),
+                            "calls", List.of(object("callee", pending.reason()))));
+                    continue;
+                }
+                var scan = new ExternalCallScan(pending.scope(), 0, false);
+                scan.scan(pending.scope().method.getBody(), null);
+                markers.add(object("nodeId", pending.stepID(), "phase", pending.phase(), "calls", scan.calls));
+            }
+        }
+
+        /** Mirrors firstLockSharedWithRPC: two known, different AttributeMap instances do not conflict. */
+        private boolean sharesRPCLock(String stepID, String phase) {
+            for (var held : edges) {
+                if (!lockEdge(held, phase) || !stepID.equals(held.get("from"))) continue;
+                for (var rpc : edges) {
+                    if (!lockEdge(rpc, "rpc") || !held.get("to").equals(rpc.get("to"))) continue;
+                    var heldInstance = lockInstance(held);
+                    var rpcInstance = lockInstance(rpc);
+                    if (heldInstance == null || rpcInstance == null || heldInstance.equals(rpcInstance)) return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean lockEdge(Map<String, Object> edge, String phase) {
+            return "resource_lock".equals(edge.get("kind")) && edge.get("metadata") instanceof Map<?, ?> metadata &&
+                    phase.equals(metadata.get("phase"));
+        }
+
+        private String lockInstance(Map<String, Object> edge) {
+            return ((Map<?, ?>) edge.get("metadata")).get("instance") instanceof String instance && !instance.isEmpty() ? instance : null;
+        }
+
+        /** Returns the first possible external call of a same-file helper, and whether the result is exact. */
+        ExternalCallResult helperExternalCall(Declaration owner, MethodTree method, int depth) {
+            var cached = exactResults.get(method);
+            if (cached != null) return new ExternalCallResult(cached.orElse(null), true);
+            if (inProgress.contains(method)) return new ExternalCallResult(null, false);
+            if (depth + 1 > MAXIMUM_HELPER_DEPTH) {
+                return new ExternalCallResult(object("callee", "a helper chain deeper than dexcli follows"), false);
+            }
+            inProgress.add(method);
+            var scan = new ExternalCallScan(new MethodScope(owner, method), depth + 1, true);
+            scan.scan(method.getBody(), null);
+            inProgress.remove(method);
+            var result = scan.calls.isEmpty() ? null : scan.calls.get(0);
+            if (scan.isExact) exactResults.put(method, Optional.ofNullable(result));
+            return new ExternalCallResult(result, scan.isExact);
+        }
+
+        ValueType resolveType(Tree type, Declaration owner) {
+            if (type == null) return ValueType.of(ValueKind.UNKNOWN, "?");
+            if (type instanceof PrimitiveTypeTree) return ValueType.of(ValueKind.PRIMITIVE, type.toString());
+            if (type instanceof ArrayTypeTree array) return arrayOf(resolveType(array.getType(), owner));
+            if (type instanceof ParameterizedTypeTree parameterized) {
+                var arguments = parameterized.getTypeArguments().stream().map(argument -> resolveType(argument, owner)).toList();
+                return resolveType(parameterized.getType(), owner).withArguments(arguments);
+            }
+            if (type instanceof WildcardTree wildcard) return resolveType(wildcard.getBound(), owner);
+            if (type instanceof AnnotatedTypeTree annotated) return resolveType(annotated.getUnderlyingType(), owner);
+            return resolveTypeName(type.toString(), owner);
+        }
+
+        ValueType resolveTypeName(String name, Declaration owner) {
+            var declaration = resolveClass(name, owner);
+            if (declaration != null) return new ValueType(ValueKind.SAME_FILE, name, null, declaration, List.of(), false);
+            return resolvedTypeNames.computeIfAbsent(name, this::resolveImportedTypeName);
+        }
+
+        private ValueType resolveImportedTypeName(String name) {
+            var head = name.contains(".") ? name.substring(0, name.indexOf('.')) : name;
+            var rest = name.substring(head.length());
+            if (!head.isEmpty() && Character.isLowerCase(head.charAt(0))) return classifyQualifiedName(name);
+            var packageName = unit.getPackageName() == null ? "" : unit.getPackageName().toString();
+            for (var importTree : unit.getImports()) {
+                var imported = importTree.getQualifiedIdentifier().toString();
+                if (importTree.isStatic() || !imported.endsWith("." + head)) continue;
+                var importedPackage = imported.substring(0, imported.length() - head.length() - 1);
+                if (!packageName.isEmpty() && imported.startsWith(packageName + ".")) {
+                    var data = samePackageData(imported.substring(packageName.length() + 1) + rest, importedPackage);
+                    if (data != null) return data;
+                }
+                return classifyQualifiedName(imported + rest);
+            }
+            var samePackage = samePackageData(name, packageName);
+            if (samePackage != null) return samePackage;
+            if (loadJdkClass("java.lang." + name) != null) return classifyQualifiedName("java.lang." + name);
+            for (var importTree : unit.getImports()) {
+                var imported = importTree.getQualifiedIdentifier().toString();
+                if (importTree.isStatic() || !imported.endsWith(".*")) continue;
+                var wildcardPackage = imported.substring(0, imported.length() - 2);
+                if (wildcardPackage.equals(SDK_PACKAGE) && SDK_WILDCARD_TYPES.contains(head) ||
+                        loadJdkClass(wildcardPackage + "." + name) != null) {
+                    return classifyQualifiedName(wildcardPackage + "." + name);
+                }
+            }
+            return ValueType.of(ValueKind.UNKNOWN, name);
+        }
+
+        /** Returns a record or enum declared in a sibling file of the source's package, or null. */
+        private ValueType samePackageData(String relativeName, String declaredPackage) {
+            var current = unit.getPackageName() == null ? "" : unit.getPackageName().toString();
+            if (!declaredPackage.equals(current) && !declaredPackage.startsWith(current + ".")) return null;
+            var segments = relativeName.split("\\.");
+            var tree = samePackageClass(segments[0]);
+            for (int index = 1; tree != null && index < segments.length; index++) {
+                var segment = segments[index];
+                tree = tree.getMembers().stream().filter(member -> member instanceof ClassTree nested &&
+                        nested.getSimpleName().contentEquals(segment)).map(member -> (ClassTree) member).findFirst().orElse(null);
+            }
+            if (tree == null || (tree.getKind() != Tree.Kind.RECORD && tree.getKind() != Tree.Kind.ENUM)) return null;
+            Map<String, Tree> components = new LinkedHashMap<>();
+            Set<String> methods = new HashSet<>();
+            var hasConstructor = false;
+            for (var member : tree.getMembers()) {
+                if (member instanceof VariableTree field && !field.getModifiers().getFlags().contains(Modifier.STATIC)) {
+                    components.put(field.getName().toString(), field.getType());
+                } else if (member instanceof MethodTree method) {
+                    if (method.getName().contentEquals("<init>")) hasConstructor = true;
+                    else methods.add(method.getName().toString());
+                }
+            }
+            var name = current + "." + relativeName;
+            samePackageTypes.put(name, new SamePackageData(tree, components, hasConstructor, methods));
+            return ValueType.of(ValueKind.SAME_PACKAGE_DATA, name);
+        }
+
+        private ClassTree samePackageClass(String topLevelName) {
+            return samePackageFiles.computeIfAbsent(topLevelName, this::parseSamePackageClass).orElse(null);
+        }
+
+        private Optional<ClassTree> parseSamePackageClass(String topLevelName) {
+            if (!topLevelName.matches("[A-Za-z_$][A-Za-z0-9_$]*") || path == null || path.isEmpty()) return Optional.empty();
+            var directory = java.nio.file.Path.of(path).toAbsolutePath().getParent();
+            var file = directory == null ? null : directory.resolve(topLevelName + ".java");
+            if (file == null || !java.nio.file.Files.isRegularFile(file)) return Optional.empty();
+            try {
+                var siblingSource = java.nio.file.Files.readString(file);
+                var input = new SimpleJavaFileObject(file.toUri(), JavaFileObject.Kind.SOURCE) {
+                    @Override public CharSequence getCharContent(boolean ignoreEncodingErrors) { return siblingSource; }
+                };
+                var task = (JavacTask) ToolProvider.getSystemJavaCompiler().getTask(null, null, ignored -> {}, List.of("-proc:none"), null, List.of(input));
+                for (var sibling : task.parse()) {
+                    for (var declaration : sibling.getTypeDecls()) {
+                        if (declaration instanceof ClassTree type && type.getSimpleName().contentEquals(topLevelName)) return Optional.of(type);
+                    }
+                }
+            } catch (Exception ignored) {
+                // An unreadable sibling stays unresolved, so calls on its type count as external.
+            }
+            return Optional.empty();
+        }
+
+        ValueType classifyQualifiedName(String name) {
+            if (name.startsWith(SDK_PACKAGE + ".")) {
+                var simple = name.substring(SDK_PACKAGE.length() + 1);
+                var topLevel = simple.contains(".") ? simple.substring(0, simple.indexOf('.')) : simple;
+                // Lowercase segments are subpackages; only the exceptions subpackage belongs to the handler API.
+                if (Character.isLowerCase(topLevel.charAt(0)) && !topLevel.equals("exceptions")) return ValueType.of(ValueKind.UNKNOWN, name);
+                return ValueType.of(SDK_CONNECTION_TYPES.contains(topLevel) ? ValueKind.SDK_CONNECTION : ValueKind.SDK, name);
+            }
+            if (name.startsWith("org.slf4j.")) return ValueType.of(PURE_JDK_CLASSES.contains(name) ? ValueKind.PURE : ValueKind.UNKNOWN, name);
+            var loaded = loadJdkClass(name);
+            return loaded == null ? ValueType.of(ValueKind.UNKNOWN, name) : classifyJdkClass(loaded);
+        }
+
+        private Class<?> loadJdkClass(String name) {
+            if (!name.startsWith("java.") && !name.startsWith("javax.")) return null;
+            var binaryName = name;
+            while (true) {
+                try {
+                    return Class.forName(binaryName, false, ClassLoader.getSystemClassLoader());
+                } catch (ClassNotFoundException | LinkageError ignored) {
+                    var dot = binaryName.lastIndexOf('.');
+                    if (dot < 0 || !Character.isUpperCase(binaryName.charAt(binaryName.lastIndexOf('.', dot - 1) + 1))) return null;
+                    binaryName = binaryName.substring(0, dot) + "$" + binaryName.substring(dot + 1);
+                }
+            }
+        }
+
+        ValueType classifyJdkClass(Class<?> type) {
+            if (type.isPrimitive()) return ValueType.of(ValueKind.PRIMITIVE, type.getName());
+            if (type.isArray()) return arrayOf(classifyJdkClass(type.getComponentType()));
+            var outer = type;
+            while (outer.getEnclosingClass() != null) outer = outer.getEnclosingClass();
+            var packageName = type.getPackageName();
+            var isPure = PURE_JDK_CLASSES.contains(outer.getName()) || packageName.equals("java.util.function") ||
+                    Throwable.class.isAssignableFrom(type);
+            var name = type.getName().replace('$', '.');
+            if (!isPure) return ValueType.of(ValueKind.UNKNOWN, name);
+            var isFunctional = type.isInterface() && (packageName.equals("java.util.function") || type == Runnable.class ||
+                    type.isAnnotationPresent(FunctionalInterface.class) && singleAbstractMethod(type) != null);
+            return new ValueType(isFunctional ? ValueKind.FUNCTIONAL : ValueKind.PURE, name, type, null, List.of(), false);
+        }
+
+        private ValueType arrayOf(ValueType element) {
+            return ValueType.of(ValueKind.ARRAY, element.name() + "[]").withArguments(List.of(element));
+        }
+
+        java.lang.reflect.Method singleAbstractMethod(Class<?> type) {
+            java.lang.reflect.Method found = null;
+            for (var method : type.getMethods()) {
+                if (!java.lang.reflect.Modifier.isAbstract(method.getModifiers()) || isObjectMethod(method)) continue;
+                if (found != null) return null;
+                found = method;
+            }
+            return found;
+        }
+
+        private boolean isObjectMethod(java.lang.reflect.Method method) {
+            try {
+                Object.class.getMethod(method.getName(), method.getParameterTypes());
+                return true;
+            } catch (NoSuchMethodException ignored) {
+                return false;
+            }
+        }
+
+        List<java.lang.reflect.Method> jdkMethods(ValueType receiver, String name, int argumentCount) {
+            List<java.lang.reflect.Method> methods = new ArrayList<>();
+            if (receiver.jdkClass() == null) return methods;
+            for (var method : receiver.jdkClass().getMethods()) {
+                if (method.isBridge() || !method.getName().equals(name)) continue;
+                if (receiver.isTypeName() && !java.lang.reflect.Modifier.isStatic(method.getModifiers())) continue;
+                var count = method.getParameterCount();
+                if (argumentCount < 0 || count == argumentCount || method.isVarArgs() && argumentCount >= count - 1) methods.add(method);
+            }
+            return methods;
+        }
+
+        /** Binds the receiver class's type variables, and those of its supertypes, to the receiver's type arguments. */
+        Map<java.lang.reflect.TypeVariable<?>, ValueType> receiverBindings(ValueType receiver) {
+            Map<java.lang.reflect.TypeVariable<?>, ValueType> bindings = new HashMap<>();
+            var type = receiver.jdkClass();
+            if (type == null) return bindings;
+            var parameters = type.getTypeParameters();
+            if (parameters.length == receiver.arguments().size()) {
+                for (int index = 0; index < parameters.length; index++) bindings.put(parameters[index], receiver.argument(index));
+            }
+            bindSupertypes(type, bindings, new HashSet<>());
+            return bindings;
+        }
+
+        private void bindSupertypes(Class<?> type, Map<java.lang.reflect.TypeVariable<?>, ValueType> bindings, Set<Class<?>> visited) {
+            if (type == null || !visited.add(type)) return;
+            List<java.lang.reflect.Type> supertypes = new ArrayList<>(List.of(type.getGenericInterfaces()));
+            if (type.getGenericSuperclass() != null) supertypes.add(type.getGenericSuperclass());
+            for (var supertype : supertypes) {
+                if (supertype instanceof java.lang.reflect.ParameterizedType parameterized &&
+                        parameterized.getRawType() instanceof Class<?> raw) {
+                    var variables = raw.getTypeParameters();
+                    var actual = parameterized.getActualTypeArguments();
+                    for (int index = 0; index < variables.length && index < actual.length; index++) {
+                        bindings.putIfAbsent(variables[index], convertType(actual[index], bindings));
+                    }
+                    bindSupertypes(raw, bindings, visited);
+                } else if (supertype instanceof Class<?> raw) {
+                    bindSupertypes(raw, bindings, visited);
+                }
+            }
+        }
+
+        ValueType convertType(java.lang.reflect.Type type, Map<java.lang.reflect.TypeVariable<?>, ValueType> bindings) {
+            if (type instanceof Class<?> raw) return classifyJdkClass(raw);
+            if (type instanceof java.lang.reflect.ParameterizedType parameterized && parameterized.getRawType() instanceof Class<?> raw) {
+                var arguments = Arrays.stream(parameterized.getActualTypeArguments()).map(argument -> convertType(argument, bindings)).toList();
+                return classifyJdkClass(raw).withArguments(arguments);
+            }
+            if (type instanceof java.lang.reflect.TypeVariable<?> variable) {
+                return bindings.getOrDefault(variable, ValueType.of(ValueKind.UNKNOWN, variable.getName()));
+            }
+            if (type instanceof java.lang.reflect.WildcardType wildcard) {
+                if (wildcard.getLowerBounds().length > 0) return convertType(wildcard.getLowerBounds()[0], bindings);
+                var upper = wildcard.getUpperBounds()[0];
+                return upper == Object.class ? ValueType.of(ValueKind.UNKNOWN, "?") : convertType(upper, bindings);
+            }
+            if (type instanceof java.lang.reflect.GenericArrayType array) return arrayOf(convertType(array.getGenericComponentType(), bindings));
+            return ValueType.of(ValueKind.UNKNOWN, String.valueOf(type));
+        }
+
+        /** Binds a method's type variables from one argument's type. */
+        void inferTypeArguments(java.lang.reflect.Type parameter, ValueType argument,
+                                Map<java.lang.reflect.TypeVariable<?>, ValueType> bindings) {
+            if (argument.kind() == ValueKind.UNKNOWN) return;
+            if (parameter instanceof java.lang.reflect.TypeVariable<?> variable &&
+                    variable.getGenericDeclaration() instanceof java.lang.reflect.Method) {
+                bindings.putIfAbsent(variable, argument);
+            } else if (parameter instanceof java.lang.reflect.ParameterizedType parameterized &&
+                    parameterized.getActualTypeArguments().length == argument.arguments().size()) {
+                var actual = parameterized.getActualTypeArguments();
+                for (int index = 0; index < actual.length; index++) inferTypeArguments(actual[index], argument.argument(index), bindings);
+            } else if (parameter instanceof java.lang.reflect.GenericArrayType array && argument.kind() == ValueKind.ARRAY) {
+                inferTypeArguments(array.getGenericComponentType(), argument.argument(0), bindings);
+            } else if (parameter instanceof java.lang.reflect.WildcardType wildcard) {
+                var bounds = wildcard.getLowerBounds().length > 0 ? wildcard.getLowerBounds() : wildcard.getUpperBounds();
+                inferTypeArguments(bounds[0], argument, bindings);
+            }
+        }
+
+        java.lang.reflect.Type parameterType(java.lang.reflect.Method method, int index, boolean isSingleVararg) {
+            var parameters = method.getGenericParameterTypes();
+            if (!method.isVarArgs() || index < parameters.length - 1) return parameters[index];
+            var last = parameters[parameters.length - 1];
+            if (isSingleVararg) return last;
+            return last instanceof java.lang.reflect.GenericArrayType array ? array.getGenericComponentType()
+                    : last instanceof Class<?> raw && raw.isArray() ? raw.getComponentType() : last;
+        }
+    }
+
+    /** Collects the possible external calls of one method body. */
+    private final class ExternalCallScan extends TreeScanner<Void, Void> {
+        final MethodScope scope;
+        final int depth;
+        final boolean firstOnly;
+        final List<Map<String, Object>> calls = new ArrayList<>();
+        boolean isExact = true;
+        private final Map<VariableTree, ValueType> inferredTypes = new IdentityHashMap<>();
+        private final Map<Tree, Optional<ExternalCallResult>> classified = new IdentityHashMap<>();
+        private final ExternalCallFinder finder = externalCalls;
+
+        ExternalCallScan(MethodScope scope, int depth, boolean firstOnly) {
+            this.scope = scope;
+            this.depth = depth;
+            this.firstOnly = firstOnly;
+        }
+
+        @Override public Void scan(Tree tree, Void unused) {
+            if (firstOnly && !calls.isEmpty()) return null;
+            return super.scan(tree, unused);
+        }
+
+        @Override public Void visitClass(ClassTree tree, Void unused) { return null; }
+
+        // Calls are recorded after their receiver and arguments, in evaluation order.
+        @Override public Void visitMethodInvocation(MethodInvocationTree call, Void unused) {
+            typeLambdaParameters(call);
+            super.visitMethodInvocation(call, unused);
+            record(call);
+            return null;
+        }
+
+        @Override public Void visitNewClass(NewClassTree created, Void unused) {
+            super.visitNewClass(created, unused);
+            record(created);
+            return null;
+        }
+
+        @Override public Void visitMemberReference(MemberReferenceTree reference, Void unused) {
+            record(reference);
+            return super.visitMemberReference(reference, unused);
+        }
+
+        @Override public Void visitTry(TryTree statement, Void unused) {
+            super.visitTry(statement, unused);
+            for (var resource : statement.getResources()) {
+                if (!(resource instanceof VariableTree variable)) continue;
+                var type = typeOfVariable(variable);
+                // The implicit close of a stream resource runs its close handlers.
+                if (type.jdkClass() != null && java.util.stream.BaseStream.class.isAssignableFrom(type.jdkClass())) {
+                    calls.add(object("callee", variable.getName() + ".close", "span", span(variable)));
+                }
+            }
+            return null;
+        }
+
+        @Override public Void visitEnhancedForLoop(EnhancedForLoopTree loop, Void unused) {
+            var variable = loop.getVariable();
+            if (isInferred(variable)) {
+                var iterable = typeOf(loop.getExpression());
+                inferredTypes.put(variable, iterable.arguments().size() == 1 ? iterable.argument(0) : ValueType.of(ValueKind.UNKNOWN, "?"));
+            }
+            return super.visitEnhancedForLoop(loop, unused);
+        }
+
+        private void record(Tree tree) {
+            var result = classify(tree);
+            if (result == null) return;
+            isExact = isExact && result.isExact();
+            if (result.call() != null) calls.add(result.call());
+        }
+
+        private ExternalCallResult classify(Tree tree) {
+            var cached = classified.get(tree);
+            if (cached != null) return cached.orElse(null);
+            ExternalCallResult result;
+            if (tree instanceof MethodInvocationTree call) result = classifyCall(call);
+            else if (tree instanceof NewClassTree created) result = classifyConstruction(created);
+            else result = classifyReference((MemberReferenceTree) tree);
+            classified.put(tree, Optional.ofNullable(result));
+            return result;
+        }
+
+        private ExternalCallResult external(String callee, Tree site) {
+            return new ExternalCallResult(object("callee", callee, "span", span(site)), true);
+        }
+
+        private ExternalCallResult helperCall(String callee, Declaration owner, MethodTree method, Tree site) {
+            // An interface or abstract method runs whatever implementation is injected.
+            if (method.getBody() == null) return external(callee, site);
+            var inner = finder.helperExternalCall(owner, method, depth);
+            if (inner.call() == null) return new ExternalCallResult(null, inner.isExact());
+            return new ExternalCallResult(object("callee", callee + " (calls " + inner.call().get("callee") + ")",
+                    "span", span(site)), inner.isExact());
+        }
+
+        /** Checks every candidate declaration of an overloaded call and returns the first possible external call. */
+        private ExternalCallResult candidatesCall(String callee, List<SameFileMethod> candidates, Tree site) {
+            var isAllExact = true;
+            for (var candidate : candidates) {
+                var result = helperCall(callee, candidate.owner(), candidate.method(), site);
+                isAllExact = isAllExact && result.isExact();
+                if (result.call() != null) return new ExternalCallResult(result.call(), isAllExact);
+            }
+            return new ExternalCallResult(null, isAllExact);
+        }
+
+        private ExternalCallResult classifyCall(MethodInvocationTree call) {
+            var name = callName(call);
+            var callee = call.getMethodSelect().toString();
+            if (DENIED_METHOD_NAMES.contains(name)) return external(callee, call);
+            var receiver = receiver(call);
+            var arguments = call.getArguments();
+            if (receiver == null) {
+                if (name.equals("super") || name.equals("this")) return classifyConstructorCall(call, name);
+                var helpers = sameFileMethods(scope.owner, name, arguments, true);
+                if (!helpers.isEmpty()) return candidatesCall(callee, helpers, call);
+                var inherited = enclosingInheritedSupertype(name, arguments.size());
+                if (inherited != null) return classifyMemberCall(inherited, name, arguments, callee, call);
+                var imported = staticImportOwner(name);
+                if (imported != null) return classifyMemberCall(imported.asTypeName(), name, arguments, callee, call);
+                return external(callee, call);
+            }
+            return classifyMemberCall(typeOf(receiver), name, arguments, callee, call);
+        }
+
+        private ValueType enclosingInheritedSupertype(String name, int argumentCount) {
+            for (var declaration = scope.owner; declaration != null; declaration = declaration.enclosing) {
+                var inherited = inheritedSupertype(declaration, name, argumentCount, new HashSet<>());
+                if (inherited == null) continue;
+                // SDK and unresolved supertypes cannot confirm the method, so a matching static import wins.
+                var isConfirmed = inherited.kind() == ValueKind.PURE || inherited.kind() == ValueKind.FUNCTIONAL;
+                return isConfirmed || staticImportOwner(name) == null ? inherited : null;
+            }
+            return null;
+        }
+
+        /** Returns the supertype outside the file that may supply name to a same-file class, or null. */
+        private ValueType inheritedSupertype(Declaration declaration, String name, int argumentCount, Set<Declaration> visited) {
+            if (declaration == null || !visited.add(declaration)) return null;
+            List<Tree> supertypes = new ArrayList<>();
+            if (declaration.tree.getExtendsClause() != null) supertypes.add(declaration.tree.getExtendsClause());
+            supertypes.addAll(declaration.tree.getImplementsClause());
+            for (var supertypeTree : supertypes) {
+                var supertype = finder.resolveType(supertypeTree, declaration);
+                switch (supertype.kind()) {
+                    case SAME_FILE -> {
+                        var inherited = inheritedSupertype(supertype.declaration(), name, argumentCount, visited);
+                        if (inherited != null) return inherited;
+                    }
+                    case PURE, FUNCTIONAL -> {
+                        if (supertype.jdkClass() != null && !finder.jdkMethods(supertype, name, argumentCount).isEmpty()) return supertype;
+                    }
+                    case SDK, SDK_CONNECTION, UNKNOWN, SAME_PACKAGE_DATA -> {
+                        return supertype;
+                    }
+                    default -> { }
+                }
+            }
+            return null;
+        }
+
+        /** Classifies a call on a receiver type; arguments is null for a method reference. */
+        private ExternalCallResult classifyMemberCall(ValueType receiver, String name, List<? extends ExpressionTree> arguments,
+                                                      String callee, Tree site) {
+            var argumentCount = arguments == null ? -1 : arguments.size();
+            switch (receiver.kind()) {
+                case SDK, PRIMITIVE, ARRAY:
+                    return null;
+                case SAME_FILE: {
+                    var methods = sameFileMethods(receiver.declaration(), name, arguments, false);
+                    if (!methods.isEmpty()) return candidatesCall(callee, methods, site);
+                    if (!isImplicitMethod(receiver.declaration(), name, argumentCount)) {
+                        // A method the file does not declare follows the allowlist of the supertype that supplies it.
+                        var inherited = inheritedSupertype(receiver.declaration(), name, argumentCount, new HashSet<>());
+                        return inherited == null ? external(callee, site) : classifyMemberCall(inherited, name, arguments, callee, site);
+                    }
+                    // values and valueOf initialize the enum, which runs its constructors.
+                    var isEnumInitialization = receiver.declaration().tree.getKind() == Tree.Kind.ENUM &&
+                            (name.equals("values") || name.equals("valueOf"));
+                    return isEnumInitialization ? candidatesCall(callee, sameFileConstructors(receiver.declaration(), null), site) : null;
+                }
+                case SAME_PACKAGE_DATA:
+                    return isSamePackageImplicitMethod(receiver, name, argumentCount) ? null : external(callee, site);
+                case PURE:
+                    if (receiver.name().equals("java.lang.System") && !ALLOWED_SYSTEM_METHODS.contains(name)) return external(callee, site);
+                    if (receiver.jdkClass() == Class.class && !ALLOWED_CLASS_METHODS.contains(name)) return external(callee, site);
+                    // Closing a stream runs the close handlers registered on it.
+                    if (receiver.jdkClass() != null && java.util.stream.BaseStream.class.isAssignableFrom(receiver.jdkClass()) &&
+                            name.equals("close")) return external(callee, site);
+                    var simple = receiver.jdkClass() == null ? "" : receiver.jdkClass().getSimpleName();
+                    return DENIED_JDK_METHODS.getOrDefault(simple, Set.of()).contains(name) ? external(callee, site) : null;
+                case FUNCTIONAL: {
+                    if (receiver.isTypeName()) return null;
+                    var abstractMethod = receiver.jdkClass() == null ? null : finder.singleAbstractMethod(receiver.jdkClass());
+                    return abstractMethod == null || abstractMethod.getName().equals(name) ? external(callee, site) : null;
+                }
+                default:
+                    return OBJECT_METHODS.contains(name) && !name.equals("getClass") ? null : external(callee, site);
+            }
+        }
+
+        /** Reports whether a call is an undeclared record accessor, enum method, or Object method of a sibling type. */
+        private boolean isSamePackageImplicitMethod(ValueType receiver, String name, int argumentCount) {
+            var data = finder.samePackageTypes.get(receiver.name());
+            if (data == null || data.methods().contains(name)) return false;
+            if (OBJECT_METHODS.contains(name)) return true;
+            if (data.tree().getKind() == Tree.Kind.ENUM) {
+                // A sibling enum constructor is not analyzed, so initializing such an enum counts as external.
+                if (data.hasConstructor() && (name.equals("values") || name.equals("valueOf"))) return false;
+                return Set.of("values", "valueOf", "name", "ordinal", "compareTo", "getDeclaringClass").contains(name);
+            }
+            return argumentCount <= 0 && data.components().containsKey(name);
+        }
+
+        private boolean isSamePackageImplicitConstructor(ValueType type) {
+            var data = finder.samePackageTypes.get(type.name());
+            return data != null && data.tree().getKind() == Tree.Kind.RECORD && !data.hasConstructor();
+        }
+
+        private ExternalCallResult classifyConstructorCall(MethodInvocationTree call, String name) {
+            if (name.equals("this")) return candidatesCall("this", sameFileConstructors(scope.owner, call.getArguments()), call);
+            var superclass = scope.owner.tree.getExtendsClause();
+            if (superclass == null) return null;
+            var type = finder.resolveType(superclass, scope.owner);
+            if (type.kind() == ValueKind.SAME_FILE) {
+                return candidatesCall("super", sameFileConstructors(type.declaration(), call.getArguments()), call);
+            }
+            return type.kind() == ValueKind.PURE || type.kind() == ValueKind.SDK ? null : external("super " + type.name(), call);
+        }
+
+        private ExternalCallResult classifyConstruction(NewClassTree created) {
+            var callee = "new " + created.getIdentifier();
+            if (created.getClassBody() != null) return external(callee + " {...}", created);
+            if (created.getEnclosingExpression() != null) return external(callee, created);
+            var type = finder.resolveType(created.getIdentifier(), scope.owner);
+            return switch (type.kind()) {
+                case SAME_FILE -> candidatesCall(callee, sameFileConstructors(type.declaration(), created.getArguments()), created);
+                case SDK, PURE -> null;
+                case SAME_PACKAGE_DATA -> isSamePackageImplicitConstructor(type) ? null : external(callee, created);
+                default -> external(callee, created);
+            };
+        }
+
+        private ExternalCallResult classifyReference(MemberReferenceTree reference) {
+            var qualifier = unwrap(reference.getQualifierExpression());
+            var callee = reference.toString();
+            var name = reference.getName().toString();
+            if (reference.getMode() == MemberReferenceTree.ReferenceMode.NEW) {
+                var type = finder.resolveType(qualifier, scope.owner);
+                if (type.kind() == ValueKind.SAME_FILE) {
+                    return candidatesCall(callee, sameFileConstructors(type.declaration(), null), reference);
+                }
+                var isAllowed = Set.of(ValueKind.SDK, ValueKind.PURE, ValueKind.ARRAY).contains(type.kind()) ||
+                        type.kind() == ValueKind.SAME_PACKAGE_DATA && isSamePackageImplicitConstructor(type);
+                return isAllowed ? null : external(callee, reference);
+            }
+            if (DENIED_METHOD_NAMES.contains(name)) return external(callee, reference);
+            if (qualifier instanceof IdentifierTree identifier && identifier.getName().contentEquals("super")) {
+                return external(callee, reference);
+            }
+            return classifyMemberCall(typeOf(qualifier), name, null, callee, reference);
+        }
+
+        private record SameFileMethod(Declaration owner, MethodTree method) {}
+
+        /** Returns the same-file declarations a call may run; arguments is null for a method reference. */
+        private List<SameFileMethod> sameFileMethods(Declaration owner, String name, List<? extends ExpressionTree> arguments,
+                                                     boolean searchEnclosing) {
+            for (var declaration = owner; declaration != null; declaration = searchEnclosing ? declaration.enclosing : null) {
+                List<SameFileMethod> found = new ArrayList<>();
+                collectSameFileMethods(declaration, name, arguments, found, new HashSet<>());
+                if (!found.isEmpty()) return applicableMethods(found, arguments);
+            }
+            return List.of();
+        }
+
+        private void collectSameFileMethods(Declaration declaration, String name, List<? extends ExpressionTree> arguments,
+                                            List<SameFileMethod> found, Set<Declaration> visited) {
+            if (declaration == null || !visited.add(declaration)) return;
+            for (var member : declaration.tree.getMembers()) {
+                if (member instanceof MethodTree method && method.getName().contentEquals(name) && acceptsArgumentCount(method, arguments)) {
+                    found.add(new SameFileMethod(declaration, method));
+                }
+            }
+            List<Tree> supertypes = new ArrayList<>(declaration.tree.getImplementsClause());
+            if (declaration.tree.getExtendsClause() != null) supertypes.add(declaration.tree.getExtendsClause());
+            for (var supertype : supertypes) {
+                collectSameFileMethods(resolveClass(rawType(supertype), declaration), name, arguments, found, visited);
+            }
+        }
+
+        /** Returns the explicit constructors a creation may run; an empty list means the implicit constructor. */
+        private List<SameFileMethod> sameFileConstructors(Declaration declaration, List<? extends ExpressionTree> arguments) {
+            List<SameFileMethod> found = new ArrayList<>();
+            for (var member : declaration.tree.getMembers()) {
+                if (member instanceof MethodTree method && method.getName().contentEquals("<init>") && acceptsArgumentCount(method, arguments)) {
+                    found.add(new SameFileMethod(declaration, method));
+                }
+            }
+            return applicableMethods(found, arguments);
+        }
+
+        private boolean acceptsArgumentCount(MethodTree method, List<? extends ExpressionTree> arguments) {
+            if (arguments == null) return true;
+            var parameters = method.getParameters();
+            if (parameters.size() == arguments.size()) return true;
+            return isVarargs(method) && arguments.size() >= parameters.size() - 1;
+        }
+
+        private boolean isVarargs(MethodTree method) {
+            var parameters = method.getParameters();
+            return !parameters.isEmpty() && parameters.get(parameters.size() - 1).toString().contains("...");
+        }
+
+        /** Drops only candidates whose parameters provably reject an argument; every remaining candidate is checked. */
+        private List<SameFileMethod> applicableMethods(List<SameFileMethod> candidates, List<? extends ExpressionTree> arguments) {
+            if (arguments == null || candidates.size() < 2) return candidates;
+            var argumentTypes = arguments.stream().map(argument -> typeOf(unwrap(argument))).toList();
+            var applicable = candidates.stream().filter(candidate -> {
+                var parameters = candidate.method().getParameters();
+                var checked = isVarargs(candidate.method()) ? parameters.size() - 1 : parameters.size();
+                for (int index = 0; index < checked && index < argumentTypes.size(); index++) {
+                    var parameter = finder.resolveType(parameters.get(index).getType(), candidate.owner());
+                    if (isProvablyIncompatible(argumentTypes.get(index), parameter)) return false;
+                }
+                return true;
+            }).toList();
+            return applicable.isEmpty() ? candidates : applicable;
+        }
+
+        /** Reports whether a value of type argument can never be passed as parameter; anything unresolved stays compatible. */
+        private boolean isProvablyIncompatible(ValueType argument, ValueType parameter) {
+            if (argument.kind() == ValueKind.UNKNOWN || parameter.kind() == ValueKind.UNKNOWN) return false;
+            if (parameter.jdkClass() == Object.class) return false;
+            if (argument.kind() == ValueKind.PRIMITIVE || parameter.kind() == ValueKind.PRIMITIVE) {
+                return !(isNumericOrBoxed(argument) && isNumericOrBoxed(parameter));
+            }
+            if (argument.kind() == ValueKind.SAME_FILE) return !mayBeSubtype(argument.declaration(), parameter, new HashSet<>());
+            if (argument.jdkClass() != null && parameter.jdkClass() != null) return !parameter.jdkClass().isAssignableFrom(argument.jdkClass());
+            if (argument.jdkClass() != null) return parameter.kind() == ValueKind.SAME_FILE || parameter.kind() == ValueKind.SDK;
+            // A lambda fits only a functional interface; a same-file interface may be one.
+            if (argument.kind() == ValueKind.FUNCTIONAL && argument.jdkClass() == null) return parameter.jdkClass() != null &&
+                    parameter.kind() != ValueKind.FUNCTIONAL;
+            return false;
+        }
+
+        /** Reports whether a same-file class may be a subtype of parameter, following its supertypes into the JDK and SDK. */
+        private boolean mayBeSubtype(Declaration declaration, ValueType parameter, Set<Declaration> visited) {
+            if (declaration == null || !visited.add(declaration)) return false;
+            if (parameter.kind() == ValueKind.SAME_FILE && parameter.declaration() == declaration) return true;
+            List<Tree> supertypes = new ArrayList<>(declaration.tree.getImplementsClause());
+            if (declaration.tree.getExtendsClause() != null) supertypes.add(declaration.tree.getExtendsClause());
+            List<ValueType> resolved = new ArrayList<>();
+            for (var supertype : supertypes) resolved.add(finder.resolveType(supertype, declaration));
+            var implicit = switch (declaration.tree.getKind()) {
+                case ENUM -> Enum.class;
+                case RECORD -> Record.class;
+                default -> Object.class;
+            };
+            resolved.add(finder.classifyJdkClass(implicit));
+            for (var supertype : resolved) {
+                switch (supertype.kind()) {
+                    case SAME_FILE:
+                        if (mayBeSubtype(supertype.declaration(), parameter, visited)) return true;
+                        break;
+                    case SDK, SDK_CONNECTION:
+                        // SDK type hierarchies are not modeled, so an SDK supertype may reach any non-local parameter.
+                        if (parameter.kind() != ValueKind.SAME_FILE) return true;
+                        break;
+                    default:
+                        if (supertype.jdkClass() == null) return true;
+                        if (parameter.jdkClass() != null && parameter.jdkClass().isAssignableFrom(supertype.jdkClass())) return true;
+                }
+            }
+            return false;
+        }
+
+        /** Reports whether a primitive or a boxed value may convert to type, for example int to Comparable. */
+        private boolean isNumericOrBoxed(ValueType type) {
+            if (type.kind() == ValueKind.PRIMITIVE) return true;
+            if (type.jdkClass() == null) return type.kind() != ValueKind.SAME_FILE && type.kind() != ValueKind.ARRAY;
+            for (var boxed : List.of(Integer.class, Long.class, Double.class, Float.class, Short.class, Byte.class,
+                    Character.class, Boolean.class)) {
+                if (type.jdkClass().isAssignableFrom(boxed) || boxed.isAssignableFrom(type.jdkClass())) return true;
+            }
+            return false;
+        }
+
+        /** Returns the return type shared by every candidate, or unknown when they differ. */
+        private ValueType candidatesReturnType(List<SameFileMethod> candidates, String name) {
+            ValueType result = null;
+            for (var candidate : candidates) {
+                var type = finder.resolveType(candidate.method().getReturnType(), candidate.owner());
+                if (result == null) result = type;
+                else if (result.kind() != type.kind() || !result.name().equals(type.name())) return ValueType.of(ValueKind.UNKNOWN, name);
+            }
+            return result == null ? ValueType.of(ValueKind.UNKNOWN, name) : result;
+        }
+
+        /** Reports whether a call is an undeclared Object method, enum method, or record accessor. */
+        private boolean isImplicitMethod(Declaration declaration, String name, int argumentCount) {
+            if (OBJECT_METHODS.contains(name) && !hasExternalSupertype(declaration)) return true;
+            var kind = declaration.tree.getKind();
+            if (kind == Tree.Kind.ENUM && Set.of("values", "valueOf", "name", "ordinal", "compareTo", "getDeclaringClass").contains(name)) {
+                return true;
+            }
+            return kind == Tree.Kind.RECORD && argumentCount <= 0 && declaration.fields.containsKey(name);
+        }
+
+        private boolean hasExternalSupertype(Declaration declaration) {
+            var superclass = declaration.tree.getExtendsClause();
+            if (superclass == null || declaration.tree.getKind() == Tree.Kind.INTERFACE) return false;
+            var type = finder.resolveType(superclass, declaration);
+            if (type.kind() == ValueKind.SAME_FILE) return hasExternalSupertype(type.declaration());
+            return type.kind() != ValueKind.PURE && type.kind() != ValueKind.SDK;
+        }
+
+        private ValueType staticImportOwner(String name) {
+            for (var importTree : unit.getImports()) {
+                var imported = importTree.getQualifiedIdentifier().toString();
+                if (!importTree.isStatic()) continue;
+                var dot = imported.lastIndexOf('.');
+                var member = imported.substring(dot + 1);
+                if (member.equals(name) || member.equals("*")) {
+                    var owner = finder.classifyQualifiedName(imported.substring(0, dot));
+                    if (member.equals(name) || owner.kind() != ValueKind.UNKNOWN &&
+                            (owner.jdkClass() == null || !finder.jdkMethods(owner.asTypeName(), name, -1).isEmpty())) return owner;
+                }
+            }
+            return null;
+        }
+
+        private boolean isInferred(VariableTree variable) {
+            return variable.getType() == null || variable.getType().toString().equals("var");
+        }
+
+        ValueType typeOfVariable(VariableTree variable) {
+            var inferred = inferredTypes.get(variable);
+            if (inferred != null) return inferred;
+            if (!isInferred(variable)) return finder.resolveType(variable.getType(), scope.owner);
+            if (variable.getInitializer() == null) return ValueType.of(ValueKind.UNKNOWN, variable.getName().toString());
+            inferredTypes.put(variable, ValueType.of(ValueKind.UNKNOWN, variable.getName().toString()));
+            var type = typeOf(variable.getInitializer());
+            inferredTypes.put(variable, type);
+            return type;
+        }
+
+        ValueType typeOf(ExpressionTree expression) {
+            if (expression instanceof TypeCastTree cast) return finder.resolveType(cast.getType(), scope.owner);
+            if (expression instanceof ParenthesizedTree parentheses) return typeOf(parentheses.getExpression());
+            if (expression instanceof LiteralTree literal) {
+                if (literal.getValue() == null) return ValueType.of(ValueKind.UNKNOWN, "null");
+                return literal.getValue() instanceof String ? finder.classifyJdkClass(String.class) : ValueType.of(ValueKind.PRIMITIVE, "literal");
+            }
+            if (expression instanceof IdentifierTree identifier) return typeOfIdentifier(identifier);
+            if (expression instanceof MemberSelectTree member) return typeOfMember(member);
+            if (expression instanceof MethodInvocationTree call) return callResultType(call);
+            if (expression instanceof NewClassTree created) return finder.resolveType(created.getIdentifier(), scope.owner);
+            if (expression instanceof NewArrayTree array) {
+                return array.getType() == null ? ValueType.of(ValueKind.ARRAY, "array")
+                        : finder.arrayOf(finder.resolveType(array.getType(), scope.owner));
+            }
+            if (expression instanceof ArrayAccessTree access) return typeOf(access.getExpression()).argument(0);
+            if (expression instanceof ConditionalExpressionTree conditional) return typeOf(conditional.getTrueExpression());
+            if (expression instanceof BinaryTree binary) {
+                var isText = expression.getKind() == Tree.Kind.PLUS && (typeOf(binary.getLeftOperand()).name().equals("java.lang.String") ||
+                        typeOf(binary.getRightOperand()).name().equals("java.lang.String"));
+                return isText ? finder.classifyJdkClass(String.class) : ValueType.of(ValueKind.PRIMITIVE, "boolean");
+            }
+            if (expression instanceof UnaryTree || expression instanceof InstanceOfTree) return ValueType.of(ValueKind.PRIMITIVE, "value");
+            if (expression instanceof LambdaExpressionTree || expression instanceof MemberReferenceTree) {
+                return ValueType.of(ValueKind.FUNCTIONAL, "lambda");
+            }
+            return ValueType.of(ValueKind.UNKNOWN, String.valueOf(expression));
+        }
+
+        private ValueType typeOfIdentifier(IdentifierTree identifier) {
+            var name = identifier.getName().toString();
+            if (name.equals("this")) return new ValueType(ValueKind.SAME_FILE, scope.owner.qualifiedName(), null, scope.owner, List.of(), false);
+            if (name.equals("super")) {
+                var superclass = scope.owner.tree.getExtendsClause();
+                return superclass == null ? finder.classifyJdkClass(Object.class) : finder.resolveType(superclass, scope.owner);
+            }
+            var variable = scope.variable(identifier);
+            if (variable != null) return typeOfVariable(variable);
+            var type = finder.resolveTypeName(name, scope.owner);
+            return type.kind() == ValueKind.UNKNOWN ? type : type.asTypeName();
+        }
+
+        private ValueType typeOfMember(MemberSelectTree member) {
+            var qualifier = unwrap(member.getExpression());
+            var name = member.getIdentifier().toString();
+            if (name.equals("this")) {
+                var declaration = resolveClass(qualifier.toString(), scope.owner);
+                return declaration == null ? ValueType.of(ValueKind.UNKNOWN, member.toString())
+                        : new ValueType(ValueKind.SAME_FILE, declaration.qualifiedName(), null, declaration, List.of(), false);
+            }
+            if (name.equals("class")) return finder.classifyJdkClass(Class.class);
+            var field = scope.owner.field(member);
+            if (field != null) return typeOfVariable(field);
+            var isVariable = qualifier instanceof IdentifierTree && scope.variable(qualifier) != null;
+            if (!isVariable && !(qualifier instanceof MethodInvocationTree)) {
+                var typeName = finder.resolveTypeName(member.toString(), scope.owner);
+                if (typeName.kind() != ValueKind.UNKNOWN) return typeName.asTypeName();
+            }
+            var owner = typeOf(qualifier);
+            return switch (owner.kind()) {
+                case ARRAY -> ValueType.of(ValueKind.PRIMITIVE, "int");
+                case SAME_FILE -> {
+                    var declared = owner.declaration().fields.get(name);
+                    yield declared == null ? ValueType.of(ValueKind.UNKNOWN, member.toString()) : typeOfVariable(declared);
+                }
+                case PURE, FUNCTIONAL -> {
+                    if (owner.jdkClass() == null) yield ValueType.of(ValueKind.PURE, member.toString());
+                    try {
+                        var reflected = owner.jdkClass().getField(name);
+                        yield finder.convertType(reflected.getGenericType(), finder.receiverBindings(owner));
+                    } catch (NoSuchFieldException ignored) {
+                        yield ValueType.of(ValueKind.UNKNOWN, member.toString());
+                    }
+                }
+                default -> ValueType.of(ValueKind.UNKNOWN, member.toString());
+            };
+        }
+
+        private ValueType callResultType(MethodInvocationTree call) {
+            var name = callName(call);
+            var receiver = receiver(call);
+            if (receiver == null) {
+                var helpers = sameFileMethods(scope.owner, name, call.getArguments(), true);
+                if (!helpers.isEmpty()) return candidatesReturnType(helpers, name);
+                var inherited = enclosingInheritedSupertype(name, call.getArguments().size());
+                if (inherited != null) return memberResultType(inherited, call);
+                var imported = staticImportOwner(name);
+                return imported == null ? ValueType.of(ValueKind.UNKNOWN, name) : memberResultType(imported.asTypeName(), call);
+            }
+            return memberResultType(typeOf(receiver), call);
+        }
+
+        private ValueType jdkResultType(ValueType receiver, MethodInvocationTree call) {
+            var name = callName(call);
+            var arguments = call.getArguments();
+            if (receiver.jdkClass() == null) return ValueType.of(ValueKind.PURE, receiver.name());
+            typeLambdaParameters(call);
+            ValueType result = null;
+            for (var method : finder.jdkMethods(receiver, name, arguments.size())) {
+                var bindings = finder.receiverBindings(receiver);
+                var isSingleVararg = method.isVarArgs() && arguments.size() == method.getParameterCount();
+                for (int index = 0; index < arguments.size(); index++) {
+                    var parameter = finder.parameterType(method, index, isSingleVararg);
+                    var argument = unwrap(arguments.get(index));
+                    if (argument instanceof LambdaExpressionTree || argument instanceof MemberReferenceTree) {
+                        inferFunctionalResult(parameter, argument, bindings);
+                    } else {
+                        finder.inferTypeArguments(parameter, typeOf(argument), bindings);
+                    }
+                }
+                var candidate = finder.convertType(method.getGenericReturnType(), bindings);
+                if (result == null) result = candidate;
+                else if (!candidate.name().equals(result.name()) || candidate.kind() != result.kind()) {
+                    return ValueType.of(ValueKind.UNKNOWN, receiver.name() + "." + name);
+                }
+            }
+            return result == null ? ValueType.of(ValueKind.UNKNOWN, receiver.name() + "." + name) : result;
+        }
+
+        /** Binds a functional parameter's result type variable, such as R of map, from a lambda or reference. */
+        private void inferFunctionalResult(java.lang.reflect.Type parameter, ExpressionTree argument,
+                                           Map<java.lang.reflect.TypeVariable<?>, ValueType> bindings) {
+            if (!(parameter instanceof java.lang.reflect.ParameterizedType parameterized) ||
+                    !(parameterized.getRawType() instanceof Class<?> raw)) return;
+            var abstractMethod = finder.singleAbstractMethod(raw);
+            if (abstractMethod == null || !(abstractMethod.getGenericReturnType() instanceof java.lang.reflect.TypeVariable<?> variable)) return;
+            var index = Arrays.asList(raw.getTypeParameters()).indexOf(variable);
+            if (index < 0) return;
+            finder.inferTypeArguments(parameterized.getActualTypeArguments()[index], functionalResultType(argument), bindings);
+        }
+
+        private ValueType functionalResultType(ExpressionTree argument) {
+            if (argument instanceof LambdaExpressionTree lambda) {
+                if (lambda.getBody() instanceof ExpressionTree body) return typeOf(body);
+                var returned = new ReturnScanner();
+                returned.scan(lambda.getBody(), "");
+                return returned.outcomes.isEmpty() ? ValueType.of(ValueKind.UNKNOWN, "lambda") : typeOf(returned.outcomes.get(0).expression());
+            }
+            var reference = (MemberReferenceTree) argument;
+            var qualifier = unwrap(reference.getQualifierExpression());
+            if (reference.getMode() == MemberReferenceTree.ReferenceMode.NEW) return finder.resolveType(qualifier, scope.owner);
+            var receiver = typeOf(qualifier);
+            var name = reference.getName().toString();
+            if (receiver.kind() == ValueKind.SAME_FILE) {
+                var methods = sameFileMethods(receiver.declaration(), name, null, false);
+                if (!methods.isEmpty()) return candidatesReturnType(methods, name);
+                var field = receiver.declaration().fields.get(name);
+                return field == null ? ValueType.of(ValueKind.UNKNOWN, name) : finder.resolveType(field.getType(), receiver.declaration());
+            }
+            if (receiver.kind() == ValueKind.SAME_PACKAGE_DATA) return samePackageResultType(receiver, name);
+            if (receiver.jdkClass() == null) return ValueType.of(ValueKind.UNKNOWN, name);
+            var instance = new ValueType(receiver.kind(), receiver.name(), receiver.jdkClass(), null, receiver.arguments(), false);
+            var methods = finder.jdkMethods(instance, name, -1);
+            return methods.isEmpty() ? ValueType.of(ValueKind.UNKNOWN, name)
+                    : finder.convertType(methods.get(0).getGenericReturnType(), finder.receiverBindings(instance));
+        }
+
+        private ValueType memberResultType(ValueType receiver, MethodInvocationTree call) {
+            var name = callName(call);
+            var arguments = call.getArguments();
+            if (name.equals("toString")) return finder.classifyJdkClass(String.class);
+            if (name.equals("equals") || name.equals("hashCode")) return ValueType.of(ValueKind.PRIMITIVE, "value");
+            switch (receiver.kind()) {
+                case SAME_FILE: {
+                    var declaration = receiver.declaration();
+                    var methods = sameFileMethods(declaration, name, arguments, false);
+                    if (!methods.isEmpty()) return candidatesReturnType(methods, name);
+                    var inherited = inheritedSupertype(declaration, name, arguments.size(), new HashSet<>());
+                    if (inherited != null && inherited.kind() != ValueKind.UNKNOWN) return memberResultType(inherited, call);
+                    var field = declaration.fields.get(name);
+                    if (declaration.tree.getKind() == Tree.Kind.RECORD && arguments.isEmpty() && field != null) {
+                        return finder.resolveType(field.getType(), declaration);
+                    }
+                    if (name.equals("values")) return finder.arrayOf(receiver.withArguments(List.of()));
+                    if (name.equals("valueOf")) return receiver;
+                    if (name.equals("name")) return finder.classifyJdkClass(String.class);
+                    return ValueType.of(ValueKind.PRIMITIVE, "value");
+                }
+                case SAME_PACKAGE_DATA:
+                    return samePackageResultType(receiver, name);
+                case SDK:
+                    return sdkResultType(receiver, name, arguments);
+                case PURE, FUNCTIONAL:
+                    return jdkResultType(receiver, call);
+                case ARRAY:
+                    return name.equals("clone") ? receiver : ValueType.of(ValueKind.PRIMITIVE, "value");
+                default:
+                    return ValueType.of(ValueKind.UNKNOWN, call.getMethodSelect().toString());
+            }
+        }
+
+        /** Types a sibling record accessor by its component; the component type is read with this file's imports. */
+        private ValueType samePackageResultType(ValueType receiver, String name) {
+            var data = finder.samePackageTypes.get(receiver.name());
+            var component = data == null ? null : data.components().get(name);
+            if (component != null) return finder.resolveType(component, scope.owner);
+            if (name.equals("values")) return finder.arrayOf(receiver.withArguments(List.of()));
+            if (name.equals("valueOf")) return receiver;
+            if (name.equals("name")) return finder.classifyJdkClass(String.class);
+            return ValueType.of(ValueKind.PRIMITIVE, "value");
+        }
+
+        /** Types an SDK call by SDK_RETURN_TYPES; an unlisted SDK method returns an unknown value. */
+        private ValueType sdkResultType(ValueType receiver, String name, List<? extends ExpressionTree> arguments) {
+            var typeName = receiver.name().startsWith(SDK_PACKAGE + ".") ? receiver.name().substring(SDK_PACKAGE.length() + 1) : receiver.name();
+            var specification = SDK_RETURN_TYPES.get(typeName + "." + name);
+            if (specification == null) specification = SDK_RETURN_TYPES.get(typeName + ".*");
+            if (specification == null) return ValueType.of(ValueKind.UNKNOWN, receiver.name() + "." + name);
+            Map<String, ValueType> variables = new HashMap<>();
+            variables.put("T", receiver.argument(0));
+            variables.put("A", arguments.isEmpty() ? ValueType.of(ValueKind.UNKNOWN, "?") : typeOf(arguments.get(0)).argument(0));
+            var classType = arguments.isEmpty() ? null : classLiteral(arguments.get(arguments.size() - 1));
+            variables.put("C", classType == null ? ValueType.of(ValueKind.UNKNOWN, "?") : finder.resolveTypeName(classType, scope.owner));
+            return parseSDKReturnType(specification, variables);
+        }
+
+        private ValueType parseSDKReturnType(String specification, Map<String, ValueType> variables) {
+            var opening = specification.indexOf('<');
+            var base = opening < 0 ? specification : specification.substring(0, opening);
+            var variable = variables.get(base);
+            if (variable != null) return variable;
+            ValueType type = switch (base) {
+                case "int", "boolean", "long" -> ValueType.of(ValueKind.PRIMITIVE, base);
+                case "String" -> finder.classifyJdkClass(String.class);
+                case "Instant" -> finder.classifyJdkClass(java.time.Instant.class);
+                case "List" -> finder.classifyJdkClass(List.class);
+                default -> finder.classifyQualifiedName(SDK_PACKAGE + "." + base);
+            };
+            if (opening < 0) return type;
+            var argument = parseSDKReturnType(specification.substring(opening + 1, specification.length() - 1), variables);
+            return type.withArguments(List.of(argument));
+        }
+
+
+        /** Types implicit lambda parameters from the JDK method's functional parameter. */
+        private void typeLambdaParameters(MethodInvocationTree call) {
+            var arguments = call.getArguments();
+            for (int index = 0; index < arguments.size(); index++) {
+                if (!(arguments.get(index) instanceof LambdaExpressionTree lambda)) continue;
+                var parameters = lambda.getParameters();
+                var types = lambdaParameterTypes(call, index, parameters.size());
+                for (int position = 0; position < parameters.size(); position++) {
+                    var parameter = parameters.get(position);
+                    if (isInferred(parameter)) {
+                        inferredTypes.put(parameter, types == null ? ValueType.of(ValueKind.UNKNOWN, parameter.getName().toString())
+                                : types.get(position));
+                    }
+                }
+            }
+        }
+
+        private List<ValueType> lambdaParameterTypes(MethodInvocationTree call, int argumentIndex, int parameterCount) {
+            var receiver = receiver(call);
+            ValueType owner;
+            if (receiver != null) owner = typeOf(receiver);
+            else owner = staticImportOwner(callName(call)) == null ? null : staticImportOwner(callName(call)).asTypeName();
+            if (owner == null || (owner.kind() != ValueKind.PURE && owner.kind() != ValueKind.FUNCTIONAL)) return null;
+            var arguments = call.getArguments();
+            for (var method : finder.jdkMethods(owner, callName(call), arguments.size())) {
+                var bindings = finder.receiverBindings(owner);
+                var isSingleVararg = method.isVarArgs() && arguments.size() == method.getParameterCount();
+                for (int index = 0; index < arguments.size(); index++) {
+                    if (index != argumentIndex) {
+                        finder.inferTypeArguments(finder.parameterType(method, index, isSingleVararg), typeOf(arguments.get(index)), bindings);
+                    }
+                }
+                var functional = finder.convertType(finder.parameterType(method, argumentIndex, isSingleVararg), bindings);
+                if (functional.jdkClass() == null) continue;
+                var abstractMethod = finder.singleAbstractMethod(functional.jdkClass());
+                if (abstractMethod == null || abstractMethod.getParameterCount() != parameterCount) continue;
+                var functionalBindings = finder.receiverBindings(functional);
+                return Arrays.stream(abstractMethod.getGenericParameterTypes())
+                        .map(parameter -> finder.convertType(parameter, functionalBindings)).toList();
+            }
+            return null;
         }
     }
 
