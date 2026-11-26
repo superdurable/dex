@@ -277,7 +277,7 @@ class ExternalCallAnalyzer:
         if classes is None:
             return f"{callee} (a constructor dexcli cannot read)", OPAQUE, True
         constructors = []
-        for metaclass in (keyword.value for chained in classes for keyword in chained.keywords if keyword.arg == "metaclass"):
+        for metaclass in (keyword.value for chained in classes[0] for keyword in chained.keywords if keyword.arg == "metaclass"):
             metaclass_declaration = self.static_binding(self.tree, metaclass.id) if isinstance(metaclass, ast.Name) else None
             if not isinstance(metaclass_declaration, ast.ClassDef):
                 qualified = self.qualified_import_name(metaclass)
@@ -301,30 +301,58 @@ class ExternalCallAnalyzer:
                 return external, OPAQUE, is_exact
         return None, ("class", declaration.name), is_exact
 
-    def first_class_method(self, classes, name):
-        for declaration in classes:
-            method = self.method(declaration, name)
-            if method is not None:
-                return [(declaration, method)]
-        return []
+    # Single inheritance runs the first definition; multiple inheritance checks every definition, since super() may chain them.
+    def first_class_method(self, chain, name):
+        classes, has_multiple_inheritance = chain
+        methods = [(declaration, self.method(declaration, name)) for declaration in classes]
+        methods = [(declaration, method) for declaration, method in methods if method is not None]
+        return methods if has_multiple_inheritance else methods[:1]
 
-    # Returns the class and its same-file bases in lookup order, or None when a base may define a constructor.
+    # Returns (same-file classes in C3 order, whether any has several same-file bases), or None when a base may construct with I/O.
     def same_file_class_chain(self, declaration):
-        chain = []
+        local_bases = {}
         pending = [declaration]
         while pending:
-            current = pending.pop(0)
-            if current in chain:
+            current = pending.pop()
+            if current in local_bases:
                 continue
-            chain.append(current)
+            local_bases[current] = []
             for base in current.bases:
                 base = base.value if isinstance(base, ast.Subscript) else base
                 binding = self.static_binding(self.tree, base.id) if isinstance(base, ast.Name) else None
                 if isinstance(binding, ast.ClassDef):
+                    local_bases[current].append(binding)
                     pending.append(binding)
                 elif not self.is_constructor_free_base(base):
                     return None
-        return chain
+        has_multiple_inheritance = any(len(bases) > 1 for bases in local_bases.values())
+        order = self.c3_class_order(declaration, local_bases, set())
+        if order is None:
+            # No consistent C3 order, or a base cycle: every class is a candidate.
+            return list(local_bases), True
+        return order, has_multiple_inheritance
+
+    def c3_class_order(self, declaration, local_bases, visiting):
+        if declaration in visiting:
+            return None
+        visiting.add(declaration)
+        sequences = []
+        for base in local_bases[declaration]:
+            base_order = self.c3_class_order(base, local_bases, visiting)
+            if base_order is None:
+                return None
+            sequences.append(base_order)
+        visiting.discard(declaration)
+        sequences.append(list(local_bases[declaration]))
+        order = [declaration]
+        while any(sequences):
+            sequences = [sequence for sequence in sequences if sequence]
+            head = next((sequence[0] for sequence in sequences if not any(sequence[0] in other[1:] for other in sequences)), None)
+            if head is None:
+                return None
+            order.append(head)
+            sequences = [sequence[1:] if sequence[0] is head else sequence for sequence in sequences]
+        return order
 
     # Built-in, pure standard-library, and Dex SDK bases construct without I/O.
     def is_constructor_free_base(self, base):

@@ -261,6 +261,20 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls Child (calls urllib.request.urlopen);"},
 		},
+		"constructor inherited through multiple inheritance": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "LocalCtor()",
+				moduleExtra: "class RemoteBase:\n    def __init__(self):\n        open(\"/tmp/audit\", \"w\").close()\nclass First(RemoteBase): pass\nclass Second:\n    def __init__(self): pass\nclass LocalCtor(First, Second): pass",
+			},
+			messages: []string{"and calls LocalCtor (calls open('/tmp/audit', 'w').close);"},
+		},
+		"multiple inheritance with pure constructors": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "LocalCtor()",
+				moduleExtra: "class First:\n    def __init__(self):\n        super().__init__()\nclass Second:\n    def __init__(self):\n        self.ready = True\nclass LocalCtor(First, Second): pass",
+			},
+			isExecuteClean: true,
+		},
 		"constructor inherited from a third-party base": {
 			source: pythonLockedMethodCase{
 				rpcLock: endingLock, executeLock: endingLock, executeBody: "Session()",
