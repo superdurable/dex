@@ -88,20 +88,29 @@ func TestJavaLockedMethodExternalCall(t *testing.T) {
 	javaPath := javaAnalyzerTestExecutable(t)
 	tests := []struct {
 		flow string
+		// markers is the number of methods checked: only those holding a lock an RPC takes.
+		markers int
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
 	}{
-		{flow: "InjectedServiceFlow", messages: []string{
+		{flow: "InjectedServiceFlow", markers: 1, messages: []string{
 			"Execute of Send holds lock status, which RPC stop also takes, and calls mailer.send; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step.",
 		}},
-		{flow: "MovedCallFlow"},
+		{flow: "MovedCallFlow", markers: 1},
 		{flow: "StepOnlyLockFlow"},
-		{flow: "PureFlow"},
-		{flow: "SiblingMethodFlow", messages: []string{"and calls new Ticket(input, List.of()).render;"}},
-		{flow: "HttpHelperFlow", messages: []string{"and calls notifyCustomer (calls HttpRequest.newBuilder); Dex fails"}},
-		{flow: "ClientFlow", messages: []string{"Execute of StopOther holds lock status, which RPC stop also takes, and calls client.stopFlow;"}},
-		{flow: "WaitForFlow", messages: []string{"WaitFor of Pause holds lock status, which RPC stop also takes, and calls Thread.sleep (and 1 more);"}},
-		{flow: "MapInstanceFlow", messages: []string{"Execute of Computed holds lock orders, which RPC expedite also takes, and calls mailer.send;"}},
+		{flow: "PureFlow", markers: 1},
+		{flow: "SiblingMethodFlow", markers: 1, messages: []string{"and calls new Ticket(input, List.of()).render;"}},
+		{flow: "OverloadFlow", markers: 1, messages: []string{"and calls dispatch (calls mailer.send);"}},
+		{flow: "SDKValueFlow", markers: 1, messages: []string{"and calls context.pendingChannelMessages(services).get(0).getValue().send;"}},
+		{flow: "JdkInputOutputFlow", markers: 3, messages: []string{
+			"Execute of BundleStep holds lock status, which RPC stop also takes, and calls ResourceBundle.getBundle (and 1 more);",
+			"Execute of FileStep holds lock status, which RPC stop also takes, and calls new java.io.File (and 2 more);",
+			"Execute of FormatStep holds lock status, which RPC stop also takes, and calls new java.util.Formatter (and 1 more);",
+		}},
+		{flow: "HttpHelperFlow", markers: 1, messages: []string{"and calls notifyCustomer (calls HttpRequest.newBuilder); Dex fails"}},
+		{flow: "ClientFlow", markers: 1, messages: []string{"Execute of StopOther holds lock status, which RPC stop also takes, and calls client.stopFlow;"}},
+		{flow: "WaitForFlow", markers: 1, messages: []string{"WaitFor of Pause holds lock status, which RPC stop also takes, and calls Thread.sleep (and 1 more);"}},
+		{flow: "MapInstanceFlow", markers: 1, messages: []string{"Execute of Computed holds lock orders, which RPC expedite also takes, and calls mailer.send;"}},
 	}
 	for _, test := range tests {
 		t.Run(test.flow, func(t *testing.T) {
@@ -109,7 +118,7 @@ func TestJavaLockedMethodExternalCall(t *testing.T) {
 				AnalyzeOptions{Language: "java", JavaPath: javaPath, FlowType: test.flow})
 			require.NoError(t, err)
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
-			require.NotEmpty(t, graph.methodExternalCalls)
+			require.Len(t, graph.methodExternalCalls, test.markers, "%+v", graph.methodExternalCalls)
 			var messages []string
 			for _, diagnostic := range graph.Diagnostics {
 				if diagnostic.Code == "locked_method_external_call" {
