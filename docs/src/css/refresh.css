@@ -868,3 +868,18 @@ html[data-theme='dark'] .theme-doc-markdown table {
 .theme-doc-markdown table td[data-engine='dex'] {
   background: color-mix(in srgb, var(--engine-dex) 7%, transparent);
 }
+
+/* Diff code blocks: added lines green, removed lines red, hunk markers dimmed. */
+.theme-code-block .token.inserted {
+  background: rgb(46 160 67 / 18%);
+  color: #7ee2a8;
+}
+
+.theme-code-block .token.deleted {
+  background: rgb(248 81 73 / 18%);
+  color: #ffa198;
+}
+
+.theme-code-block .token.coord {
+  color: #8b949e;
+}

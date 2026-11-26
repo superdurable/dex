@@ -305,7 +305,7 @@ const config: Config = {
     prism: {
       theme: prismIdeTheme,
       darkTheme: prismIdeTheme,
-      additionalLanguages: ['java', 'python', 'go', 'typescript', 'rust', 'bash'],
+      additionalLanguages: ['java', 'python', 'go', 'typescript', 'rust', 'bash', 'diff'],
     },
   } satisfies Preset.ThemeConfig,
 };
