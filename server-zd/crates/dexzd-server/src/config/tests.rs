@@ -169,6 +169,38 @@ fn history_segment_target_bytes_reaches_run_and_child_settings() {
 }
 
 #[test]
+fn step_and_channel_limits_reach_run_and_child_settings() {
+    let default_components =
+        ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    for settings in [
+        default_components.flow_coordination.run_settings,
+        default_components.effects.child_run_settings,
+    ] {
+        assert_eq!(settings.max_active_step_executions, 1_000);
+        assert_eq!(settings.max_channel_messages, 1_000);
+    }
+    let parsed =
+        Config::parse_yaml("limits:\n  maxConcurrentStepsPerFlow: 7\n  maxChannelMessages: 9\n")
+            .expect("parse the Step and Channel limits");
+    let mut configuration = valid_config();
+    configuration.limits.max_concurrent_steps_per_flow =
+        parsed.limits.max_concurrent_steps_per_flow;
+    configuration.limits.max_channel_messages = parsed.limits.max_channel_messages;
+    configuration
+        .validate()
+        .expect("valid Step and Channel limits");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    for settings in [
+        components.flow_coordination.run_settings,
+        components.effects.child_run_settings,
+    ] {
+        assert_eq!(settings.max_active_step_executions, 7);
+        assert_eq!(settings.max_channel_messages, 9);
+    }
+}
+
+#[test]
 fn superseded_value_grace_period_reaches_run_and_child_settings() {
     let default_components =
         ComponentConfigs::from_config(&valid_config(), false).expect("component config");
