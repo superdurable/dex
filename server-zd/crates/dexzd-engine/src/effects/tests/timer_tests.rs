@@ -91,7 +91,7 @@ pub(super) fn timers_fired_override() -> CommandOverride {
     })
 }
 
-fn fired_commands(harness: &EffectHarness) -> Vec<(Vec<u8>, Vec<TimerId>, i64)> {
+pub(super) fn fired_commands(harness: &EffectHarness) -> Vec<(Vec<u8>, Vec<TimerId>, i64)> {
     harness
         .flow_effect_operations
         .commands_matching(is_timers_fired)

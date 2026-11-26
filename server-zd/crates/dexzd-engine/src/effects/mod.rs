@@ -102,6 +102,9 @@ pub struct EffectsConfig {
     /// Default 60 seconds. The timer service keeps timers firing within this horizon in memory
     /// and rereads the Timer index at least this often.
     pub timer_lookahead: Duration,
+    /// Default 5 minutes. A timer service rereads its partition's whole Timer index at least
+    /// this often, in case a timer was armed without notifying it. Zero rereads it every pass.
+    pub timer_full_scan_interval: Duration,
     /// Default 1024. Number of timer index rows read per page of a partition. A pass keeps
     /// paging past rows in retry backoff until it has read this many other rows.
     pub timer_load_limit: usize,
@@ -158,6 +161,7 @@ impl Default for EffectsConfig {
             default_max_value_bytes: 16 * 1024 * 1024,
             hydrate_before_dispatch: false,
             timer_lookahead: Duration::from_secs(60),
+            timer_full_scan_interval: Duration::from_secs(5 * 60),
             timer_load_limit: 1024,
             fired_timer_retry_delay: Duration::from_secs(1),
             locked_invocation_retry_interval: Duration::from_secs(1),
