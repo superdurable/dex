@@ -14,7 +14,7 @@ Release Watch keeps track of the libraries your application depends on. Every we
 
 ## What the agent does {#what-the-agent-does}
 
-1. At 08:00 Los Angeles time each weekday, the app reads every watched source: GitHub releases, blog feeds, and Hacker News searches.
+1. At 08:00 Los Angeles time each weekday, the app reads every watched source: GitHub releases and Hacker News searches.
 2. The analyst agent judges the new releases. It puts each one in a tier and writes what it means for your application.
 3. The app posts the digest in a Slack channel: the urgent releases first, and the rest in the thread.
 4. A teammate replies in the thread, such as `track 1 P1`, `dismiss 2, we don't use that API`, or `move 3 to must-fix`.
@@ -52,7 +52,7 @@ The digest goes out each weekday whether the analyst finishes or not. The digest
 
 Each model call of the analyst is its own Step. So a Worker restart costs at most the call that was running. The analyst has one tool, `submit_report`. The tool calls the digest Flow's `submitAnalystReport` RPC. The RPC checks the report, and refuses it if a release cites a candidate the brief did not contain. The refusal goes back to the agent as the tool's answer, so the agent can fix the report and submit it again.
 
-An accepted report is published to the `analyst-report-submitted` [Channel](/concepts/primitives/channel). The digest Flow waits in `AwaitAnalystReport` for whichever comes first: the report, or a 40-minute [Timer](/concepts/primitives/timer). When the Timer fires first, the digest posts the candidates unranked, under a line saying the analyst did not finish in time. The Step reads the Channel before it falls back, so a report that lands together with the deadline is still used.
+An accepted report is published to the `analyst-report-submitted` [Channel](/concepts/primitives/channel). The digest Flow waits in `AwaitAnalystReport` for whichever comes first: the report, or a 40-minute [Timer](/concepts/primitives/timer). When the Timer fires first, the digest posts the candidates unranked, as no-change items, under a line saying the analyst did not finish in time. The Step reads the Channel before it falls back, so a report that lands together with the deadline is still used. A report that arrives after the digest posted is refused, and the refusal tells the analyst to stop.
 
 ## A person files every issue {#a-person-files-every-issue}
 
@@ -60,20 +60,20 @@ Every issue starts with a reply from a person. The Slack Connector's `threadRepl
 
 The agent's `track_releases` tool only records the request. The `trackReleases` RPC marks the release `tracking` and adds an entry to the digest's outbox, a list kept in an [Attribute](/concepts/primitives/attribute). `ProcessOutbox` then takes one entry at a time: it files an issue, closes one, relabels one, comments on one, or posts a note in the thread. Each GitHub write is its own Connector Step. A release in the C tier is refused unless the person confirms it in a later reply.
 
-The outbox is durable state. When the Worker stops in the middle of it, the next Worker picks it up where it stopped. When GitHub refuses a write, or its outcome is unknown, the release is marked `failed` and the thread says so. For an unknown outcome, the note asks the team to check the repository before tracking the release again. Any filed issue can be undone with `untrack 1`, which closes it as not planned.
+The outbox is durable state. When the Worker stops in the middle of it, the next Worker picks it up where it stopped. When GitHub refuses to file an issue, or the outcome is unknown, the release is marked `failed` and the thread says so. For an unknown outcome, the note asks the team to check the repository before tracking the release again. When a close, relabel, or comment fails, the release keeps its status and the thread says what failed. Any filed issue can be undone with `untrack 1`, which closes it as not planned.
 
 ## Run it {#run-it}
 
-You need Node.js 22.19 or later, `dexcli`, a Slack app, two GitHub connections, and an OpenAI-compatible or Anthropic model.
+You need Node.js 22.19 or later, `dexcli`, a Slack app with Socket Mode, and an OpenAI-compatible or Anthropic model.
 
 1. Start Dex with `dexcli dev`.
-2. In Dex Web, open **Connectors** and add the Slack connection, a GitHub connection that reads releases, and a GitHub connection with issue access.
-3. Set `ISSUE_REPOSITORY` to the repository that tracks releases, and fill in the model settings.
+2. In Dex Web, open **Connectors** and add the five connections the app uses: Slack, two GitHub connections (one reads releases, one files issues), Hacker News, and Web feed. Then add the Slack reply binding with the digest channel and the members who may triage.
+3. Write the settings to a local file: `ISSUE_REPOSITORY`, the repository that tracks releases, and the model settings.
 4. Edit `src/watchlist.ts` with the libraries you depend on, and `src/team-profile.ts` with a few facts about your application.
 5. Run `npm ci && npm run build`. Then start the Worker with `node . worker` and the HTTP API with `node . web`.
-6. Start a digest with `POST /api/digests`, reply in its thread, and watch `release-digest-<date>` in Dex Web.
+6. Start a digest with `POST /api/digests`, reply in its thread, and watch `release-digest-<date>-run-1` in Dex Web.
 
-The repository lists every setting, the Slack app's scopes, and how to run the same app on Dex Cloud.
+The repository lists the connection names, the Slack app's scopes, every setting, and how to run the same app on Dex Cloud.
 
 ## Next
 
