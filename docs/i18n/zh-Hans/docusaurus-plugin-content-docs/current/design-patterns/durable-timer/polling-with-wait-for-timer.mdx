@@ -33,7 +33,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
   轮次上限限制的是检查次数，不是耗时：每一轮还要花时间在外部调用、重试和排队上。
   需要硬性截止时间时，使用
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)（英文）
-  或 [截止时间 watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#deadline-watchdog)。
+  或 [截止时间 watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#rules)。
 - <a id="step-input"></a>Step 输入保持小而且大小固定，例如 job ID 和轮次编号。
   累积的状态，例如收集到的结果，放在 Attribute 里，绝不放进不断变大的 Step 输入。
 - <a id="external-calls"></a>只在 `Execute` 中调用外部系统。`WaitFor` 只声明 Timer。

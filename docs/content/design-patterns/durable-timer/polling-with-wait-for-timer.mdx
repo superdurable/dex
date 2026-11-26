@@ -34,7 +34,7 @@ Each round of the polling Step runs these steps:
   It does not bound the elapsed time: each round also spends time on the
   external call, retries, and queueing. For a hard deadline, use the
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)
-  or a [deadline watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#deadline-watchdog).
+  or a [deadline watchdog](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat#rules).
 - <a id="step-input"></a>Keep the Step input small and fixed in size, such as
   the job ID and the round number. Keep accumulated state, such as collected
   results, in Attributes, never in a growing Step input.
