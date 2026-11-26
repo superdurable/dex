@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use proc_macro2::Span;
+use syn::spanned::Spanned;
 use syn::{Block, Expr, Item};
 
 use crate::expressions::{block_tail, peel};
@@ -93,37 +95,91 @@ const OPTIONAL_PRESERVING_METHODS: &[&str] = &[
     "take",
 ];
 
+/// Option and Result combinators whose closure receives the payload.
+const OPTIONAL_PAYLOAD_COMBINATORS: &[&str] = &[
+    "and_then",
+    "filter",
+    "inspect",
+    "is_none_or",
+    "is_ok_and",
+    "is_some_and",
+    "map",
+    "map_or",
+    "map_or_else",
+    "take_if",
+];
+
+/// Iterator combinators whose closure receives an accumulator first, then an element.
+const ACCUMULATOR_COMBINATORS: &[&str] = &["fold", "scan", "try_fold"];
+
 /// Option and Result methods that return a flag.
 const OPTIONAL_FLAG_METHODS: &[&str] = &["is_err", "is_none", "is_ok", "is_some"];
 
 impl<'ast> MethodScan<'_, '_, 'ast> {
-    fn binding_origin(&self, name: &str, depth: usize) -> ValueOrigin {
+    fn binding_origin(&self, name: &str, usage: Span, depth: usize) -> ValueOrigin {
         let Some(sources) = self.bindings.get(name) else {
             return ValueOrigin::Unknown;
         };
-        let mut origins = sources.iter().map(|source| match source {
-            BindingSource::Typed(declared) => {
-                self.finder.source.type_origin(declared, &self.scope, 0)
-            }
-            BindingSource::StepInput(declared) => self
-                .finder
-                .source
-                .type_origin(declared, &self.scope, 0)
-                .into_data(),
-            BindingSource::Value(value) => self.expression_origin(value, depth + 1),
-            BindingSource::Unwrapped(value) => self.expression_origin(value, depth + 1).unwrapped(),
-            BindingSource::Element(value) => {
-                element_origin(self.expression_origin(value, depth + 1))
-            }
-            BindingSource::Destructured(value) => match self.expression_origin(value, depth + 1) {
-                external @ ValueOrigin::External(_) => external,
-                ValueOrigin::Data(_) => ValueOrigin::Data(DataType::Unresolved),
-                _ => ValueOrigin::Unknown,
-            },
-            BindingSource::Untyped => ValueOrigin::Unknown,
-        });
+        let mut origins = visible_sources(sources, usage)
+            .into_iter()
+            .map(|source| match source {
+                BindingSource::Typed(declared) => {
+                    self.finder.source.type_origin(declared, &self.scope, 0)
+                }
+                BindingSource::StepInput(declared) => self
+                    .finder
+                    .source
+                    .type_origin(declared, &self.scope, 0)
+                    .into_data(),
+                BindingSource::Value(value) => self.expression_origin(value, depth + 1),
+                BindingSource::Unwrapped(value) => {
+                    self.expression_origin(value, depth + 1).unwrapped()
+                }
+                BindingSource::Element(value) => {
+                    element_origin(self.expression_origin(value, depth + 1))
+                }
+                BindingSource::CombinatorParameter {
+                    receiver,
+                    method,
+                    index,
+                    ..
+                } => self.combinator_parameter_origin(receiver, &method.to_string(), *index, depth),
+                BindingSource::Destructured(value) => {
+                    match self.expression_origin(value, depth + 1) {
+                        external @ ValueOrigin::External(_) => external,
+                        ValueOrigin::Data(_) => ValueOrigin::Data(DataType::Unresolved),
+                        _ => ValueOrigin::Unknown,
+                    }
+                }
+                BindingSource::Untyped => ValueOrigin::Unknown,
+            });
         let first = origins.next().unwrap_or(ValueOrigin::Unknown);
         origins.fold(first, ValueOrigin::merge)
+    }
+
+    /// Returns the origin of a closure parameter of a combinator: the payload or element of its receiver.
+    fn combinator_parameter_origin(
+        &self,
+        receiver: &Expr,
+        method: &str,
+        index: usize,
+        depth: usize,
+    ) -> ValueOrigin {
+        if ACCUMULATOR_COMBINATORS.contains(&method) && index == 0 {
+            return ValueOrigin::Unknown;
+        }
+        match self.expression_origin(receiver, depth + 1) {
+            ValueOrigin::Optional(payload) if OPTIONAL_PAYLOAD_COMBINATORS.contains(&method) => {
+                *payload
+            }
+            ValueOrigin::Optional(_) => ValueOrigin::Unknown,
+            ValueOrigin::Collection(element) => *element,
+            origin @ (ValueOrigin::PureStandardLibrary
+            | ValueOrigin::DexSdk
+            | ValueOrigin::External(_)) => origin,
+            ValueOrigin::Data(_) => ValueOrigin::Data(DataType::Unresolved),
+            ValueOrigin::FileType(_) | ValueOrigin::Unknown => ValueOrigin::Unknown,
+        }
     }
 
     pub(crate) fn expression_origin(&self, expression: &Expr, depth: usize) -> ValueOrigin {
@@ -199,7 +255,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
                 return self.owner_origin();
             }
             if self.is_binding(name) {
-                return self.binding_origin(name, depth);
+                return self.binding_origin(name, path.span(), depth);
             }
             if self.finder.source.resources.contains_key(name) {
                 return ValueOrigin::DexSdk;
@@ -439,6 +495,38 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
             BindingSource::Value(initializer) => is_string_value(initializer),
             _ => false,
         })
+    }
+}
+
+/// Returns the sources visible at usage: the innermost enclosing combinator parameter, else the other bindings.
+fn visible_sources<'sources, 'ast>(
+    sources: &'sources [BindingSource<'ast>],
+    usage: Span,
+) -> Vec<&'sources BindingSource<'ast>> {
+    let position = usage.start();
+    let position = (position.line, position.column);
+    let innermost = sources
+        .iter()
+        .filter_map(|source| match source {
+            BindingSource::CombinatorParameter { body, .. } => {
+                let (start, end) = (body.span().start(), body.span().end());
+                let range = ((start.line, start.column), (end.line, end.column));
+                (range.0 <= position && position <= range.1).then_some((range.0, source))
+            }
+            _ => None,
+        })
+        .max_by_key(|(start, _)| *start);
+    if let Some((_, source)) = innermost {
+        return vec![source];
+    }
+    let unscoped: Vec<_> = sources
+        .iter()
+        .filter(|source| !matches!(source, BindingSource::CombinatorParameter { .. }))
+        .collect();
+    if unscoped.is_empty() {
+        sources.iter().collect()
+    } else {
+        unscoped
     }
 }
 
