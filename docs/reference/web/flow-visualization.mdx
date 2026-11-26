@@ -8,6 +8,10 @@ description: "dexcli visualize turns one Go, Python, TypeScript, Java, or Rust F
 
 `dexcli visualize` turns one Flow source file into a static Flow Definition Graph. The graph shows the paths the analyzer can determine from the source. It supports Go, Python, and TypeScript. **Since 1.47.23.** It also supports Java and Rust.
 
+:::note Experimental
+The Flow Definition Graph and the Flow design that Dex Web draws from it are experimental. The analyzer builds the graph by static analysis of your source, so it may be incomplete or inaccurate for some code patterns. The graph does not change how your Flows run. When a graph is wrong, [open an issue](https://github.com/superdurable/dex/issues) with the graph or diagnostic and a minimal code sample.
+:::
+
 ```bash
 dexcli visualize ./order_flow.go
 ```
@@ -499,6 +503,10 @@ Use **channel-map** to name a ChannelMap. The directive satisfies instance reads
 The analysis does not track paths: a load declared on one movement into a Step counts for every movement into it. Calls through interfaces, function values, and reflection are not followed. When load options cannot be evaluated, such as options returned by another package, the default mode reports nothing for that read.
 
 ## Declared lock requirements {#declared-lock-requirements}
+
+:::note Experimental
+The lock warnings **declared_lock_missing**, **declared_lock_unresolved**, and **lock_requirement_not_declared** are experimental. They can report false positives. For example, Flow state may already order two writes, or the analyzer may be unable to prove that a lock covers every writer. The warnings never make the graph invalid, and they never block the application. Review each warning as a prompt to check the code, not as proof of a bug. When you find a false positive, [open an issue](https://github.com/superdurable/dex/issues) with the warning and a minimal code sample.
+:::
 
 **Since dexcli 1.48.1.** An Attribute, AttributeMap, Channel, or ChannelMap can declare the lock that every write or publish requires. In Go, the options are **dex.WritesRequireLock** and **dex.WritesRequireAttributeLock** on **DefineAttribute** and **DefineAttributeMap**, and **dex.PublishesRequireAttributeLock** on **DefineChannelWithOptions** and **DefineChannelMapWithOptions**. When several lock options are given, the last one applies. In Python, they are **writes_require_lock** and **publishes_require_lock**. The Worker enforces the requirement at run time; see [Declared lock requirements](/reference/server/runtime-data#declared-lock-requirements). For Go and Python sources, **dexcli visualize** also checks it in every mode and reports three warnings. They point out problems before deployment, and they leave the graph valid, because the runtime check already rejects a write without the required lock:
 
