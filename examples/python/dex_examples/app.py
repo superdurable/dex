@@ -158,6 +158,18 @@ from dex_examples.products.ai_agent.ai_agent_session import (
 )
 from dex_examples.products.customer_refund.refund_settings import new_refund_flow
 from dex_examples.products.deal_dsl.deal_dsl_flow import DealDSLFlow
+from dex_examples.products.refund_durable_timers.bank_settlement_service import (
+    FakeBankSettlementService,
+)
+from dex_examples.products.refund_durable_timers.notification_service import (
+    FakeNotificationService,
+)
+from dex_examples.products.refund_durable_timers.payment_provider import (
+    FakePaymentProvider as FakeRefundPaymentProvider,
+)
+from dex_examples.products.refund_durable_timers.refund_timers_flow import (
+    RefundDurableTimersFlow,
+)
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostingFlow
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
@@ -193,6 +205,14 @@ class ExampleApp:
         self.order_processing = OrderProcessingFlow(service)
         # The shared server always runs the normal billing mode.
         self.customer_refund = new_refund_flow("normal", config.customer_refund_ledger_path)
+        self.refund_timers_payment = FakeRefundPaymentProvider()
+        self.refund_timers_bank = FakeBankSettlementService()
+        self.refund_timers_notifications = FakeNotificationService()
+        self.refund_durable_timers = RefundDurableTimersFlow(
+            self.refund_timers_payment,
+            self.refund_timers_bank,
+            self.refund_timers_notifications,
+        )
         self.orchestration = OrchestrationFlow(service)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
@@ -285,6 +305,7 @@ class ExampleApp:
             self.money_transfer,
             self.order_processing,
             self.customer_refund,
+            self.refund_durable_timers,
             self.orchestration,
             self.engagement,
             self.subscription,
