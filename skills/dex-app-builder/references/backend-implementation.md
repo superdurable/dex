@@ -139,8 +139,8 @@ has how its Work Queue uses this history.
 
 - Keep external effects in `Execute`, with a stable idempotency identity and
   query-first reconciliation of uncertain outcomes. Pass the cancellation
-  signal into calls that accept it; give a blocking call that cannot observe
-  cancellation its own timeout.
+  signal into calls that accept it; prefer giving a blocking call that cannot
+  observe cancellation its own timeout.
 - `WaitFor` sets up a durable wait. It may use a read-only, idempotent call
   to get a deadline and return a Timer for it. Its only Dex state writes are
   Step execution local values. Provider writes run in `Execute`.

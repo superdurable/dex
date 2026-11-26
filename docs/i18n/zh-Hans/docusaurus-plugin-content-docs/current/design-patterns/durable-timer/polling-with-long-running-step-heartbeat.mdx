@@ -19,7 +19,7 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 
 轮询 Step 重复以下步骤：
 
-1. 调用外部 API，并给这次调用设置自己的短超时，例如 10 秒。
+1. 调用外部 API。建议给这次调用设置较短的客户端超时，例如 10 秒。
 2. 遇到临时错误时，返回这个错误。重试策略会再次运行这个 Step。
 3. 遇到终态时，返回下一步的决定：成功或业务失败。
 4. 报告进度。状态变化时写一条 Stream 消息，否则带着 checkpoint 记录一次 heartbeat。
@@ -27,7 +27,7 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 
 “尚未就绪”是循环里的正常分支。优先用它，而不是返回错误再靠重试循环。返回错误会把“尚未就绪”和真正的失败混在一起，还会消耗重试预算。
 
-普通的 sleep 就够了。通过该语言 SDK 的机制响应取消。外部调用支持取消参数时，把它传进去。观察不到取消的阻塞调用要有自己的 timeout，因为 handler 返回之后 Worker 槽才会释放。取消是协作式的：循环在下一个能报告取消的边界退出。见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
+普通的 sleep 就够了。通过该语言 SDK 的机制响应取消。外部调用支持取消参数时，把它传进去。观察不到取消的阻塞调用最好有自己的 timeout。卡住的调用在返回之前一直占着 Worker 槽。heartbeat timeout 或 method timeout 仍会结束这个 attempt，Dex 按重试策略安排后续 attempt。取消是协作式的：循环在下一个能报告取消的边界退出。见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)（英文）。
 
 ## 规则 {#rules}
 

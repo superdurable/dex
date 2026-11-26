@@ -72,10 +72,12 @@ Keep these rules when you use the window:
 
 Some processes rank events against each other. For example, a withdrawal wins over a decision, or a confirmation wins over a decline that arrives at the same moment. Keep such a rule, and state which meaning of "the same moment" the design uses. Both meanings are valid:
 
-- **Server commit order.** A response window or lock admits responses one commit at a time. The first committed response wins, so ties never occur. This is the response window above.
+- **Server commit order.** A response window or lock admits responses one commit at a time. The first committed response wins, so ties never occur. This is the response window above. The response RPC publishes the response and changes only the window, in one locked commit. The `Execute` of the waiting Step decides the outcome. It records the outcome or moves to the branch that records it.
 - **Competing Channels ready when the wait is evaluated.** Among the Channel Conditions of one `AnyOf` that are ready together, the first declared wins, and `Execute` uses the messages it consumed. This ranks Channels only. A Timer in the same wait that is also ready is selected first, and the messages stay queued.
 
 When a Timer wins and `Execute` then checks the Channels again, it sees the responses committed in the first state snapshot of `Execute`. Retries reuse that snapshot. That is a later moment than the wait evaluation. In the example, `Execute` takes the shared window lock before Dex builds the snapshot. The example's `RouteResponseBeforeExpiry` branch relies on this: it takes a response that committed after the Timer won.
+
+The snapshot that the decision uses, or the closed window, fixes the candidates. A later event then changes nothing. Do not wait for new events with a clock or Timer grace window. A next Step that takes a response admitted before that boundary, such as `RouteResponseBeforeExpiry`, is not such a wait.
 
 ### Rank every event in a locked round {#locked-round}
 

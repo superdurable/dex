@@ -366,12 +366,42 @@ CheckJobStatus.execute(context, input)
 ```
 
 - Prefer "not ready yet" as a normal decision: GoTo the same Step. Returning it as an error mixes not-ready with real failures and spends the retry budget.
-- Bound the loop with a round limit, the Flow timeout, or a watchdog Timer. A round number in the input bounds the number of checks, not elapsed time: calls, retries, and queueing add time to each round. A hard deadline uses the Flow timeout or a watchdog Timer.
+- Bound the loop with a round limit, the Flow timeout, or a watchdog Timer. A round number in the input bounds the number of checks, not elapsed time: calls, retries, and queueing add time to each round. A durable deadline that polling retries cannot delay uses the Flow timeout or a deadline watchdog.
+- Never compute the remaining time from a stored timestamp and the clock: a round that is retrying would delay the deadline.
+
+Deadline watchdog, for a deadline shorter than the Flow:
+
+```text
+StartJob.execute(request)
+    jobId = provider.startJob(...)
+    return goToMany(CheckJobStatus({jobId, round = 1}), WatchDeadline(jobId))   // one decision schedules both
+
+CheckJobStatus.execute(context, input)                 // no lock; failure route -> RecordJobResult(failed)
+    status = provider.getStatus(input.jobId, cancel = context's cancellation signal)
+    if status is finished: return goTo(RecordJobResult, status)
+    return goTo(CheckJobStatus, {input.jobId, input.round + 1})
+
+RecordJobResult.execute(outcome)   [lock JobOutcome]   // short; no external call
+    if JobOutcome is set: return deadEnd()             // lost to the watchdog
+    JobOutcome = outcome
+    return gracefulComplete(outcome).cancelSteps(WatchDeadline)
+
+WatchDeadline.waitFor(jobId) -> until(Timer(deadline))
+WatchDeadline.execute(jobId)       [lock JobOutcome]
+    if JobOutcome is set: return deadEnd()             // lost to the result
+    JobOutcome = overdue
+    return gracefulComplete(overdue).cancelSteps(CheckJobStatus)
+```
+
+- This extends the polling skeleton above only when a deadline spans rounds. The provider call stays in the unlocked polling Step, so the watchdog never waits for a call or its retries. The short result Step and the watchdog share the lock, and each writes the terminal state only while it is open.
+- The winner writes the terminal state once and completes, or goes to the existing close branch; the loser returns DeadEnd. With one poller and one watchdog, the winner cancels the still-active other Step by Step type in its committed decision. After the completion request, the Flow starts closing once its remaining Steps end. With several watchdogs of one type, wake each through its own completion Channel.
+- Later rounds come from goTo, not from the fork, so a sibling cancel does not reach the watchdog.
+- The Timer starts when the watchdog's WaitFor result commits, and Execute can start late after it fires; see [Timer firing time](https://docs.superdurable.io/reference/server/runtime-data#timer-firing-time).
 - Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
 - WaitFor only declares the Timer. The provider call runs in Execute.
 - The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
 - For an interval of a few seconds or less, use the heartbeat shape.
-- Pass the cancellation signal to provider calls that accept it; give a blocking call that cannot observe cancellation its own timeout.
+- Pass the cancellation signal to provider calls that accept it. Prefer giving a blocking call that cannot observe cancellation its own timeout: a stuck call keeps its Worker slot until it returns, while the method timeout still ends the attempt and Dex schedules later attempts by the retry policy.
 
 Never:
 
@@ -416,7 +446,7 @@ RecordJobWaitFailure.execute(context)
 - Within that bound, use a few seconds when a user watches something they just started, and tens of seconds for long jobs.
 - A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, is a watchdog: a waiting Step that races its Timer. The watchdog and the Step that records the result declare the same Attribute lock. When the Timer fires, the watchdog reads the status under that lock and declares the work overdue only while it is still unfinished.
 - The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. Each attempt lasts at most the method timeout. After a failure, the total duration only decides whether another attempt starts, so recovery can begin well after it. Never use a large attempt count as a time bound.
-- Use the language's plain sleep. Honor cancellation through the language SDK's mechanism. When the provider call accepts a cancellation argument, pass it. Give a blocking call that cannot observe cancellation its own timeout, because the Worker slot is released only when the handler returns. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](https://docs.superdurable.io/reference/server/runtime-data#cancel-honour).
+- Use the language's plain sleep. Honor cancellation through the language SDK's mechanism. When the provider call accepts a cancellation argument, pass it. Prefer giving a blocking call that cannot observe cancellation its own timeout: a stuck call keeps its Worker slot until it returns, while the heartbeat or method timeout still ends the attempt and Dex schedules later attempts by the retry policy. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](https://docs.superdurable.io/reference/server/runtime-data#cancel-honour).
 - The wait limits come from the Step options, and Dex enforces each one: the method timeout ends an attempt, and after a failure the total duration decides whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. The Step code never computes a deadline, and neither the checkpoint nor the input carries one. A hard business deadline uses the watchdog below.
 - The checkpoint is only resume state, such as the last reported status. Resuming from the last stored checkpoint reduces repeated progress frames; it can be lost, so consumers tolerate duplicates and gaps. See [Heartbeat](https://docs.superdurable.io/reference/go/step-options#heartbeat).
 - A business condition that is not a fixed duration, such as a lease the Flow does not own expiring, is still checked inside the loop.

@@ -10,6 +10,8 @@ This pattern was formerly called Inactiveness Tracker Timer.
 
 Use this pattern when an action should happen only after a period without activity. `InactivenessTrackerFlow` starts with `TrackerStep`. It waits for either the Timer or the **Active** Channel. If activity arrives first, `TrackerStep` moves to itself, which starts a new Timer. If the Timer fires first, the Flow moves to `ProcessInactiveness`.
 
+After each activity is handled, the next `WaitFor` starts a full window. The Step does not compute the remaining time from a stored timestamp and the clock. A fresh Timer is less code, and tests can skip it.
+
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core Step

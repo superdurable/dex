@@ -91,39 +91,45 @@ Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/g
 StartChildJob.execute(job)                    // Client injected through the Flow constructor
     result = client.startFlow(ChildJobFlow, flowId = job.number, requestId = from the complete request,
                      reuse = disallow, ignore already started, Flow timeout = the job's limit)
+    if result is started: claim result.runId
     if result is already started:             // another logical request, even from this entry point
-        if the run's stored business identity matches job: claim it
-        else: record job.number as rejected; deadEnd()   // never wait for, count, or stop it
+        if a stored business identity read from one run matches job: claim that run ID   // run ID confirmed after the read
+        else: record job.number in a rejected state, never ended or failed; deadEnd()   // never wait for, count, or stop it
     goTo(AwaitChildJob, job)
 AwaitChildJob.waitFor(job) -> AnyOf(ChildReports[job.number].ForOne(), Timer(reconcile interval))
 AwaitChildJob.execute(job)
-    if a report was consumed: record its outcome under job.number; a repeat changes nothing
-    else: reconcile(job.number)               // see the rules below; fills what it read
+    if a report from the claimed run was consumed: record its outcome under job.number; a repeat changes nothing
+    else: reconcile(job.number, claimed run ID)   // see the rules below; fills what it read
     every needed field recorded: continue
     otherwise: goTo(AwaitChildJob, job)       // read again at the next interval
-rpc recordChildOutcome(childFlowId, outcome) -> ChildReports[childFlowId].publish(outcome)
+rpc recordChildOutcome(childFlowId, runId, outcome) -> ChildReports[childFlowId].publish(runId, outcome)
 
 ChildJobFlow:
     RecordChildOutcome.execute -> write the outcome Attribute; goTo(ReportChildOutcome)
-    ReportChildOutcome.execute -> call the parent's recordChildOutcome RPC,
-                                  Request ID = "report:" + child Flow ID; a closed parent ends the attempts
+    ReportChildOutcome.execute -> call the parent's recordChildOutcome RPC with its own run ID,
+                                  Request ID = "report:" + child Flow ID + run ID; a closed parent ends the attempts
                                   gracefulComplete()
 ```
 
 - Start the child with a stable Flow ID and Request ID, so a retried Execute repeats the same start.
-- Skip the identity check only when the mapping from business identity to child Flow ID guarantees that a Flow ID is only ever started again by a replay of the same logical request. Otherwise another logical request can start a run with the same Flow ID with a different Request ID, even from the same entry point or the same parent run. Catch the typed already-started error, read the existing run, and claim it only when its stored business identity matches. Otherwise record a rejected admission that the parent lists but never waits for, counts, or stops. A deliberate new attempt gets a new Flow ID or an explicit reuse policy.
+- Skip the identity check only when the mapping from business identity to child Flow ID guarantees that a Flow ID is only ever started again by a replay of the same logical request. Otherwise another logical request can start a run with the same Flow ID with a different Request ID, even from the same entry point or the same parent run. Catch the typed already-started error, read the existing run, and claim it only when its stored business identity matches; bind that identity to one run by reading the run ID, reading the identity, and confirming the run ID did not change. Otherwise record a rejected admission that the parent lists but never waits for, counts, or stops.
 - Receive the result durably. The child reports through a parent RPC that publishes to a Channel, or a [Polling](patterns.md#polling) Step waits for the child's terminal state through the Client. Never keep the result only in Worker memory.
 - Keep the Execute of the outcome Step and the report Step SYNC, the default, even when the Flow defaults to ASYNC. Under ASYNC durability the report Step could start before the outcome commit is stored; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability).
-- The report carries a stable Request ID derived from the child Flow ID and its purpose, such as `report:<child Flow ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
-- Give each business attempt its own child Flow ID. DescribeFlow and the Client Attribute read see only the current or latest run, so a reused Flow ID mixes up attempts.
+- The report carries a stable Request ID derived from the child Flow ID, its run ID, and its purpose, such as `report:<child Flow ID>:<run ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
+- When people reopen a child by its own business number, that number stays the child Flow ID, and each run is tied to its run ID:
+  - A resend of the same start request keeps its Request ID. A deliberate reopen is a new start request with a new Request ID; resends of that request keep the new one. The Request ID of the latest run's start replays that start, so a reopen with it starts nothing.
+  - Every entry point uses an ID reuse policy that rejects an active run and allows only the closed states the business reopens from. The outcome of each policy is in the [ID reuse policy reference](https://docs.superdurable.io/reference/go/start-flow-options#flow-id-request-id-and-already-started).
+  - The parent records the run ID that its start returned or that it claimed. It accepts a report only when the report carries that run ID.
+  - DescribeFlow and the Client Attribute read address the latest run of the Flow ID. When reading the outcome by Flow ID, confirm the run ID before and after the read; the reconcile steps below show the order. A query that returns the status and the outcome by run ID can be used directly.
+  - StopFlow stops the active run of the Flow ID, which may be a newer run. To stop only the claimed run, call a child stop RPC that carries the claimed run ID; the child compares it with its own run ID before it commits the stop.
 - Give every child its own Flow timeout. Even when the child must report its timeout, use the Flow timeout and a timeout handler that reports, never a Timer Step inside the child. The Flow timeout is a start option, so each starter sets it. A closing parent never stops its children. Keep the child's timeout longer than its retry budget, so retries can finish before the timeout fires.
 - A child that fails or times out on its own does not report either, because its report Step never runs. Route the child's terminal failure to a recovery Step, or its timeout to a timeout handler, that reports the failure to the parent; or keep the parent's reconcile Timer so it reads the child's terminal state. A timeout handler that holds a lock an RPC takes records the outcome and moves to an unlocked Step that reports idempotently and then force-closes. Keep that handler SYNC, even when the Flow defaults to ASYNC, so the outcome is stored before the report. A handler that force-closes at once only records the outcome, and the parent reconciles it, unless the handler holds no such lock and reports itself.
 - When the parent does not need to know how a stopped child ended, stop the child and move on; a parent that needs only a quorum stops the remaining children this way. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive.
 - When the parent needs to know how a stopped child ended, reconcile it: for example, to count its result, undo or bill its side effects, or show its outcome. In that case:
   - Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
-    1. Read DescribeFlow first. RUNNING: read again at the next interval.
-    2. Terminal: record its status, then read its outcome Attribute. An absent Attribute is an absent outcome; keep the observed terminal status even if this read races.
-    3. Only a typed missing-run result goes to the business policy, for example record "unavailable".
+    1. Read DescribeFlow first. A typed missing-run result, or a latest run ID other than the claimed one, goes to the business policy, for example record "unavailable".
+    2. The claimed run is RUNNING: read again at the next interval.
+    3. The claimed run is terminal: record its status, then read its outcome. An absent Attribute is an absent outcome; keep the observed terminal status even if this read races. When the outcome read is addressed by Flow ID, describe again; if the run is gone or changed, keep the confirmed status and the reports already received, and drop the read value.
     4. Return any other error so the Step retries.
   - A report that arrives after the stop, or from a child that finished after a quorum, fills the same record; a repeat changes nothing.
   - The errors are in the Client reference: [Stop a Flow](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow) and [Describe a Flow](https://docs.superdurable.io/reference/server/runtime-client#describe-a-flow).
