@@ -108,6 +108,9 @@ from dex_examples.products.ai_agent.http_routes import (
 from dex_examples.products.customer_refund.controller import (
     create_customer_refund_blueprint,
 )
+from dex_examples.products.refund_durable_timers.controller import (
+    create_refund_durable_timers_blueprint,
+)
 from dex_examples.products.engagement.controller import create_engagement_blueprint
 from dex_examples.products.job_post.controller import create_job_post_blueprint
 from dex_examples.products.microservices.controller import create_microservice_blueprint
@@ -140,6 +143,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_money_transfer_blueprint(app_state))
     quart_app.register_blueprint(create_order_processing_blueprint(app_state))
     quart_app.register_blueprint(create_customer_refund_blueprint(app_state))
+    quart_app.register_blueprint(create_refund_durable_timers_blueprint(app_state))
     quart_app.register_blueprint(create_microservice_blueprint(app_state))
     quart_app.register_blueprint(create_engagement_blueprint(app_state))
     quart_app.register_blueprint(create_subscription_blueprint(app_state))
