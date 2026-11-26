@@ -144,16 +144,25 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 
 ### Steps that already wait
 
-A deploy never changes the conditions of a Step that already waits. Dex stored its Wait when the Step started. New `WaitFor` code applies only to Step executions that start after the deploy. The new `Execute` code does run when the old conditions are met.
+A deploy never changes the conditions of a Step that already waits. A Step that already waits keeps the conditions its finished `WaitFor` returned; the Worker that takes it runs the `Execute` of its deployed version. New `WaitFor` code applies only to Step executions that start after the deploy.
 
 | Change for Steps that already wait | Do this |
 | --- | --- |
 | End a Timer earlier, such as a shorter deadline | New Steps get the new duration from the new `WaitFor`. Skip each old Timer with the Client `SkipTimer` once its new deadline passes. |
-| Change what the Step waits for | Publish to the Channel it waits on. |
+| Change what the Step waits for | Publish, from Flow code or an existing typed RPC, to a Channel the original Wait already includes. |
 | Neither is enough | Only then cancel and restart the Step, with user authorization. |
 
-- To shorten deadlines, run a periodic job or an operator action. It searches for open Flow runs in that Step, computes each new deadline from a start time the Flow recorded, and calls `SkipTimer` for the runs past it. Select the Timer by the Condition ID or index of the old `WaitFor`.
-- A skipped Timer reaches `Execute` exactly like a fired one, so the deadline branch needs no new code.
+To shorten deadlines, run a periodic job or an operator action:
+
+1. Page through `SearchFlows` by Flow type and execution status to find candidate runs. Add `ActiveStepTypes` when the Flow config enables active-Step search.
+2. For each run, read the business start time and the exact Step execution number from business state with the public Client: a registered Attribute, an AttributeMap instance with a known key, or an existing business record. In Python and TypeScript, `GetFlowState` can also confirm the waiting execution number.
+3. Call `SkipTimer` on each old Timer past its new deadline. Select it by the Condition ID or index of the old `WaitFor`.
+
+- The search `StartTime` is the Flow run's start time, not the business start time.
+- An AttributeMap cannot be enumerated. Read only keys you already know.
+- When the old relative duration is known, the new deadline is the old fire time from `dexcli flow state` minus the difference between the old and new durations.
+- When an old run has no reliable record, a person must verify it before anyone skips its Timer.
+- Skipping satisfies that Timer condition as if it fired; `Execute` is scheduled once the whole Wait is satisfied. The deadline branch needs no new code.
 - This needs no new Step type, no new RPC, and no direct call to the generated Server API.
 
 ### Incompatible changes
