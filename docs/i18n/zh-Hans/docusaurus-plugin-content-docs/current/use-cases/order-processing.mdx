@@ -1401,7 +1401,11 @@ curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID
 
 ## 6. Dex Web
 
-批准订单后，在 Dex Web 中打开这次运行，选择 **Events**。选择 **Graph**，查看 Charge 之后如何进入 Ship。选择 **Timeline**，按顺序查看事件。选中一个事件后，可在时间线下方读取它的输入和输出。 [Deal DSL 演示](/use-cases/deal-dsl#demo)提供了这两个视图的截图。
+批准订单后，在 Dex Web 中打开这次运行，选择 **Events**。选择 **Timeline**，按顺序查看扣款、批准和发货。选中一个事件后，可在时间线下方读取它的输入和输出。选择 **Graph**，查看各 Step 如何衔接。
+
+[![Dex Web Timeline 展示订单从扣款、批准到发货的过程](/img/use-cases/order-processing-timeline.png)](/img/use-cases/order-processing-timeline.png)
+
+[![Dex Web Graph 展示订单从扣款、批准到发货的过程](/img/use-cases/order-processing-graph.png)](/img/use-cases/order-processing-graph.png)
 
 ## 下一步
 

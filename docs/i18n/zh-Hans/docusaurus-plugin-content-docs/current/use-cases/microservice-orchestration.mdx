@@ -445,9 +445,13 @@ impl Step for CallApiThree {
 
 ## 演示
 
-[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。在这次运行中，Flow 以 **test initial data** 启动，**Swap** RPC 把它替换为 **updated in-flight data**，随后一条 **Ready** 消息结束等待。`CallAPI1`、`CallAPI2` 和 `CallAPI3` 均已完成；因为 **Ready** 在 24 小时 Timer 触发之前到达，所以 `CallAPI4` 没有执行。
+[运行任意示例](/use-cases#run-any-example)说明怎样启动 samples 应用。在这次运行中，Flow 以 `initial-data` 启动，**Swap** RPC 把它替换为 `updated-data`，随后一条 **Ready** 消息结束等待。`CallAPI1`、`CallAPI2` 和 `CallAPI3` 均已完成；因为 **Ready** 在 24 小时 Timer 触发之前到达，所以 `CallAPI4` 没有执行。
 
-在 Dex Web 中打开 **Events**。选择 **Timeline**，找到 **Swap** RPC 和 **Ready** 消息。选择 **Graph**，查看哪些 API 调用 Step 实际执行了。 [Deal DSL 演示](/use-cases/deal-dsl#demo)提供了这两个视图的截图。
+在 Dex Web 中打开 **Events**。选择 **Timeline**，找到 **Swap** RPC 和 **Ready** 消息。选择 **Graph**，查看哪些 API 调用 Step 实际执行了。
+
+[![Dex Web Timeline 展示编排运行中的 Swap 和 Signal Ready 调用](/img/use-cases/microservice-orchestration-timeline.png)](/img/use-cases/microservice-orchestration-timeline.png)
+
+[![Dex Web Graph 展示编排运行中的 Swap 和 Signal Ready 调用](/img/use-cases/microservice-orchestration-graph.png)](/img/use-cases/microservice-orchestration-graph.png)
 
 ## 下一步
 

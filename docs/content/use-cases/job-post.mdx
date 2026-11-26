@@ -506,9 +506,13 @@ impl Step for UpdateLinkedInPosting {
 
 ## Demo
 
-[Run any example](/use-cases#run-any-example) starts the samples app. This run accepted two updates. The graph shows the Init Step, two ordered executions for each job board, and the next LinkedIn and Indeed consumer executions waiting for another Channel message.
+[Run any example](/use-cases#run-any-example) starts the samples app. This run accepted two updates. The graph shows the Init Step, two ordered executions for each job board, and the next LinkedIn and Indeed consumer executions, which were waiting when the run was stopped.
 
-In Dex Web, open **Events** and choose **Timeline** to see the two updates in order. Choose **Graph** to see the ordered executions for each job board and the consumers waiting for the next message. See the [Deal DSL demo](/use-cases/deal-dsl#demo) for screenshots of both views.
+In Dex Web, open **Events** and choose **Timeline** to see the two updates in order. Choose **Graph** to see the ordered executions for each job board and the consumer executions canceled when the run was stopped.
+
+[![Dex Web Timeline showing two job posting updates](/img/use-cases/job-post-timeline.png)](/img/use-cases/job-post-timeline.png)
+
+[![Dex Web Graph showing two job posting updates](/img/use-cases/job-post-graph.png)](/img/use-cases/job-post-graph.png)
 
 ## Next
 
