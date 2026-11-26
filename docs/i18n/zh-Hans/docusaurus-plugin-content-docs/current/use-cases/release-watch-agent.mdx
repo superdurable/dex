@@ -1,0 +1,82 @@
+---
+title: 版本发布追踪 Agent
+sidebar_label: 版本发布追踪 Agent
+slug: /use-cases/release-watch-agent
+---
+
+# 版本发布追踪 Agent
+
+Release Watch 追踪你的应用依赖的库。每个工作日，它读取这些库的新版本，让一个分析 Agent 对照你正在使用的版本逐一评估，然后把一份摘要发到 Slack。团队在摘要的 thread 中回复来分拣，被追踪的版本会变成 GitHub issue。
+
+**SDK：** TypeScript · **代码：** [superdurable-apps/release-watch-example](https://github.com/superdurable-apps/release-watch-example)
+
+**展示：** 一个定时 Flow、一个有截止时间的 Agent Session、由 Slack 回复驱动的第二个 Agent，以及一个逐条创建 GitHub issue 的 outbox。
+
+## Agent 做什么 {#what-the-agent-does}
+
+1. 每个工作日洛杉矶时间 08:00，应用读取所有关注的来源：GitHub release、Hacker News 搜索和 Web feed。
+2. 分析 Agent 评估新版本。它给每个版本定一个等级，并写明它对你的应用意味着什么。
+3. 应用把摘要发到一个 Slack channel：紧急的版本在前，其余的在 thread 中。
+4. 团队成员在 thread 中回复，比如 `track 1 P1`、`dismiss 2, we don't use that API` 或 `move 3 to must-fix`。
+5. 分拣 Agent 根据回复行动。被追踪的版本变成一个 GitHub issue，应用在 thread 中发布它的链接。
+6. thread 在 14 天内接受回复。之后摘要结束。
+
+每个版本属于三个等级之一：
+
+| 等级 | 含义 | `track` 时创建 issue |
+| --- | --- | --- |
+| A · must-fix | 你的应用必须修改，才能继续工作或保持安全 | 是 |
+| B · recommend | 一切照常工作，这个版本带来值得采用的新功能 | 是 |
+| C · no-change | 一切照常工作，无需任何操作 | 仅在确认后 |
+
+## 怎样对应到 Dex {#how-it-maps-to-dex}
+
+这个应用由四个 Flow 组成：
+
+| Flow | ID | 做什么 |
+| --- | --- | --- |
+| `ReleaseWatchScheduleFlow` | `release-watch` | 每个工作日或按请求启动一份摘要。保存关注列表，以及之前的摘要已经发布过的版本。 |
+| `ReleaseDigestFlow` | `release-digest-<date>`，手动启动的为 `release-digest-<date>-run-<n>` | 读取来源、运行分析 Agent、发布摘要并创建 issue。 |
+| `ReleaseAnalystAgentFlow` | `<digestId>-analyst` | 分析 Agent。评估候选版本并提交一份报告。 |
+| `ReleaseTriageAgentFlow` | `release-triage-<channel>-<thread>` | 分拣 Agent。每个摘要 thread 一个 Session。 |
+
+两个 Agent 都运行在[内置 Agent Loop](/agent-frameworks/built-in-agent-loop) 上。每次模型调用和每次 tool call 都是一个独立的 Step。
+
+摘要在每个 Step 中用对应类型的 [Connector](/concepts/connector) 读取一个来源。某个来源失败时，`RecordSourceFailure` 记下这次失败，摘要接着读取下一个来源。摘要会在结果旁边报告这次失败，所以一个坏掉的 feed 不会让整份摘要停下。
+
+分拣 Agent 的 tool 只通过摘要 Flow 的 [RPC](/concepts/primitives/rpc) 修改摘要。每次调用都带上 tool call 的幂等键，摘要记住已经处理过的键。所以重试的 `track_releases` 调用不会把一个版本创建两次。
+
+## 按时发布摘要 {#post-the-digest-on-time}
+
+无论分析 Agent 是否完成，摘要每个工作日都会发出。摘要 Flow 在 `StartAnalystSession` 中启动分析 Agent 的 Session，第一条消息包含所有候选版本。Session ID 对每份摘要是固定的，即 `<digestId>-analyst`，所以重试这个 Step 不会启动第二个分析 Agent。
+
+分析 Agent 的每次模型调用都是一个独立的 Step。所以 Worker 重启最多损失正在运行的那一次调用。分析 Agent 只有一个 tool：`submit_report`。这个 tool 调用摘要 Flow 的 `submitAnalystReport` RPC。RPC 检查报告；如果某个版本引用了 brief 中没有的候选版本，就拒绝它。拒绝原因作为 tool 的结果返回给 Agent，Agent 可以修正报告后再次提交。
+
+被接受的报告发布到 `analyst-report-submitted` [Channel](/concepts/primitives/channel)。摘要 Flow 在 `AwaitAnalystReport` 中等待，先到者为准：报告，或者一个 40 分钟的 [Timer](/concepts/primitives/timer)。如果 Timer 先触发，摘要会把未排序的候选版本作为 no-change 发布，并附一行说明分析 Agent 没有按时完成。这个 Step 在回退之前先读取 Channel，所以与截止时间同时到达的报告仍会被采用。摘要发布之后到达的报告会被拒绝，拒绝信息让分析 Agent 停止。
+
+## 每个 issue 都由人决定 {#a-person-files-every-issue}
+
+每个 issue 都始于一个人的回复。Slack Connector 的 `threadReplyCreated` [Trigger](/agent-frameworks/sessions#connector-triggers) 把每条回复投递给这个 thread 的分拣 Session。它只保留你为这个 Trigger 选定的成员的回复。
+
+Agent 的 `track_releases` tool 只记录请求。`trackReleases` RPC 把版本标记为 `tracking`，并在摘要的 outbox 中加入一条记录；outbox 是保存在一个 [Attribute](/concepts/primitives/attribute) 中的列表。然后 `ProcessOutbox` 一次取出一条：创建 issue、关闭 issue、修改标签、添加评论，或在 thread 中发布一条备注。每次 GitHub 写操作都是一个独立的 Connector Step。C 等级的版本会被拒绝，除非这个人在之后的回复中确认。
+
+outbox 是持久化的状态。如果 Worker 在处理中途停下，下一个 Worker 会从停下的地方接着处理。如果 GitHub 拒绝创建 issue，或结果未知，这个版本会被标记为 `failed`，thread 中也会说明。结果未知时，备注会请团队先检查仓库，再重新追踪这个版本。如果关闭、修改标签或评论失败，版本保持原状态，thread 中会说明哪一步失败。任何已创建的 issue 都可以用 `untrack 1` 撤销，它会把 issue 以 not planned 关闭。
+
+## 运行它 {#run-it}
+
+你需要 Node.js 22.19 或更新版本、`dexcli`、一个开启 Socket Mode 的 Slack app，以及一个兼容 OpenAI 的模型或 Anthropic 模型。
+
+1. 用 `dexcli dev` 启动 Dex。
+2. 在 Dex Web 中打开 **Connectors**，添加应用使用的五个 connection：Slack、两个 GitHub connection（一个读取 release，一个创建 issue）、Hacker News 和 Web feed。然后添加 Slack 回复 binding，选定摘要 channel 和可以分拣的成员。
+3. 把设置写进一个本地文件：`ISSUE_REPOSITORY`（追踪版本的仓库）和模型设置。
+4. 在 `src/watchlist.ts` 中填写你依赖的库，在 `src/team-profile.ts` 中写几条关于你的应用的事实。
+5. 写好两个进程都读取的 runtime 文件，内容见仓库的 README。运行 `npm ci && npm run build`。然后用 `node . worker` 启动 Worker，用 `node . web` 启动 HTTP API。
+6. 用 `POST /api/digests` 启动一份摘要，在它的 thread 中回复，并在 Dex Web 中查看 `release-digest-<date>-run-1`。
+
+仓库列出了 connection 名称、Slack app 需要的 scope、所有设置，以及如何在 Dex Cloud 上运行同一个应用。
+
+## 下一步
+
+- [订单客服 Agent](/use-cases/order-support-agent)：同一个 Agent 在每个 Agent 框架中各实现一份。
+- [持久化 Agent](/agent-frameworks)：Dex 为 Agent 带来什么，以及如何构建一个 Agent。
+- [Tool Call](/agent-frameworks/tool-calls)

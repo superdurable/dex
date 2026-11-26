@@ -1,0 +1,82 @@
+---
+title: Release Watch Agent
+sidebar_label: Release Watch Agent
+slug: /use-cases/release-watch-agent
+---
+
+# Release Watch Agent
+
+Release Watch keeps track of the libraries your application depends on. Every weekday it reads their releases, has an analyst agent judge each one against the versions you run, and posts a digest to Slack. Your team triages the digest by replying in its thread, and the releases they track become GitHub issues.
+
+**SDK:** TypeScript · **Code:** [superdurable-apps/release-watch-example](https://github.com/superdurable-apps/release-watch-example)
+
+**Shows:** a scheduled Flow, an agent session with a deadline, a second agent fed by Slack replies, and an outbox that files GitHub issues one at a time.
+
+## What the agent does {#what-the-agent-does}
+
+1. At 08:00 Los Angeles time each weekday, the app reads every watched source: GitHub releases, Hacker News searches, and web feeds.
+2. The analyst agent judges the new releases. It puts each one in a tier and writes what it means for your application.
+3. The app posts the digest in a Slack channel: the urgent releases first, and the rest in the thread.
+4. A teammate replies in the thread, such as `track 1 P1`, `dismiss 2, we don't use that API`, or `move 3 to must-fix`.
+5. The triage agent acts on the reply. A tracked release becomes a GitHub issue, and the app posts its link in the thread.
+6. The thread takes replies for 14 days. Then the digest ends.
+
+Every release gets one of three tiers:
+
+| Tier | Meaning | Issue on `track` |
+| --- | --- | --- |
+| A · must-fix | Your application must change to keep working or stay safe | yes |
+| B · recommend | Everything still works, and the release adds a feature worth adopting | yes |
+| C · no-change | Everything still works, and there is nothing to do | only if confirmed |
+
+## How it maps to Dex {#how-it-maps-to-dex}
+
+The app is four Flows:
+
+| Flow | ID | What it does |
+| --- | --- | --- |
+| `ReleaseWatchScheduleFlow` | `release-watch` | Starts a digest each weekday, or on request. Keeps the watchlist and the releases earlier digests posted. |
+| `ReleaseDigestFlow` | `release-digest-<date>`, or `release-digest-<date>-run-<n>` for a manual run | Reads the sources, runs the analyst, posts the digest, and files the issues. |
+| `ReleaseAnalystAgentFlow` | `<digestId>-analyst` | The analyst agent. Judges the candidates and submits one report. |
+| `ReleaseTriageAgentFlow` | `release-triage-<channel>-<thread>` | The triage agent. One session per digest thread. |
+
+Both agents run on the [built-in agent loop](/agent-frameworks/built-in-agent-loop). Each model call and each tool call is its own Step.
+
+The digest reads one source per Step, with the [Connector](/concepts/connector) of its kind. When a source fails, `RecordSourceFailure` notes the failure and the digest reads the next source. The digest reports the failure next to its results, so one broken feed never stops a digest.
+
+The triage agent's tools change the digest only through the digest Flow's [RPCs](/concepts/primitives/rpc). Each call carries the tool call's idempotency key, and the digest remembers the keys it has handled. So a retried `track_releases` call cannot file a release twice.
+
+## Post the digest on time {#post-the-digest-on-time}
+
+The digest goes out each weekday whether the analyst finishes or not. The digest Flow starts the analyst's session in `StartAnalystSession`, with every candidate in its first message. The session ID is fixed per digest, `<digestId>-analyst`, so a retry of the Step does not start a second analyst.
+
+Each model call of the analyst is its own Step. So a Worker restart costs at most the call that was running. The analyst has one tool, `submit_report`. The tool calls the digest Flow's `submitAnalystReport` RPC. The RPC checks the report, and refuses it if a release cites a candidate the brief did not contain. The refusal goes back to the agent as the tool's answer, so the agent can fix the report and submit it again.
+
+An accepted report is published to the `analyst-report-submitted` [Channel](/concepts/primitives/channel). The digest Flow waits in `AwaitAnalystReport` for whichever comes first: the report, or a 40-minute [Timer](/concepts/primitives/timer). When the Timer fires first, the digest posts the candidates unranked, as no-change items, under a line saying the analyst did not finish in time. The Step reads the Channel before it falls back, so a report that lands together with the deadline is still used. A report that arrives after the digest posted is refused, and the refusal tells the analyst to stop.
+
+## A person files every issue {#a-person-files-every-issue}
+
+Every issue starts with a reply from a person. The Slack Connector's `threadReplyCreated` [Trigger](/agent-frameworks/sessions#connector-triggers) delivers each reply to the thread's triage session. It keeps only replies from the members you choose for the Trigger.
+
+The agent's `track_releases` tool only records the request. The `trackReleases` RPC marks the release `tracking` and adds an entry to the digest's outbox, a list kept in an [Attribute](/concepts/primitives/attribute). `ProcessOutbox` then takes one entry at a time: it files an issue, closes one, relabels one, comments on one, or posts a note in the thread. Each GitHub write is its own Connector Step. A release in the C tier is refused unless the person confirms it in a later reply.
+
+The outbox is durable state. When the Worker stops in the middle of it, the next Worker picks it up where it stopped. When GitHub refuses to file an issue, or the outcome is unknown, the release is marked `failed` and the thread says so. For an unknown outcome, the note asks the team to check the repository before tracking the release again. When a close, relabel, or comment fails, the release keeps its status and the thread says what failed. Any filed issue can be undone with `untrack 1`, which closes it as not planned.
+
+## Run it {#run-it}
+
+You need Node.js 22.19 or later, `dexcli`, a Slack app with Socket Mode, and an OpenAI-compatible or Anthropic model.
+
+1. Start Dex with `dexcli dev`.
+2. In Dex Web, open **Connectors** and add the five connections the app uses: Slack, two GitHub connections (one reads releases, one files issues), Hacker News, and Web feed. Then add the Slack reply binding with the digest channel and the members who may triage.
+3. Write the settings to a local file: `ISSUE_REPOSITORY`, the repository that tracks releases, and the model settings.
+4. Edit `src/watchlist.ts` with the libraries you depend on, and `src/team-profile.ts` with a few facts about your application.
+5. Write the runtime file both processes read; the repository's README shows it. Run `npm ci && npm run build`. Then start the Worker with `node . worker` and the HTTP API with `node . web`.
+6. Start a digest with `POST /api/digests`, reply in its thread, and watch `release-digest-<date>-run-1` in Dex Web.
+
+The repository lists the connection names, the Slack app's scopes, every setting, and how to run the same app on Dex Cloud.
+
+## Next
+
+- [Order Support Agent](/use-cases/order-support-agent): one agent built in each agent framework.
+- [Durable Agents](/agent-frameworks): what Dex adds to an agent, and how to build one.
+- [Tool Calls](/agent-frameworks/tool-calls)
