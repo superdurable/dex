@@ -588,7 +588,7 @@ In Python, a call is allowed when it is one of these:
 
 Every other call counts, such as `requests`, `subprocess`, a method of an injected object, and an import from another module of your project.
 
-Constructing a same-module class runs its metaclass `__call__`, `__new__`, `__init__`, and `__post_init__`, including those it inherits from same-module bases. The analyzer checks each of them. A base or metaclass from another module counts as a possible external call, unless it is a built-in, a pure standard-library class, or a Dex SDK class.
+Constructing a same-module class runs its metaclass `__call__`, `__new__`, and `__init__`. A dataclass-generated `__init__` also calls `__post_init__`. The analyzer finds each of them along the C3 method resolution order of same-module classes and checks it. Under multiple inheritance, or when no consistent order exists, it checks every definition, because `super()` may chain them. A base or metaclass from another module counts as a possible external call, unless it is a built-in, a pure standard-library class, or a Dex SDK class. This lookup is a static heuristic and may miss a constructor that run-time code selects.
 
 Python locks come from **execute_lock_attributes** and **wait_for_lock_attributes**, and from `@rpc(lock_attributes=...)`.
 
@@ -602,9 +602,9 @@ In Java, a call is allowed when it is one of these:
 - **System.currentTimeMillis**, **System.nanoTime**, **System.getenv**, and **System.getProperty**;
 - a method of the same file, or an implicit member of a record or enum in another file of the same package.
 
-Every other call counts, such as **System.out.println**, `java.io`, `java.net` connections, reflection, **Object.wait**, and a method of an injected interface.
+Every other call counts, such as **System.out.println**, `java.io`, `java.net` connections, reflection, **Object.wait**, and a method of an injected interface. On **Class**, only metadata methods, such as **getName**, are allowed. **getEnumConstants** counts, because it initializes the enum. **Stream.close** counts, including the implicit close at the end of a try-with-resources block, because it runs the stream's close handlers. **values** and **valueOf** of a same-file enum check the enum's constructor.
 
-The analyzer types the result of a known SDK method, such as **Context.getAttribute** or **Context.pendingChannelMessages**, from its type arguments. The result of any other SDK method has an unknown type, so a call on it counts as a possible external call. For an overloaded method or constructor, the analyzer keeps the declarations whose parameter types accept the argument types. When none or several remain, it checks all of them.
+The analyzer types the result of a known SDK method, such as **Context.getAttribute** or **Context.pendingChannelMessages**, from its type arguments. The result of any other SDK method has an unknown type, so a call on it counts as a possible external call. For an overloaded method or constructor, the analyzer checks every candidate that the argument types do not rule out. It drops a candidate only when an argument provably cannot be passed to it. A local class's supertypes count, so a local **Runnable** reaches a `dispatch(Runnable)` overload.
 
 Java locks come from **StepOptions.Builder.addExecuteLock** and **addWaitForLock**, including the options a movement passes, and from the `@RPC` **lockAttributes** and **lockAttributeMaps**.
 
@@ -620,7 +620,9 @@ In Rust, a call is allowed when it is one of these:
 
 Every other call counts, such as `println!`, `std::fs`, `std::net`, `tokio::time::sleep`, a trait method on a generic value, and an item from another module of your crate.
 
-The analyzer tracks where each value comes from. It looks through **Option**, **Result**, **HandlerResult**, and `?`, so a **Client** a helper returns keeps counting as a client. Deserialized data, such as the Step input or a value read from an Attribute, cannot hold a service, so standard-like pure methods on it are allowed. A method call on a value of unknown origin counts as a possible external call, whatever its name.
+The analyzer tracks where each value comes from. It looks through **Option**, **Result**, **HandlerResult**, and `?`, so a **Client** a helper returns keeps counting as a client. Deserialized data, such as the Step input or a value read from an Attribute, cannot hold a service. A method on data of a standard or same-file type is checked like any other call. A method on data of a named type from another file counts as a possible external call. A field or element of data whose type the analyzer cannot resolve keeps standard-like pure method names, such as **trim** or **len**. That allowance is a heuristic and may miss a call. A method call on a value of unknown origin counts as a possible external call, whatever its name.
+
+A same-file derived **Clone** or **Default** is allowed only after the same method of every field type is checked. Standard types are allowed. Same-file field types are checked through their own impl or derive. Other field types count as possible external calls.
 
 The warning names definite external calls first, such as a **Client** method, standard-library I/O, or printing. Possible ones follow, such as an item from another file that may be pure.
 
