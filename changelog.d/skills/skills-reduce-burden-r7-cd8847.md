@@ -1,0 +1,12 @@
+---
+bump: patch
+---
+- A per-call timeout is now a recommendation: pass the cancellation signal into calls, and give only a call that cannot observe cancellation its own timeout. A call that can stay silent past the heartbeat timeout still needs a higher heartbeat timeout or heartbeats.
+- The lock rule now asks whether an RPC takes the lock: under such a lock, decide and commit, then call external systems or other Flows in the next, unlocked Step. A lock that only Steps share may cover an external call. When a repeat is acceptable, no lock is needed.
+- A business priority such as "wins at the same moment" is kept, never dropped: the design states whether it means server commit order under a reply window or the events present when the wait is evaluated.
+- The SubFlow gate is replaced: prefer parallel Steps, and use a SubFlow when the child needs its own lifecycle, history, or retries, or one fan-out is very large. User confirmation and the 200-Step threshold are gone.
+- Tests are written only when the user asks or the project has tests. Test scenarios no longer re-test Dex behavior such as retries, heartbeat timeouts, Worker registration, or read-after-write.
+- The code check is a short, optional list of correctness items; the handoff lists only unmet items. StepOptions, retry total duration, and the design record are needed only where the defaults do not fit.
+- Edge-case rules are now recommendations: retries as a polling loop, in-process concurrency for idempotent reads, clock checks that validate requests, configurable test durations, naming, slot counts, and Stream layout.
+- A child start that hits another request's run records a rejected admission unless the stored business identity matches, when other entry points can start that Flow ID. A child's deadline is its Flow timeout with a reporting timeout handler, never a Timer Step.
+- Version-specific details of Attribute Store sync, hard-delete Attributes, BlobCache setup, and clone fork now live only in the Developer reference. A missing capability in a higher-level library is built with the Dex SDK instead of pausing the work.
