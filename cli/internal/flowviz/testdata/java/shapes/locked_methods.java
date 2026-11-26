@@ -359,6 +359,55 @@ class SideEffectFlow implements Flow<String> {
     }
 }
 
+class InheritedMapFlow implements Flow<String> {
+    static final Attribute<String> status = Attribute.define("status", String.class);
+
+    static final class Reports extends java.util.LinkedHashMap<String, String> {
+        @Override public String remove(Object key) { return super.remove(key); }
+    }
+
+    static final class AuditedReports extends java.util.LinkedHashMap<String, String> {
+        @Override public String get(Object key) {
+            new java.io.File("/tmp/audit").exists();
+            return super.get(key);
+        }
+    }
+
+    public StepList<String> getSteps() { return StepList.startStep(new UseReports()).otherSteps(new UseAuditedReports()); }
+    public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(status); }
+
+    @RPC(lockAttributes = {"status"})
+    public void stop(Context context, String reason) { status.set(context, reason); }
+
+    static StepOptions lockStatus() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+    // dex:group group-id:reports group-label:"Reports"
+    // dex:explanation text:"Use a local map subclass."
+    class UseReports implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) {
+            var pending = new Reports();
+            pending.put(input, input);
+            status.set(context, pending.get(input).trim() + pending.remove(input) + pending.size());
+            return StepDecision.goTo(UseAuditedReports.class, input);
+        }
+    }
+
+    // dex:group group-id:reports group-label:"Reports"
+    // dex:explanation text:"Use a map subclass whose get does I/O."
+    class UseAuditedReports implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) {
+            var audited = new AuditedReports();
+            audited.put(input, input);
+            status.set(context, audited.get(input));
+            return StepDecision.gracefulComplete(input);
+        }
+    }
+}
+
 class HttpHelperFlow implements Flow<String> {
     static final Attribute<String> status = Attribute.define("status", String.class);
 

@@ -1603,11 +1603,49 @@ class FlowvizJavaAnalyzer {
                 if (name.equals("super") || name.equals("this")) return classifyConstructorCall(call, name);
                 var helpers = sameFileMethods(scope.owner, name, arguments, true);
                 if (!helpers.isEmpty()) return candidatesCall(callee, helpers, call);
+                var inherited = enclosingInheritedSupertype(name, arguments.size());
+                if (inherited != null) return classifyMemberCall(inherited, name, arguments, callee, call);
                 var imported = staticImportOwner(name);
                 if (imported != null) return classifyMemberCall(imported.asTypeName(), name, arguments, callee, call);
                 return external(callee, call);
             }
             return classifyMemberCall(typeOf(receiver), name, arguments, callee, call);
+        }
+
+        private ValueType enclosingInheritedSupertype(String name, int argumentCount) {
+            for (var declaration = scope.owner; declaration != null; declaration = declaration.enclosing) {
+                var inherited = inheritedSupertype(declaration, name, argumentCount, new HashSet<>());
+                if (inherited == null) continue;
+                // SDK and unresolved supertypes cannot confirm the method, so a matching static import wins.
+                var isConfirmed = inherited.kind() == ValueKind.PURE || inherited.kind() == ValueKind.FUNCTIONAL;
+                return isConfirmed || staticImportOwner(name) == null ? inherited : null;
+            }
+            return null;
+        }
+
+        /** Returns the supertype outside the file that may supply name to a same-file class, or null. */
+        private ValueType inheritedSupertype(Declaration declaration, String name, int argumentCount, Set<Declaration> visited) {
+            if (declaration == null || !visited.add(declaration)) return null;
+            List<Tree> supertypes = new ArrayList<>();
+            if (declaration.tree.getExtendsClause() != null) supertypes.add(declaration.tree.getExtendsClause());
+            supertypes.addAll(declaration.tree.getImplementsClause());
+            for (var supertypeTree : supertypes) {
+                var supertype = finder.resolveType(supertypeTree, declaration);
+                switch (supertype.kind()) {
+                    case SAME_FILE -> {
+                        var inherited = inheritedSupertype(supertype.declaration(), name, argumentCount, visited);
+                        if (inherited != null) return inherited;
+                    }
+                    case PURE, FUNCTIONAL -> {
+                        if (supertype.jdkClass() != null && !finder.jdkMethods(supertype, name, argumentCount).isEmpty()) return supertype;
+                    }
+                    case SDK, SDK_CONNECTION, UNKNOWN, SAME_PACKAGE_DATA -> {
+                        return supertype;
+                    }
+                    default -> { }
+                }
+            }
+            return null;
         }
 
         /** Classifies a call on a receiver type; arguments is null for a method reference. */
@@ -1620,7 +1658,11 @@ class FlowvizJavaAnalyzer {
                 case SAME_FILE: {
                     var methods = sameFileMethods(receiver.declaration(), name, arguments, false);
                     if (!methods.isEmpty()) return candidatesCall(callee, methods, site);
-                    if (!isImplicitMethod(receiver.declaration(), name, argumentCount)) return external(callee, site);
+                    if (!isImplicitMethod(receiver.declaration(), name, argumentCount)) {
+                        // A method the file does not declare follows the allowlist of the supertype that supplies it.
+                        var inherited = inheritedSupertype(receiver.declaration(), name, argumentCount, new HashSet<>());
+                        return inherited == null ? external(callee, site) : classifyMemberCall(inherited, name, arguments, callee, site);
+                    }
                     // values and valueOf initialize the enum, which runs its constructors.
                     var isEnumInitialization = receiver.declaration().tree.getKind() == Tree.Kind.ENUM &&
                             (name.equals("values") || name.equals("valueOf"));
@@ -1924,7 +1966,10 @@ class FlowvizJavaAnalyzer {
         private ValueType typeOfIdentifier(IdentifierTree identifier) {
             var name = identifier.getName().toString();
             if (name.equals("this")) return new ValueType(ValueKind.SAME_FILE, scope.owner.qualifiedName(), null, scope.owner, List.of(), false);
-            if (name.equals("super")) return ValueType.of(ValueKind.UNKNOWN, "super");
+            if (name.equals("super")) {
+                var superclass = scope.owner.tree.getExtendsClause();
+                return superclass == null ? finder.classifyJdkClass(Object.class) : finder.resolveType(superclass, scope.owner);
+            }
             var variable = scope.variable(identifier);
             if (variable != null) return typeOfVariable(variable);
             var type = finder.resolveTypeName(name, scope.owner);
@@ -1973,6 +2018,8 @@ class FlowvizJavaAnalyzer {
             if (receiver == null) {
                 var helpers = sameFileMethods(scope.owner, name, call.getArguments(), true);
                 if (!helpers.isEmpty()) return candidatesReturnType(helpers, name);
+                var inherited = enclosingInheritedSupertype(name, call.getArguments().size());
+                if (inherited != null) return memberResultType(inherited, call);
                 var imported = staticImportOwner(name);
                 return imported == null ? ValueType.of(ValueKind.UNKNOWN, name) : memberResultType(imported.asTypeName(), call);
             }
@@ -2054,6 +2101,8 @@ class FlowvizJavaAnalyzer {
                     var declaration = receiver.declaration();
                     var methods = sameFileMethods(declaration, name, arguments, false);
                     if (!methods.isEmpty()) return candidatesReturnType(methods, name);
+                    var inherited = inheritedSupertype(declaration, name, arguments.size(), new HashSet<>());
+                    if (inherited != null && inherited.kind() != ValueKind.UNKNOWN) return memberResultType(inherited, call);
                     var field = declaration.fields.get(name);
                     if (declaration.tree.getKind() == Tree.Kind.RECORD && arguments.isEmpty() && field != null) {
                         return finder.resolveType(field.getType(), declaration);

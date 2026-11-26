@@ -112,6 +112,9 @@ func TestJavaLockedMethodExternalCall(t *testing.T) {
 			"Execute of ReadEnum holds lock status, which RPC stop also takes, and calls Remote.class.getEnumConstants (and 1 more);",
 			"Execute of RunJob holds lock status, which RPC stop also takes, and calls dispatch (calls mailer.send);",
 		}},
+		{flow: "InheritedMapFlow", markers: 2, messages: []string{
+			"Execute of UseAuditedReports holds lock status, which RPC stop also takes, and calls audited.get (calls new java.io.File);",
+		}},
 		{flow: "HttpHelperFlow", markers: 1, messages: []string{"and calls notifyCustomer (calls HttpRequest.newBuilder); Dex fails"}},
 		{flow: "ClientFlow", markers: 1, messages: []string{"Execute of StopOther holds lock status, which RPC stop also takes, and calls client.stopFlow;"}},
 		{flow: "WaitForFlow", markers: 1, messages: []string{"WaitFor of Pause holds lock status, which RPC stop also takes, and calls Thread.sleep (and 1 more);"}},
