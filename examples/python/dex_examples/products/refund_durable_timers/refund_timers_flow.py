@@ -37,11 +37,14 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StepMovement,
     StepOptions,
     Timer,
     Wait,
+    dead_end,
     force_complete,
     go_to,
+    go_to_many,
     graceful_complete,
     retry_after,
     rpc,
@@ -76,6 +79,13 @@ MAX_SETTLEMENT_HEARTBEAT_CHECKS = 30
 SETTLEMENT_HEARTBEAT_LIMIT = timedelta(minutes=10)
 # Lesson 5: the whole refund must finish within 7 days.
 REFUND_DEADLINE = timedelta(days=7)
+DEADLINE_HANDLING_TIMEOUT = timedelta(minutes=1)
+DEADLINE_HANDLING_RETRY = RetryPolicy(
+    initial_interval=timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=1),
+    maximum_attempts=5,
+)
 
 MANAGE_REFUNDS_PERMISSION = "refund.manage"
 SUPPORT_TEAM_EMAIL = "refund-support@example.com"
@@ -84,6 +94,9 @@ MANAGER_EMAIL = "refund-manager@example.com"
 AWAITING_DOCUMENTS = "awaiting-documents"
 AWAITING_MANAGER = "awaiting-manager"
 CLOSING_INACTIVE = "closing-inactive"
+ESCALATED_DEADLINE = "escalated-deadline"
+# A case-status with one of these prefixes is a final decision.
+FINAL_STATUS_PREFIXES = ("closed-", "escalated-")
 
 CASE_STATUS = Attribute("case-status", str, plaintext=True)
 REMINDERS_SENT = Attribute("reminders-sent", int, plaintext=True)
@@ -91,6 +104,7 @@ LAST_CUSTOMER_MESSAGE = Attribute("last-customer-message", str)
 REFUND_ID = Attribute("refund-id", str, plaintext=True)
 
 # Short Steps that change case-status hold its lock, as the RPCs that check it do.
+# They never call an external system: the lock lasts through retries and backoff.
 CASE_STATUS_WRITER_OPTIONS = StepOptions(execute_lock_attributes=(CASE_STATUS.lock(),))
 
 
@@ -161,27 +175,63 @@ class DecisionReason:
     reason: str
 
 
+@dataclass(frozen=True)
+class ClosingNotification:
+    """A committed closing decision whose email is still to be sent.
+
+    Attributes:
+        recipient: The email address to notify.
+        subject: The email subject.
+        idempotency_key: Identifies the decision, so a retried send emails once.
+        outcome: The Flow output after the email is sent.
+        cancel_other_steps: Force-completes the Flow, cancelling Steps that still wait.
+    """
+
+    recipient: str
+    subject: str
+    idempotency_key: str
+    outcome: str
+    cancel_other_steps: bool = False
+
+
+def is_deadline_escalated(context: Context) -> bool:
+    """Returns whether the timeout handler took the case over; later status writers then end."""
+    return CASE_STATUS.get(context) == ESCALATED_DEADLINE
+
+
 CUSTOMER_MESSAGES = Channel("customer-messages", CustomerMessage)
 MANAGER_DECISIONS = Channel("manager-decisions", ManagerDecision)
 
 
 # dex:group group-id:documents group-label:"Documents"
-# dex:explanation text:"Ask the customer for documents that support the refund."
+# dex:explanation text:"Open the documents stage so the customer can send messages."
 class RequestSupportingDocuments(Step[RefundRequest]):
-    def __init__(self, notifications: FakeNotificationService) -> None:
-        self.notifications = notifications
-
     def get_step_options(self) -> StepOptions:
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundRequest) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
+        CASE_STATUS.set(context, AWAITING_DOCUMENTS)
+        return go_to(SendDocumentsRequest, RefundCase(request=input))
+
+
+# dex:group group-id:documents group-label:"Documents"
+# dex:explanation text:"Email the customer to ask for documents that support the refund."
+class SendDocumentsRequest(Step[RefundCase]):
+    def __init__(self, notifications: FakeNotificationService) -> None:
+        self.notifications = notifications
+
+    def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        # The deadline cancels this Step; skip the email when that already happened.
+        if is_deadline_escalated(context) or context.is_cancellation_requested():
+            return dead_end()
         self.notifications.send(
-            input.customer_email,
-            f"Please send the documents for your refund of {input.order_id}",
+            input.request.customer_email,
+            f"Please send the documents for your refund of {input.request.order_id}",
             idempotency_key=f"documents-request-{context.flow_id}",
         )
-        CASE_STATUS.set(context, AWAITING_DOCUMENTS)
-        return go_to(CollectSupportingDocuments, RefundCase(request=input))
+        return go_to(CollectSupportingDocuments, input)
 
 
 # dex:group group-id:documents group-label:"Documents"
@@ -197,6 +247,8 @@ class CollectSupportingDocuments(Step[RefundCase]):
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         if context.has_timer_fired():
             # A message accepted after the Timer fired restarts the wait instead.
             if CUSTOMER_MESSAGES.size(context) > 0:
@@ -215,20 +267,22 @@ class CollectSupportingDocuments(Step[RefundCase]):
 # dex:group group-id:close group-label:"Close"
 # dex:explanation text:"Close the case because the customer stopped replying."
 class CloseInactiveCase(Step[RefundCase]):
-    def __init__(self, notifications: FakeNotificationService) -> None:
-        self.notifications = notifications
-
     def get_step_options(self) -> StepOptions:
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
-        self.notifications.send(
-            input.request.customer_email,
-            "We closed your refund request after 3 days without a reply",
-            idempotency_key=f"closed-inactive-{context.flow_id}",
-        )
+        if is_deadline_escalated(context):
+            return dead_end()
         CASE_STATUS.set(context, "closed-inactive")
-        return graceful_complete("closed-inactive")
+        return go_to(
+            SendClosingNotification,
+            ClosingNotification(
+                recipient=input.request.customer_email,
+                subject="We closed your refund request after 3 days without a reply",
+                idempotency_key=f"closed-inactive-{context.flow_id}",
+                outcome="closed-inactive",
+            ),
+        )
 
 
 # dex:group group-id:approval group-label:"Approval"
@@ -296,6 +350,8 @@ class RecordIssuedRefund(Step[RefundCase]):
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         REFUND_ID.set(context, input.refund_id)
         CASE_STATUS.set(context, "awaiting-settlement")
         if input.request.settlement_polling is SettlementPolling.HEARTBEAT:
@@ -366,40 +422,63 @@ class AwaitSettlementWithHeartbeat(Step[RefundCase]):
 # dex:group group-id:close group-label:"Close"
 # dex:explanation text:"Hand an unsettled refund to the support team."
 class EscalateUnsettledRefund(Step[RefundCase]):
-    def __init__(self, notifications: FakeNotificationService) -> None:
-        self.notifications = notifications
-
     def get_step_options(self) -> StepOptions:
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
-        self.notifications.send(
-            SUPPORT_TEAM_EMAIL,
-            f"Refund {input.refund_id} for {context.flow_id} has not settled; please follow up",
-            idempotency_key=f"escalate-settlement-{context.flow_id}",
-        )
+        if is_deadline_escalated(context):
+            return dead_end()
         CASE_STATUS.set(context, "escalated-unsettled")
-        return graceful_complete("escalated-unsettled")
+        return go_to(
+            SendClosingNotification,
+            ClosingNotification(
+                recipient=SUPPORT_TEAM_EMAIL,
+                subject=(
+                    f"Refund {input.refund_id} for {context.flow_id} has not settled;"
+                    " please follow up"
+                ),
+                idempotency_key=f"escalate-settlement-{context.flow_id}",
+                outcome="escalated-unsettled",
+            ),
+        )
 
 
 # dex:group group-id:close group-label:"Close"
-# dex:explanation text:"Tell the customer the outcome and close the case."
+# dex:explanation text:"Record the refund outcome and close the case."
 class CloseCase(Step[RefundCase]):
-    def __init__(self, notifications: FakeNotificationService) -> None:
-        self.notifications = notifications
-
     def get_step_options(self) -> StepOptions:
         return CASE_STATUS_WRITER_OPTIONS
 
     def execute(self, context: Context, input: RefundCase) -> StepDecision:
+        if is_deadline_escalated(context):
+            return dead_end()
         outcome = "refunded" if input.refund_id else "rejected"
-        self.notifications.send(
-            input.request.customer_email,
-            f"Your refund request for {input.request.order_id} was {outcome}",
-            idempotency_key=f"close-{context.flow_id}",
-        )
         CASE_STATUS.set(context, f"closed-{outcome}")
-        return graceful_complete(outcome)
+        return go_to(
+            SendClosingNotification,
+            ClosingNotification(
+                recipient=input.request.customer_email,
+                subject=f"Your refund request for {input.request.order_id} was {outcome}",
+                idempotency_key=f"close-{outcome}-{context.flow_id}",
+                outcome=outcome,
+            ),
+        )
+
+
+# dex:group group-id:close group-label:"Close"
+# dex:explanation text:"Email the committed closing decision and complete the Flow."
+class SendClosingNotification(Step[ClosingNotification]):
+    # Takes no lock, so its retries never block the RPCs.
+    def __init__(self, notifications: FakeNotificationService) -> None:
+        self.notifications = notifications
+
+    def execute(self, context: Context, input: ClosingNotification) -> StepDecision:
+        self.notifications.send(
+            input.recipient, input.subject, idempotency_key=input.idempotency_key
+        )
+        if input.cancel_other_steps:
+            return force_complete(input.outcome)
+        return graceful_complete(input.outcome)
 
 
 class RefundNotAwaitingManagerError(ValueError):
@@ -418,19 +497,22 @@ class RefundDurableTimersFlow(Flow[RefundRequest]):
         notifications: FakeNotificationService,
     ) -> None:
         self.notifications = notifications
-        self.request_supporting_documents = RequestSupportingDocuments(notifications)
+        self.request_supporting_documents = RequestSupportingDocuments()
+        self.send_documents_request = SendDocumentsRequest(notifications)
         self.collect_supporting_documents = CollectSupportingDocuments()
-        self.close_inactive_case = CloseInactiveCase(notifications)
+        self.close_inactive_case = CloseInactiveCase()
         self.await_manager_decision = AwaitManagerDecision(notifications)
         self.issue_refund = IssueRefund(payment)
         self.record_issued_refund = RecordIssuedRefund()
         self.poll_settlement_with_timer = PollSettlementWithTimer(bank)
         self.await_settlement_with_heartbeat = AwaitSettlementWithHeartbeat(bank)
-        self.escalate_unsettled_refund = EscalateUnsettledRefund(notifications)
-        self.close_case = CloseCase(notifications)
+        self.escalate_unsettled_refund = EscalateUnsettledRefund()
+        self.close_case = CloseCase()
+        self.send_closing_notification = SendClosingNotification(notifications)
 
     def get_steps(self) -> StepList[RefundRequest]:
         return StepList.start_step(self.request_supporting_documents).other_steps(
+            self.send_documents_request,
             self.collect_supporting_documents,
             self.close_inactive_case,
             self.await_manager_decision,
@@ -440,6 +522,7 @@ class RefundDurableTimersFlow(Flow[RefundRequest]):
             self.await_settlement_with_heartbeat,
             self.escalate_unsettled_refund,
             self.close_case,
+            self.send_closing_notification,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
@@ -452,15 +535,29 @@ class RefundDurableTimersFlow(Flow[RefundRequest]):
             MANAGER_DECISIONS,
         )
 
-    # Dex calls this when the 7-day Flow timeout fires; any waiting Step ends.
+    # Dex calls this when the 7-day Flow timeout fires; other Steps keep running
+    # until SendClosingNotification force-completes the Flow.
     def handle_timeout(self, context: Context) -> StepDecision:
-        self.notifications.send(
-            SUPPORT_TEAM_EMAIL,
-            f"Refund {context.flow_id} missed its 7-day deadline; please take it over",
+        status = CASE_STATUS.get(context) or ""
+        # A final decision is committed; its SendClosingNotification completes the Flow.
+        if status.startswith(FINAL_STATUS_PREFIXES):
+            return dead_end()
+        CASE_STATUS.set(context, ESCALATED_DEADLINE)
+        notification = ClosingNotification(
+            recipient=SUPPORT_TEAM_EMAIL,
+            subject=f"Refund {context.flow_id} missed its 7-day deadline; please take it over",
             idempotency_key=f"escalate-deadline-{context.flow_id}",
+            outcome=ESCALATED_DEADLINE,
+            cancel_other_steps=True,
         )
-        CASE_STATUS.set(context, "escalated-deadline")
-        return force_complete("escalated-deadline")
+        # The deadline email keeps the handler's short timeout and retries.
+        email_options = StepOptions(
+            execute_method_timeout=DEADLINE_HANDLING_TIMEOUT,
+            execute_retry=DEADLINE_HANDLING_RETRY,
+        )
+        return go_to_many(
+            StepMovement.of(SendClosingNotification, notification, options=email_options)
+        ).with_canceling_steps(RequestSupportingDocuments, SendDocumentsRequest)
 
     @rpc(lock_attributes=(CASE_STATUS.lock(),))
     def send_customer_message(self, context: Context, input: CustomerMessage) -> None:
@@ -513,13 +610,8 @@ def refund_start_options() -> StartFlowOptions:
         timeout=REFUND_DEADLINE,
         timeout_policy=FlowTimeoutPolicy.HANDLER,
         timeout_handler_options=FlowTimeoutHandlerOptions(
-            method_timeout=timedelta(minutes=1),
+            method_timeout=DEADLINE_HANDLING_TIMEOUT,
             lock_attributes=(CASE_STATUS.lock(),),
-            retry=RetryPolicy(
-                initial_interval=timedelta(seconds=5),
-                backoff_coefficient=2.0,
-                maximum_interval=timedelta(minutes=1),
-                maximum_attempts=5,
-            ),
+            retry=DEADLINE_HANDLING_RETRY,
         ),
     )
