@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-25T21:29:22Z",
+  "generatedAt": "2026-11-25T22:24:17Z",
   "valid": true,
   "source": {
     "language": "go",
@@ -4754,6 +4754,39 @@
     }
   ],
   "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "lock_requirement_not_declared",
+      "message": "attribute case-status is written by RPC ConfirmCustomerMessage, RPC EditCustomerMessage, Step AgentDecisionStep Execute, Step BillingFailedStep Execute, Step EmailFailedStep Execute, Step GuardrailStep Execute, Step IssueRefundStep Execute, Step NonConvergenceStep Execute, Step OfferAccountCreditStep Execute, Step ReCheckStep Execute, Step ReceiveRequestStep Execute, Step SendCustomerMessageStep Execute, Step StoreGeneratedCustomerMessageStep Execute, Step SubscriptionFailedStep Execute, Step UseFallbackCustomerMessageStep Execute, Step VerifyBillingStep Execute, and dexcli cannot prove that the writes are blind or share one exact registration lock; its definition declares no lock requirement. If these writes can run concurrently, declare dex.WritesRequireLock() or dex.WritesRequireAttributeLock and register that lock",
+      "span": {
+        "startLine": 145,
+        "startColumn": 5,
+        "endLine": 148,
+        "endColumn": 2
+      }
+    },
+    {
+      "severity": "warning",
+      "code": "lock_requirement_not_declared",
+      "message": "attribute customer-message-draft is written by RPC EditCustomerMessage, Step StoreGeneratedCustomerMessageStep Execute, Step UseFallbackCustomerMessageStep Execute, and dexcli cannot prove that the writes are blind or share one exact registration lock; its definition declares no lock requirement. If these writes can run concurrently, declare dex.WritesRequireLock() or dex.WritesRequireAttributeLock and register that lock",
+      "span": {
+        "startLine": 138,
+        "startColumn": 5,
+        "endLine": 138,
+        "endColumn": 88
+      }
+    },
+    {
+      "severity": "warning",
+      "code": "lock_requirement_not_declared",
+      "message": "attribute manager-rejection-reason is written by RPC RejectRefund, and dexcli cannot prove that the write is blind or protected by an exact registration lock; its definition declares no lock requirement. If these writes can run concurrently, declare dex.WritesRequireLock() or dex.WritesRequireAttributeLock and register that lock",
+      "span": {
+        "startLine": 115,
+        "startColumn": 5,
+        "endLine": 115,
+        "endColumn": 92
+      }
+    },
     {
       "severity": "warning",
       "code": "v2_step_group_shape",

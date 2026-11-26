@@ -917,7 +917,19 @@
       }
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "lock_requirement_not_declared",
+      "message": "attribute case-status is written by RPC ApproveRefund, RPC RejectRefund, Step CheckPolicy Execute, Step CloseCase Execute, Step IssueRefund Execute, Step ReceiveRequest Execute, Step RequestManagerApproval Execute, and dexcli cannot prove that the writes are blind or share one exact registration lock; its definition declares no lock requirement. If these writes can run concurrently, declare dex.WritesRequireLock() or dex.WritesRequireAttributeLock and register that lock",
+      "span": {
+        "startLine": 58,
+        "startColumn": 2,
+        "endLine": 58,
+        "endColumn": 77
+      }
+    }
+  ],
   "groups": [
     {
       "id": "intake",

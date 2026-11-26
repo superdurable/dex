@@ -373,11 +373,14 @@ func (step executeAction) Execute(
 			state.Name,
 		)
 	}
+	// StepExecutionID stays stable on retries and changes when the same action runs again.
+	idempotencyKey := ctx.FlowID() + "/" + ctx.StepExecutionID()
 	actionInput := ActionInput{
-		FlowID:      ctx.FlowID(),
-		ItemID:      process.ItemID,
-		ItemName:    process.ItemName,
-		TargetState: state.Name,
+		FlowID:         ctx.FlowID(),
+		IdempotencyKey: idempotencyKey,
+		ItemID:         process.ItemID,
+		ItemName:       process.ItemName,
+		TargetState:    state.Name,
 	}
 	actionInput.ProcessID, err = ProcessID.Get(ctx)
 	if err != nil {

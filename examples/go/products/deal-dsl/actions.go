@@ -36,13 +36,14 @@ const (
 )
 
 type ActionInput struct {
-	FlowID      string
-	ProcessID   string
-	ItemID      string
-	ItemName    string
-	BuyerID     string
-	TargetState string
-	StateData   map[string]string
+	FlowID         string
+	IdempotencyKey string
+	ProcessID      string
+	ItemID         string
+	ItemName       string
+	BuyerID        string
+	TargetState    string
+	StateData      map[string]string
 }
 
 type actionHandler func(dex.Logger, ActionInput) (map[string]string, error)
@@ -102,6 +103,7 @@ func transferMoneyFromBuyerToSeller(
 	logger.Info(
 		"deal DSL transferred money from buyer to seller",
 		"flow_id", input.FlowID,
+		"idempotency_key", input.IdempotencyKey,
 		"item_id", input.ItemID,
 		"item_name", input.ItemName,
 		"buyer_id", input.BuyerID,
@@ -119,6 +121,7 @@ func transferMoneyFromSellerToBuyer(
 	logger.Info(
 		"deal DSL transferred refund from seller to buyer",
 		"flow_id", input.FlowID,
+		"idempotency_key", input.IdempotencyKey,
 		"item_id", input.ItemID,
 		"buyer_id", input.BuyerID,
 		"refund_price", input.StateData["proposedItemSampleRefund"],
@@ -133,6 +136,7 @@ func deliverItemToBuyer(
 	logger.Info(
 		"deal DSL delivered item to buyer",
 		"flow_id", input.FlowID,
+		"idempotency_key", input.IdempotencyKey,
 		"item_id", input.ItemID,
 		"item_name", input.ItemName,
 		"buyer_id", input.BuyerID,
@@ -147,6 +151,7 @@ func deliverItemSampleToBuyer(
 	logger.Info(
 		"deal DSL delivered item sample to buyer",
 		"flow_id", input.FlowID,
+		"idempotency_key", input.IdempotencyKey,
 		"item_id", input.ItemID,
 		"item_name", input.ItemName,
 		"buyer_id", input.BuyerID,

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from dataclasses import dataclass, field
 
 from dex import (
@@ -200,7 +201,11 @@ class ExecuteDealAction(Step[ActionStepInput]):
         state = self.flow.definition.get(context).state(input.state_name)
         if input.action_index < 0 or input.action_index >= len(state.actions):
             raise ValueError(f"invalid action index {input.action_index}")
-        self.flow.execute_action(context, state.actions[input.action_index])
+        # The execution ID stays stable on retries and changes when the same action runs again.
+        idempotency_key = f"{context.flow_id}/{context.step_execution_id}"
+        self.flow.execute_action(
+            context, state.actions[input.action_index], idempotency_key
+        )
         next_index = input.action_index + 1
         if next_index < len(state.actions):
             return go_to(ExecuteDealAction, ActionStepInput(state.name, next_index))
@@ -287,7 +292,9 @@ class DealDSLFlow(Flow[DealStart]):
         state_data.update(messages[0])
         self.state_data.set(context, state_data)
 
-    def execute_action(self, context: Context, action_name: str) -> None:
+    def execute_action(
+        self, context: Context, action_name: str, idempotency_key: str
+    ) -> None:
         state_data = dict(self.state_data.get(context))
         if action_name == "deliverItemToBuyer":
             state_data["itemDeliveryStatus"] = "delivered"
@@ -295,6 +302,9 @@ class DealDSLFlow(Flow[DealStart]):
             raise ValueError(f"deal action {action_name!r} is not registered")
         state_data["lastAction"] = action_name
         self.state_data.set(context, state_data)
+        logging.getLogger(__name__).info(
+            "Deal action %s completed with idempotency key %s", action_name, idempotency_key
+        )
 
 
 def example_deal_start(buyer_id: str) -> DealStart:
