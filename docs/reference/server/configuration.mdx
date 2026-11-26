@@ -954,7 +954,7 @@ in Execute. Completed, failed, and canceled Steps do not count, and neither does
 the Flow timeout handler. server-zd checks the limit when a Flow start, a Step
 completion, or an RPC starts Steps. Such a command fails only when it raises the
 count above the limit. A Step that completes and starts one next Step keeps the
-count, so it always runs.
+count, so this limit never fails it.
 
 **limits.maxChannelMessages** caps the pending messages of each Channel of a
 Flow run separately. A pending message waits for a Step's condition to consume
