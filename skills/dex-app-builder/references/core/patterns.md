@@ -22,6 +22,7 @@ Each section names its Go folder. The other languages use the same folder name i
 
 | Requirement | Pattern |
 | --- | --- |
+| Define and version workflows as data at runtime using a shared set of actions and external conditions | [Workflow DSL](#workflow-dsl) |
 | Start one business operation from an API | [Root Flow admission](#root-flow-admission) |
 | Run known, distinct branches in parallel | [Static parallel Steps](#static-parallel-steps) |
 | Run one Step per input item | [Dynamic parallel Steps](#dynamic-parallel-steps) |
@@ -56,6 +57,43 @@ Each section names its Go folder. The other languages use the same folder name i
 | Durable AI agent | [Durable AI agents](#durable-ai-agents) |
 
 Use Channels for durable commands, Attributes for durable state, and Streams for best-effort progress.
+
+## Workflow DSL
+
+Use when operators, customers, partners, or another system must define workflows at runtime from the same set of actions and external conditions. Give definitions a serializable schema, usually JSON, and version them in the application's own definition store. Users can edit, copy, import, and export definitions. A new JSON document adds a workflow without a code change or release. One interpreter Flow runs them all. Go folder: `products/deal-dsl`.
+
+```text
+SaveDefinition(definition) -> validate and save a version in the application store
+StartWorkflow(version) -> load and validate the definition, then start the interpreter
+Start.execute(definition) -> save the snapshot and initial state data; goTo(WaitForState(initialState))
+ReceiveCondition.rpc(name, message) -> validate name against the definition; publish to Conditions[name]
+WaitForState.waitFor(state) -> wait for one message on Conditions[precondition], if declared
+WaitForState.execute(state) -> merge the message; goTo(RunAction(state, 0) or EvaluateTransition(state))
+RunAction.execute(state, index) -> run one action; merge the result; goTo(next action or transition)
+EvaluateTransition.waitFor(state) -> wait for one message on Conditions[transitionCondition], if declared
+EvaluateTransition.execute(state) -> merge the message; choose the next state from shared data;
+                                     goTo(WaitForState(nextState)) or complete
+```
+
+- Validate definitions on save and before submitting a Flow start. Check that referenced states, actions, and condition names exist and that each condition name belongs to one wait. Reject an invalid definition at the application boundary so it never starts a Flow.
+- Keep one active position per run. Use a fixed set of Step types for startup, waiting before state entry, running one action, and evaluating a transition. Advance with `GoTo`. After startup, pass only the position in Step input, such as state name and action index.
+- Give each action its own Step execution, checkpoint, and retries. A retry leaves earlier completed actions intact. Run the registered handler or script in `Execute`. Treat scripts as external calls with timeouts, retries, and idempotency.
+- Declare one `ChannelMap` in the Flow's persistence schema in code. Use the condition names supplied at runtime as keys. The receiving RPC validates the name against the definition and publishes to that key. Each wait takes one message.
+- Keep one shared state data map. Merge condition messages and action results into it and read it when evaluating transitions.
+- Let the DSL define progress, such as the current state, current step, or a custom stage. Write progress to Attributes for the Client to read. Use Attribute Sync when progress needs to be searchable. The Flow graph shows the interpreter Steps, and the Attributes show a run's business position.
+
+Choose how a running Flow reads the definition:
+
+- **Snapshot at start.** Use this basic approach when edits apply to new runs. The start Step stores the full definition in an Attribute. Later Steps read only that copy, so running Flows keep their original definition. The example uses this approach.
+- **Read the latest definition.** If edits must reach running Flows, read the store in `Execute` at every state entry or transition evaluation. Treat the read as an external call that can fail and retry. A newer version can rename or remove the current state or remove an awaited condition. Define compatibility rules or migrate the saved position between versions.
+
+For parallel branches, use `GoToMany` to start them with a separate position in each branch's Step input. Bring branches together at a Join. Protect concurrent writes to shared state with an Attribute lock, or let each branch write its own data and merge it after the Join.
+
+Anti-patterns:
+
+- **One Channel per condition.** Channel declarations live in code, and the workflow provides condition names at runtime. Use keys on the shared `ChannelMap`.
+- **Actions or state changes in an RPC.** Keep the RPC to validation and publishing. Perform actions and update state in the interpreter Steps.
+- **Flow ID and action name as the key for a repeated action.** In a request-documents loop, the provider receives `claim-77/send-letter` for both letters and drops the second as a repeat. Use the Flow ID and `StepExecutionID`, as in `claim-77/ExecuteClaimAction-5`. Each round gets a new execution ID, and retries of that round keep it.
 
 ## Root Flow admission
 

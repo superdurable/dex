@@ -9,8 +9,9 @@ slug: /design-patterns
 
 每个模式用一种可复用的 Flow 结构解决一类常见问题。每页都链接到各 SDK 语言的可运行代码。
 
-分组先讲 Flow 内部的结构，再讲和外部的交互，然后是数据，最后是失败处理。
+这些模式先讲如何把工作流定义为数据和如何组织 Flow 内部的结构，再讲外部交互、数据和失败处理。
 
+- [工作流 DSL](/design-patterns/workflow-dsl)：在运行时把工作流定义为数据，并用同一个解释器 Flow 运行这些工作流。
 - <a id="flow-控制"></a>[并行 Step](/design-patterns/parallel)：并发运行 Step：数量固定或动态，等全部完成或只等第一个。让并行分支轮流执行一段跨多个 Step 的流程。
 - [子 Flow](/design-patterns/subflows)：把工作分给多个 SubFlow，限制一个父 Flow 同时运行的数量，分散到多个父 Flow，加上持久化背压，并在取消时停止子 Flow。
 - [持久化定时器](/design-patterns/durable-timer)：按计划运行工作、发送提醒，或在一个长时间运行的 Step 中等待外部系统。

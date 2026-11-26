@@ -1,0 +1,191 @@
+---
+title: 工作流 DSL
+sidebar_label: 工作流 DSL
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
+
+# 工作流 DSL
+
+在运行时把工作流定义为数据，通常用 JSON 表示。保存这些定义，再用同一个解释器 Flow 运行它们。
+当所有工作流都由同一组动作和外部条件组成时，使用这个模式。
+
+操作人员、客户、合作伙伴或其他系统都可以定义工作流。定义遵循可序列化的 schema，由应用自己的定义库保存并管理版本。用户可以编辑、复制、导入和导出这些文档。新增工作流只需添加一份 JSON 文档，无需改代码或发布新版本。
+
+例如，卖家可以定义两种购买流程。一种在买家确认后扣款，另一种先寄样品。两种定义都由同一个解释器运行。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## 工作方式 {#how-it-works}
+
+1. **保存并校验定义。** 在应用边界校验定义，包括保存时和启动 Flow 前。检查引用的状态、动作和条件名称是否存在，并确保每个条件名称只属于一个等待。发现无效定义时，在启动 Flow 前拒绝。
+2. **启动购买流程。** 起始 Step 把完整定义保存到一个 Attribute，并初始化共享状态数据映射。每次运行只在一个位置推进。启动之后，每个 Step 的输入只携带当前位置，例如状态名称和动作索引。
+3. **等待买家。** 如果状态有前置条件，就先等条件满足，再进入该状态。RPC 根据定义校验条件名称，然后将消息发布到一个以条件名称为键的 `ChannelMap`。持久化 schema 在代码中声明这个映射，定义在运行时提供键。每次等待取一条消息。解释器把消息合并到共享状态数据映射中。
+4. **执行一个动作。** 将扣款或交付的处理函数或脚本放在一个 Step 的 `Execute` 中运行。脚本和其他外部调用一样，需要超时、重试和幂等键。把动作结果合并到共享映射。每个动作有自己的检查点，重试时已经完成的动作保持原样。
+5. **选择下一步。** 转换 Step 可以等待另一个条件，并将收到的消息合并到同一个映射。它读取映射来选择下一个状态。解释器用 `GoTo` 在这四种 Step 之间推进，直到购买流程到达没有后续转换的状态。
+6. **记录进度。** 定义决定进度如何表示，例如当前状态、当前步骤或自定义阶段。将进度写入 Attribute，供 Client 读取。需要搜索进度时，使用 [Attribute 同步](/design-patterns/data-storage/entity-flow-attribute-sync)。Flow 图展示解释器的 Step。Attribute 展示某笔购买在其工作流中的位置。
+
+## 示例 {#example}
+
+起始 Step 保存定义，然后将解释器带到第一个状态。每个标签页都链接到完整的可运行示例。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/deal_dsl/deal_dsl_flow.py',
+    go: 'examples/go/products/deal-dsl/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/dealdsl/DealDSLFlow.java',
+    typescript: 'examples/typescript/src/products/deal-dsl/deal-dsl-flow.ts',
+    rust: 'examples/rust/src/products/deal_dsl/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class InitializeDeal(Step[DealStart]):
+    def __init__(self, flow: "DealDSLFlow") -> None:
+        self.flow = flow
+
+    def execute(self, context: Context, input: DealStart) -> StepDecision:
+        definition = input.definition
+        definition.state(definition.initial_state)
+        self.flow.definition.set(context, definition)
+        self.flow.process_id.set(context, definition.process_id)
+        self.flow.item_id.set(context, definition.item_id)
+        self.flow.buyer_id.set(context, input.buyer_id)
+        self.flow.state_data.set(context, dict(definition.initial_state_data))
+        return go_to(WaitForDealCondition, StateStepInput(definition.initial_state))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (step initializeStep) Execute(
+	ctx dex.Context,
+	input DealStart,
+) (*dex.StepDecision, error) {
+	if err := ValidateProcess(input.Process); err != nil {
+		return nil, fmt.Errorf("deal process is invalid: %w", err)
+	}
+	if err := BuyerID.Set(ctx, input.BuyerID); err != nil {
+		return nil, err
+	}
+	if err := ProcessID.Set(ctx, input.Process.ProcessID); err != nil {
+		return nil, err
+	}
+	if err := ItemID.Set(ctx, input.Process.ItemID); err != nil {
+		return nil, err
+	}
+	if err := ProcessDefinition.Set(ctx, input.Process); err != nil {
+		return nil, err
+	}
+	if err := StateData.Set(ctx, input.Process.InitialStateData); err != nil {
+		return nil, err
+	}
+	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(
+		preConditionStep{flow: step.flow},
+		stateStepInput{StateName: input.Process.InitialState},
+	), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+    final class InitializeDeal implements Step<DealStart> {
+        @Override
+        public Class<DealStart> getInputType() {
+            return DealStart.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final DealStart input) {
+            input.definition.state(input.definition.initialState);
+            definition.set(context, input.definition);
+            processId.set(context, input.definition.processId);
+            itemId.set(context, input.definition.itemId);
+            buyerId.set(context, input.buyerId);
+            stateData.set(context, new LinkedHashMap<>(input.definition.initialStateData));
+            return StepDecision.goTo(
+                    WaitForDealCondition.class,
+                    new StateStepInput(input.definition.initialState));
+        }
+    }
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class InitializeDeal implements Step<DealStart> {
+  public readonly inputCodec = dealStartCodec;
+
+  public constructor(private readonly flow: DealDSLFlow) {}
+
+  public getStepType(): string {
+    return "InitializeDeal";
+  }
+
+  public execute(context: Context, input: DealStart): StepDecision {
+    this.flow.definition.set(context, input.definition);
+    this.flow.processId.set(context, input.definition.processId);
+    this.flow.itemId.set(context, input.definition.itemId);
+    this.flow.buyerId.set(context, input.buyerId);
+    this.flow.stateData.set(context, { ...input.definition.initialStateData });
+    this.flow.state(context, input.definition.initialState);
+    return goTo(WaitForDealCondition, { stateName: input.definition.initialState });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for InitializeDeal {
+    type Input = DealStart;
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        deal_state(&input.definition, &input.definition.initial_state)?;
+        DEAL_DEFINITION.set(context, input.definition.clone())?;
+        DEAL_PROCESS_ID.set(context, input.definition.process_id.clone())?;
+        DEAL_ITEM_ID.set(context, input.definition.item_id.clone())?;
+        DEAL_BUYER_ID.set(context, input.buyer_id)?;
+        DEAL_STATE_DATA.set(context, input.definition.initial_state_data)?;
+        Ok(StepDecision::go_to(
+            &WaitForDealCondition,
+            StateStepInput {
+                state_name: input.definition.initial_state,
+            },
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 定义版本 {#definition-versions}
+
+| 方式 | 每次运行使用的定义 | 编辑的影响 |
+| --- | --- | --- |
+| 启动时保存快照 | 起始 Step 将完整定义存入一个 Attribute。后续 Step 读取这份副本。Deal DSL 采用这种方式。 | 新版本适用于新启动的 Flow。运行中的 Flow 保留原来的定义。 |
+| 读取最新定义 | 每次进入状态或计算转换时，在 `Execute` 中从定义库读取。读取属于外部调用，可能失败并重试。 | 编辑会影响运行中的 Flow。状态可能改名或被删除，正在等待的条件也可能消失。为不同版本制定兼容规则，或在版本间迁移已保存的位置。 |
+
+## 并行分支 {#parallel-branches}
+
+如果一个状态可以开启多个分支，用 `GoToMany` 启动它们。每个分支在自己的 Step 输入中保存位置，最后在 Join 汇合。并发写入共享状态时使用 Attribute 锁。也可以让各分支分别写入自己的数据，在 Join 之后合并。参见 [并行 Step](/design-patterns/parallel)和[临界区](/design-patterns/parallel/critical-section)。
+
+## 反模式 {#anti-patterns}
+
+- **每个条件声明一个 Channel。** 持久化 schema 在代码中提前声明，条件名称由工作流定义在运行时提供。声明一个 `ChannelMap`，为每个条件使用一个键。
+- **在 RPC 中执行动作或更改状态数据。** RPC 只负责校验和发布。由解释器的 Step 执行动作并更新状态。
+- **用 Flow ID 和动作名称作为重复动作的幂等键。** 在重复索取材料的流程中，两封信都使用 `claim-77/send-letter` 作为幂等键。服务商会把第二封当作重复请求丢弃。用 Flow ID 和 `StepExecutionID` 组成幂等键，例如 `claim-77/ExecuteClaimAction-5`。每轮使用新的执行 ID，同一轮的重试继续使用这个 ID。参见[幂等键](/concepts/step#idempotency-keys)。
+
+## 下一步 {#next}
+
+- [并行 Step](/design-patterns/parallel)
+- [Deal DSL](/use-cases/deal-dsl)

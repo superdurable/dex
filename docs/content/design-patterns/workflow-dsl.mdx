@@ -1,0 +1,191 @@
+---
+title: Workflow DSL
+sidebar_label: Workflow DSL
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
+
+# Workflow DSL
+
+Define workflows at runtime as data, usually JSON, store them, and run every one with a single interpreter Flow.
+Use this pattern when every workflow is built from the same set of actions and external conditions.
+
+Operators, customers, partners, or another system can define a workflow. The definition follows a serializable schema and lives in your application's versioned definition store. Users can edit, copy, import, and export these documents. Adding a workflow means adding a JSON document. It requires no code change or release.
+
+For example, a seller can define one purchase workflow that charges a buyer after confirmation and another that sends a sample first. Both definitions use the same interpreter.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## How it works {#how-it-works}
+
+1. **Save and validate the definition.** At the application boundary, check the definition on save and before starting a Flow. Check that every referenced state, action, and condition name exists and that each condition name belongs to one wait. Reject an invalid definition before it can start a Flow.
+2. **Start the purchase.** The start Step saves the whole definition in an Attribute and initializes a shared state data map. The run advances one position at a time. After startup, each Step input carries only the position, such as the state name and action index.
+3. **Wait for the buyer.** Before entering a state, wait for its condition if it has one. The RPC checks the condition name against the definition and publishes to one `ChannelMap` keyed by condition name. The persistence schema declares the map in code, and each definition supplies its keys at runtime. Each wait takes one message. The interpreter merges that message into the shared state data map.
+4. **Run one action.** For a charge or a delivery, run the registered handler or script in one Step's `Execute`. Treat a script like any external call and give it a timeout, retries, and an idempotency key. Merge the result into the shared map. Each action has its own checkpoint, so retrying it leaves earlier completed actions intact.
+5. **Choose what happens next.** The transition Step can wait for another condition and merges its message into the same map. It reads the map to choose the next state. The interpreter uses `GoTo` to advance through these four Step types until the purchase reaches a state with no next transition.
+6. **Record progress.** The definition decides what progress means, such as the current state, current step, or a custom stage. Write it to Attributes so the Client can read it. Use [Attribute Sync](/design-patterns/data-storage/entity-flow-attribute-sync) when progress must be searchable. The Flow graph shows the interpreter Steps. The Attributes show where a particular purchase is in its workflow.
+
+## Example {#example}
+
+The start Step stores the definition and sends the interpreter to the first state. Each tab links to the full runnable example.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/deal_dsl/deal_dsl_flow.py',
+    go: 'examples/go/products/deal-dsl/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/dealdsl/DealDSLFlow.java',
+    typescript: 'examples/typescript/src/products/deal-dsl/deal-dsl-flow.ts',
+    rust: 'examples/rust/src/products/deal_dsl/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class InitializeDeal(Step[DealStart]):
+    def __init__(self, flow: "DealDSLFlow") -> None:
+        self.flow = flow
+
+    def execute(self, context: Context, input: DealStart) -> StepDecision:
+        definition = input.definition
+        definition.state(definition.initial_state)
+        self.flow.definition.set(context, definition)
+        self.flow.process_id.set(context, definition.process_id)
+        self.flow.item_id.set(context, definition.item_id)
+        self.flow.buyer_id.set(context, input.buyer_id)
+        self.flow.state_data.set(context, dict(definition.initial_state_data))
+        return go_to(WaitForDealCondition, StateStepInput(definition.initial_state))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (step initializeStep) Execute(
+	ctx dex.Context,
+	input DealStart,
+) (*dex.StepDecision, error) {
+	if err := ValidateProcess(input.Process); err != nil {
+		return nil, fmt.Errorf("deal process is invalid: %w", err)
+	}
+	if err := BuyerID.Set(ctx, input.BuyerID); err != nil {
+		return nil, err
+	}
+	if err := ProcessID.Set(ctx, input.Process.ProcessID); err != nil {
+		return nil, err
+	}
+	if err := ItemID.Set(ctx, input.Process.ItemID); err != nil {
+		return nil, err
+	}
+	if err := ProcessDefinition.Set(ctx, input.Process); err != nil {
+		return nil, err
+	}
+	if err := StateData.Set(ctx, input.Process.InitialStateData); err != nil {
+		return nil, err
+	}
+	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(
+		preConditionStep{flow: step.flow},
+		stateStepInput{StateName: input.Process.InitialState},
+	), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+    final class InitializeDeal implements Step<DealStart> {
+        @Override
+        public Class<DealStart> getInputType() {
+            return DealStart.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final DealStart input) {
+            input.definition.state(input.definition.initialState);
+            definition.set(context, input.definition);
+            processId.set(context, input.definition.processId);
+            itemId.set(context, input.definition.itemId);
+            buyerId.set(context, input.buyerId);
+            stateData.set(context, new LinkedHashMap<>(input.definition.initialStateData));
+            return StepDecision.goTo(
+                    WaitForDealCondition.class,
+                    new StateStepInput(input.definition.initialState));
+        }
+    }
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class InitializeDeal implements Step<DealStart> {
+  public readonly inputCodec = dealStartCodec;
+
+  public constructor(private readonly flow: DealDSLFlow) {}
+
+  public getStepType(): string {
+    return "InitializeDeal";
+  }
+
+  public execute(context: Context, input: DealStart): StepDecision {
+    this.flow.definition.set(context, input.definition);
+    this.flow.processId.set(context, input.definition.processId);
+    this.flow.itemId.set(context, input.definition.itemId);
+    this.flow.buyerId.set(context, input.buyerId);
+    this.flow.stateData.set(context, { ...input.definition.initialStateData });
+    this.flow.state(context, input.definition.initialState);
+    return goTo(WaitForDealCondition, { stateName: input.definition.initialState });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for InitializeDeal {
+    type Input = DealStart;
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        deal_state(&input.definition, &input.definition.initial_state)?;
+        DEAL_DEFINITION.set(context, input.definition.clone())?;
+        DEAL_PROCESS_ID.set(context, input.definition.process_id.clone())?;
+        DEAL_ITEM_ID.set(context, input.definition.item_id.clone())?;
+        DEAL_BUYER_ID.set(context, input.buyer_id)?;
+        DEAL_STATE_DATA.set(context, input.definition.initial_state_data)?;
+        Ok(StepDecision::go_to(
+            &WaitForDealCondition,
+            StateStepInput {
+                state_name: input.definition.initial_state,
+            },
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Definition versions {#definition-versions}
+
+| Approach | What a run uses | What edits change |
+| --- | --- | --- |
+| Snapshot at start | The start Step stores the full definition in an Attribute. Later Steps read that copy. This is what Deal DSL does. | New versions apply to newly started Flows. Running Flows keep their original definition. |
+| Read the latest definition | Read from the store in `Execute` on each state entry or transition evaluation. Treat the read as an external call that can fail and retry. | Edits reach running Flows. A state can be renamed or removed, and an awaited condition can disappear. Define compatibility rules or migrate the saved position between versions. |
+
+## Parallel branches {#parallel-branches}
+
+If a state can open several branches, start them with `GoToMany` and keep each branch's position in its own Step input. Bring them together at a Join. Use an Attribute lock for concurrent writes to shared state, or let each branch write its own data and merge it after the Join. See [Parallel Steps](/design-patterns/parallel) and [Critical Section](/design-patterns/parallel/critical-section).
+
+## Anti-patterns {#anti-patterns}
+
+- **One Channel per condition.** The persistence schema is declared in code before the workflow supplies its condition names. Declare one `ChannelMap` and use a key for each condition.
+- **Actions or state changes inside an RPC.** Keep the RPC to validation and publishing. Run actions and update state in the interpreter Steps.
+- **Flow ID and action name as the key for a repeated action.** In a request-documents loop, `claim-77/send-letter` gives both letters the same key. The provider drops the second letter as a repeat. Use the Flow ID and `StepExecutionID`, as in `claim-77/ExecuteClaimAction-5`. Each round gets a new execution ID, and retries of that round keep it. See [Idempotency keys](/concepts/step#idempotency-keys).
+
+## Next {#next}
+
+- [Parallel Steps](/design-patterns/parallel)
+- [Deal DSL](/use-cases/deal-dsl)

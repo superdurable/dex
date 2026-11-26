@@ -9,8 +9,9 @@ slug: /design-patterns
 
 Each pattern solves a common problem with a reusable Flow shape. Every page links to runnable code in each SDK language.
 
-The groups start with the structure inside a Flow. They continue with interaction with the outside, then data, and end with failure handling.
+The patterns start with workflows defined as data and the structure inside a Flow. They continue with external interaction, data, and failure handling.
 
+- [Workflow DSL](/design-patterns/workflow-dsl) — Define workflows as data at runtime and run them with one interpreter Flow.
 - <a id="flow-control"></a>[Parallel Steps](/design-patterns/parallel) — Run Steps concurrently: a fixed or dynamic set, waiting for all of them or for the first. Let parallel branches take turns on a sequence of Steps.
 - [SubFlows](/design-patterns/subflows) — Fan out work to SubFlows, limit how many a parent runs at once, spread them across several parents, add durable back pressure, and stop child Flows when a case is canceled.
 - [Durable Timer](/design-patterns/durable-timer) — Run work on a schedule, send reminders, or wait for an external system in one long-running Step.
