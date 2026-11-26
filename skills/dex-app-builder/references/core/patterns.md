@@ -750,20 +750,22 @@ rpc submitDecision(roundId, d): the same, with rank 2
 
 Arbitrate.waitFor(roundId) -> AnyOf(Timer(deadline), RoundWakeups[roundId].ForOne())
 Arbitrate.execute(roundId), the round's locks, short retry budget, failure route ArbitrationFailed
-    if RoundWindow[roundId] is not open: exit without a decision or a business route
+    if RoundWindow[roundId] is not open: return deadEnd()            // closed or missing: end the branch
     RoundWindow[roundId] = closed
     winner = the highest-ranked candidate (rank 1 first); admission order breaks a tie
     record the decision; mark the other candidates as not chosen
     route on the winner; with no candidate, route to the deadline branch
 ArbitrationFailed.execute(roundId), the round's locks
-    arbitrate again from RoundCandidates[roundId], or close the round, record the failure,
-    and answer every admitted sender through an idempotent path
+    if RoundWindow[roundId] is not open: return deadEnd()            // closed or missing: end the branch
+    in one commit: arbitrate again from RoundCandidates[roundId], or close the round,
+    record the failure, and answer every admitted sender through an idempotent path
 ```
 
 - The RPCs answer "received". The receipt confirms admission only; the arbitration Step decides.
 - Every RPC and Step that touches a round holds that round's locks. An RPC names its target round, so a late RPC for a closed round gets "closed" and never reaches a newer round.
 - Each round's candidates hold everything that decides the outcome: a key of round ID, event type, and event ID, a payload reference, rank, and admission order. The key also deduplicates retries and keys the answers.
 - Publish one wake-up, in the same commit, when a round's candidate set goes from empty to non-empty; later admissions only append. The wake-up carries no data and its ChannelMap key is the round ID. Never read a wake-up to decide candidates or the outcome. When the Timer wins, one wake-up may stay pending; delete it with the round's other state when a long-running Flow must reclaim state.
+- The arbitration Step and the recovery Step both recheck the round's window under its locks. When the round is closed or missing, they end the branch with a dead end: no decision and no business route. Never return an empty decision for this case.
 - Start only one arbitration wait per round. The decision derives only from the round's Attribute state, so a retried Execute reaches the same decision. Execute holds the locks through its retries and backoff, so no candidate joins meanwhile.
 - The Timer is not a hard cutoff; the successful locked close is. A candidate admitted before it is eligible, even after the Timer fired.
 - When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. Give Execute a failure route whose Step, under the same locks, arbitrates again from the stored candidates or closes the round, records the failure, and answers every admitted sender through an idempotent path. It never relies on the wake-up. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
