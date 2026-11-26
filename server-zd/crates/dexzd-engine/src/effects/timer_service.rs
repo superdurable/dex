@@ -54,7 +54,8 @@ impl TimerServices {
         self.context.tracker.spawn(service.run());
     }
 
-    /// Wakes the partition's service so it rereads the index for a newly armed timer.
+    /// Wakes the partition's service so it rereads the index for a newly armed timer, unless
+    /// the service already plans a pass at or before `fire_at_micros`.
     pub(crate) fn notify_armed(&mut self, partition: PartitionId, fire_at_micros: i64) {
         match self.partitions.get(&partition) {
             Some(wake) => wake.note_armed(fire_at_micros),
@@ -71,6 +72,8 @@ impl TimerServices {
 /// Timer index again.
 pub(super) struct PartitionTimerWake {
     notify: Notify,
+    /// Unix micros of the service's next planned pass; `i64::MAX` while a pass runs.
+    planned_wake_micros: AtomicI64,
     /// Earliest fire time armed since the service's last pass began; `i64::MAX` when none.
     earliest_armed_micros: AtomicI64,
 }
@@ -79,15 +82,20 @@ impl PartitionTimerWake {
     pub(super) fn new() -> Self {
         Self {
             notify: Notify::new(),
+            planned_wake_micros: AtomicI64::new(i64::MAX),
             earliest_armed_micros: AtomicI64::new(i64::MAX),
         }
     }
 
-    /// Records an armed timer and wakes the service. Call it after the timer's index row commits.
+    /// Records an armed timer; wakes the service unless its planned pass comes no later. Call it
+    /// after the index row commits.
     pub(super) fn note_armed(&self, fire_at_micros: i64) {
+        // Always recorded: the next pass may start below its read cursor.
         self.earliest_armed_micros
             .fetch_min(fire_at_micros, Ordering::SeqCst);
-        self.notify.notify_one();
+        if fire_at_micros < self.planned_wake_micros.load(Ordering::SeqCst) {
+            self.notify.notify_one();
+        }
     }
 }
 
@@ -181,6 +189,10 @@ impl PartitionTimerService {
 
     /// Fires every due timer. Returns when to look again, or `None` to look again at once.
     pub(super) async fn fire_due_timers(&mut self) -> Result<Option<Instant>, EffectError> {
+        // Until this pass plans its wake, every armed timer wakes the service again.
+        self.wake
+            .planned_wake_micros
+            .store(i64::MAX, Ordering::SeqCst);
         self.rewind_scan_start_key();
         let now_micros = self.context.clock.now_unix_micros();
         let lookahead_micros =
@@ -265,6 +277,11 @@ impl PartitionTimerService {
         {
             wake_at = wake_at.min(full_scan_at);
         }
+        let wait_micros =
+            i64::try_from(wake_at.saturating_duration_since(now).as_micros()).unwrap_or(i64::MAX);
+        self.wake
+            .planned_wake_micros
+            .store(now_micros.saturating_add(wait_micros), Ordering::SeqCst);
         Ok(Some(wake_at))
     }
 

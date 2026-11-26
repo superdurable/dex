@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Timer service read cursor: where a pass starts reading the Timer index.
+//! Timer service wake gate and read cursor: which armed timers wake a pass, and where a pass
+//! starts reading the Timer index.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -118,6 +119,65 @@ async fn fire_first_timer(harness: &EffectHarness, flow_id: &str) -> (RunId, i64
         "the first timer fires"
     );
     (run_id, fire_at)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timer_armed_after_the_planned_wake_wakes_no_pass_and_still_fires_on_time() {
+    const FLOW_ID: &str = "wake-gate-later";
+    let harness = start_harness(EffectsConfig::default()).await;
+    let run_id = harness.start_flow(start_request(FLOW_ID), settings());
+    let base = harness.clock.now_unix_micros();
+    let reads = || {
+        harness
+            .flow_effect_operations
+            .committed_reads
+            .load(Ordering::SeqCst)
+    };
+
+    let reads_before_first = reads();
+    seed_timer(
+        &harness,
+        FLOW_ID,
+        run_id,
+        &wait_timer(0),
+        base + 5 * SECOND_MICROS,
+    );
+    notify_armed(&harness, FLOW_ID, base + 5 * SECOND_MICROS);
+    harness.settle().await;
+    assert!(
+        reads() > reads_before_first,
+        "an earlier timer wakes a pass"
+    );
+
+    let reads_before_later = reads();
+    seed_timer(
+        &harness,
+        FLOW_ID,
+        run_id,
+        &wait_timer(1),
+        base + 10 * SECOND_MICROS,
+    );
+    notify_armed(&harness, FLOW_ID, base + 10 * SECOND_MICROS);
+    harness.settle().await;
+    assert_eq!(reads(), reads_before_later, "a later timer wakes no pass");
+
+    sleep_until_micros(&harness, base + 5 * SECOND_MICROS).await;
+    harness.settle().await;
+    sleep_until_micros(&harness, base + 10 * SECOND_MICROS - MILLI_MICROS).await;
+    harness.settle().await;
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 1);
+    assert!(
+        fires_of(&harness, run_id, &wait_timer(1)).is_empty(),
+        "no timer fires early"
+    );
+    sleep_until_micros(&harness, base + 10 * SECOND_MICROS).await;
+    harness.settle().await;
+
+    let fires = fires_of(&harness, run_id, &wait_timer(1));
+    assert_eq!(fires.len(), 1, "{fires:?}");
+    assert!(fires[0] >= base + 10 * SECOND_MICROS);
+    assert!(fires[0] < base + 10 * SECOND_MICROS + 10 * MILLI_MICROS);
+    harness.shutdown().await;
 }
 
 #[tokio::test(start_paused = true)]
