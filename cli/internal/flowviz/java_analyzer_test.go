@@ -84,6 +84,48 @@ func TestJavaAnalyzerDiagnostics(t *testing.T) {
 	})
 }
 
+func TestJavaLockedMethodExternalCall(t *testing.T) {
+	javaPath := javaAnalyzerTestExecutable(t)
+	tests := []struct {
+		flow string
+		// messages lists every locked_method_external_call message fragment, in report order.
+		messages []string
+	}{
+		{flow: "InjectedServiceFlow", messages: []string{
+			"Execute of Send holds lock status, which RPC stop also takes, and calls mailer.send; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step.",
+		}},
+		{flow: "MovedCallFlow"},
+		{flow: "StepOnlyLockFlow"},
+		{flow: "PureFlow"},
+		{flow: "SiblingMethodFlow", messages: []string{"and calls new Ticket(input, List.of()).render;"}},
+		{flow: "HttpHelperFlow", messages: []string{"and calls notifyCustomer (calls HttpRequest.newBuilder); Dex fails"}},
+		{flow: "ClientFlow", messages: []string{"Execute of StopOther holds lock status, which RPC stop also takes, and calls client.stopFlow;"}},
+		{flow: "WaitForFlow", messages: []string{"WaitFor of Pause holds lock status, which RPC stop also takes, and calls Thread.sleep (and 1 more);"}},
+		{flow: "MapInstanceFlow", messages: []string{"Execute of Computed holds lock orders, which RPC expedite also takes, and calls mailer.send;"}},
+	}
+	for _, test := range tests {
+		t.Run(test.flow, func(t *testing.T) {
+			graph, err := Analyze(t.Context(), filepath.Join("testdata", "java", "shapes", "locked_methods.java"),
+				AnalyzeOptions{Language: "java", JavaPath: javaPath, FlowType: test.flow})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+			require.NotEmpty(t, graph.methodExternalCalls)
+			var messages []string
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Code == "locked_method_external_call" {
+					require.Equal(t, "warning", diagnostic.Severity)
+					require.NotNil(t, diagnostic.Span)
+					messages = append(messages, diagnostic.Message)
+				}
+			}
+			require.Len(t, messages, len(test.messages), "%+v", graph.Diagnostics)
+			for index, fragment := range test.messages {
+				require.Contains(t, messages[index], fragment)
+			}
+		})
+	}
+}
+
 func TestJavaAnalyzerUncaughtFailure(t *testing.T) {
 	javaPath := javaAnalyzerTestExecutable(t)
 	script := filepath.Join(t.TempDir(), "FlowvizJavaAnalyzer.java")
