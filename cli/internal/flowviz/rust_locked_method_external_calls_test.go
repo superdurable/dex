@@ -156,7 +156,6 @@ const rustPureExecuteBody = `let mut names = BTreeMap::new();
         let note = describe_note(labels.join(","));`
 
 const rustOrderDataBody = `let number = input.number.as_str().to_owned();
-        let copy = input.clone();
         let count = input.items.len();
         for item in &input.items {
             let name = item.name.trim().to_string();
@@ -209,7 +208,41 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 			messages:      []string{"and calls client.describe_flow;"},
 			executeMarker: rustMarkerCalls,
 		},
-		"Step input and Attribute values of another file's type with pure methods": {
+		"Step input of a same-file data type with derived Clone and standard fields": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "LocalOrder",
+				executeBody: "let copy = input.clone();\n        let number = input.number.as_str();\n        let count = input.items.len();",
+				extraSource: "#[derive(Clone)]\nstruct LocalOrder {\n    number: String,\n    items: Vec<String>,\n}",
+			},
+			executeMarker: rustMarkerClean,
+		},
+		"Step input of another file's type calls get": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::payload::Payload",
+				executeBody: "let value = input.get();",
+			},
+			messages:      []string{"and calls input.get;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"derived Default whose field Default does I/O": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let made = SameFileDefault::default();",
+				extraSource: "#[derive(Default)]\nstruct SameFileDefault {\n    value: IODefault,\n}\n\nstruct IODefault;\n\nimpl Default for IODefault {\n    fn default() -> Self {\n        let contents = std::fs::read(\"/tmp/one\");\n        Self\n    }\n}",
+			},
+			messages:      []string{"and calls SameFileDefault::default (calls IODefault::default (calls std::fs::read));"},
+			executeMarker: rustMarkerCalls,
+		},
+		"derived Clone whose field type is from another file": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let copy = Wrapper::default().clone();",
+				extraSource: "#[derive(Clone, Default)]\nstruct Wrapper {\n    payload: crate::payload::Payload,\n    shared: Arc<String>,\n}",
+			},
+			messages:      []string{"(calls crate::payload::Payload::"},
+			executeMarker: rustMarkerCalls,
+		},
+		"Step input and Attribute values of another file's type with pure field methods": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
 				executeBody: rustOrderDataBody,
@@ -252,7 +285,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let summary = Summary::default();\n        let copy = summary.clone();",
-				extraSource: "#[derive(Clone, Default)]\nstruct Summary {\n    count: u32,\n}",
+				extraSource: "#[derive(Clone, Default)]\nstruct Summary {\n    count: u32,\n    client: Option<Arc<Client>>,\n}",
 			},
 			executeMarker: rustMarkerClean,
 		},
