@@ -16,7 +16,6 @@ import {useActiveDocContext, useActivePlugin} from '@docusaurus/plugin-content-d
 import {useWindowSize} from '@docusaurus/theme-common';
 import type {PropSidebar, PropSidebarItem} from '@docusaurus/plugin-content-docs';
 import type {Props} from '@theme/DocSidebar';
-import {markSidebarHydrated} from '@site/src/components/sidebarState';
 
 type SharedDocsSidebarData = {
   mainSidebar: PropSidebar;
@@ -25,8 +24,6 @@ type SharedDocsSidebarData = {
 
 const referencePluginPrefix = 'reference-';
 const desktopSidebarScrollerSelector = '.theme-doc-sidebar-container nav.menu';
-// Longer than the Docusaurus Collapsible animation.
-const categoryAnimationMs = 400;
 
 // Survives the remount that happens when a link crosses into another docs instance.
 let desktopSidebarScrollTop = 0;
@@ -130,16 +127,8 @@ function useKeepDesktopSidebarScroll(): void {
     if (hasDesktopSidebarMounted) {
       scroller.scrollTop = desktopSidebarScrollTop;
     } else {
-      // Saved category state opens categories after the first paint, with a short animation.
-      const revealTimer = window.setTimeout(() => {
-        hasDesktopSidebarMounted = true;
-        revealActiveSidebarLink(scroller);
-      }, categoryAnimationMs);
-      scroller.addEventListener('scroll', rememberScroll, {passive: true});
-      return () => {
-        window.clearTimeout(revealTimer);
-        scroller.removeEventListener('scroll', rememberScroll);
-      };
+      hasDesktopSidebarMounted = true;
+      revealActiveSidebarLink(scroller);
     }
     scroller.addEventListener('scroll', rememberScroll, {passive: true});
     return () => scroller.removeEventListener('scroll', rememberScroll);
@@ -150,6 +139,5 @@ function useKeepDesktopSidebarScroll(): void {
 export default function SharedDocSidebar(props: Props): ReactNode {
   const sidebar = useSharedDocsSidebar();
   useKeepDesktopSidebarScroll();
-  useEffect(() => markSidebarHydrated(), []);
   return <DocSidebar {...props} sidebar={sidebar} />;
 }

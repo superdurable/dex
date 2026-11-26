@@ -10,7 +10,6 @@ import React, {
   type ReactNode,
   useEffect,
   useMemo,
-  useState,
 } from 'react';
 import clsx from 'clsx';
 import {
@@ -28,13 +27,6 @@ import {translate} from '@docusaurus/Translate';
 import useIsBrowser from '@docusaurus/useIsBrowser';
 import DocSidebarItems from '@theme/DocSidebarItems';
 import type {Props} from '@theme/DocSidebarItem/Category';
-import {
-  hasSidebarHydrated,
-  persistSidebarCategoryState,
-  readSavedCategoryCollapsedBeforePaint,
-  readSidebarCategoryState,
-  rememberVisibleCategoryCollapsed,
-} from '@site/src/components/sidebarState';
 import {docsSectionIcons, isDocsSectionKey} from '@site/src/components/docsSections';
 
 function SidebarSectionIcon({section}: {section: unknown}): ReactNode {
@@ -111,37 +103,14 @@ export default function DocSidebarItemCategory({
 }: Props): ReactNode {
   const {items, label, collapsible, className, href} = item;
   const hrefWithSSRFallback = useCategoryHrefWithSSRFallback(item);
-  const categoryKey = `category:${label}`;
   const isActive = isActiveSidebarItem(item, activePath);
   const isCurrentPage = isSamePath(href, activePath);
+  // Categories start collapsed; only the path to the current page opens.
   const {collapsed, setCollapsed} = useCollapsible({
-    initialState: () => {
-      if (!collapsible || isActive) {
-        return false;
-      }
-      return readSavedCategoryCollapsedBeforePaint(categoryKey) ?? item.collapsed ?? true;
-    },
+    initialState: () => collapsible && !isActive && (item.collapsed ?? true),
   });
 
-  // Only the first hydrated page applies saved state late. Later mounts read it while rendering.
-  const [isMountedAfterHydration] = useState(hasSidebarHydrated);
-  useEffect(() => {
-    if (isMountedAfterHydration) {
-      return;
-    }
-    const savedCollapsedState = readSidebarCategoryState()[categoryKey];
-    if (typeof savedCollapsedState === 'boolean' && !isActive) {
-      setCollapsed(savedCollapsedState);
-    }
-    // Runs once per mount: a later page change must not reapply the saved state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    rememberVisibleCategoryCollapsed(categoryKey, collapsed);
-  }, [categoryKey, collapsed]);
-
-  // The category of the current page stays open, even when the reader collapsed it before.
+  // Opening a page inside a collapsed category reveals it.
   useEffect(() => {
     if (isActive) {
       setCollapsed(false);
@@ -149,7 +118,6 @@ export default function DocSidebarItemCategory({
   }, [isActive, activePath, setCollapsed]);
 
   const updateCollapsed = (toCollapsed: boolean = !collapsed) => {
-    persistSidebarCategoryState(categoryKey, toCollapsed);
     setCollapsed(toCollapsed);
   };
 
