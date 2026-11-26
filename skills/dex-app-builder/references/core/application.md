@@ -142,6 +142,29 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 - Before removing a definition, search for Flows that can still reach it, including recoverable terminal Flows. For example: `dexcli flow search --query 'FlowType = "OldFlowType"'`. Keep the result with the change record.
 - During a rolling deployment that adds Step types or RPC names, start the new Workers first. Dex hands a Step only to a Worker that registers its Step type. A Step type that no connected Worker registers waits in the task queue without consuming an attempt, and an RPC name that no connected Worker registers fails. Old Workers still run every name they do register, so keep changed logic compatible.
 
+### Steps that already wait
+
+A deploy never changes the conditions of a Step that already waits. A Step that already waits keeps the conditions its finished `WaitFor` returned; the Worker that takes it runs the `Execute` of its deployed version. New `WaitFor` code applies only to Step executions that start after the deploy.
+
+| Change for Steps that already wait | Do this |
+| --- | --- |
+| End a Timer earlier, such as a shorter deadline | New Steps get the new duration from the new `WaitFor`. Skip each old Timer with the Client `SkipTimer` once its new deadline passes. |
+| Change what the Step waits for | Publish, from Flow code or an existing typed RPC, to a Channel the original Wait already includes. |
+| Neither is enough | Only then cancel and restart the Step, with user authorization. |
+
+To shorten deadlines, run a periodic job or an operator action:
+
+1. Page through `SearchFlows` by Flow type and execution status to find candidate runs. Add `ActiveStepTypes` when the Flow config enables active-Step search.
+2. For each run, read the business start time and the exact Step execution number from business state with the public Client: a registered Attribute, an AttributeMap instance with a known key, or an existing business record. In Python and TypeScript, `GetFlowState` can also confirm the waiting execution number.
+3. Call `SkipTimer` on each old Timer past its new deadline. Select it by the Condition ID or index of the old `WaitFor`.
+
+- The search `StartTime` is the Flow run's start time, not the business start time.
+- An AttributeMap cannot be enumerated. Read only keys you already know.
+- When the old relative duration is known, the new deadline is the old fire time from `dexcli flow state` minus the difference between the old and new durations.
+- When an old run has no reliable record, a person must verify it before anyone skips its Timer.
+- Skipping satisfies that Timer condition as if it fired; `Execute` is scheduled once the whole Wait is satisfied. The deadline branch needs no new code.
+- This needs no new Step type, no new RPC, and no direct call to the generated Server API.
+
 ### Incompatible changes
 
 Choose one explicit strategy: let old Flow runs finish on an old Worker pool, keep versioned handlers in one registry, migrate at a safe application boundary, or stop or recover selected executions with user authorization. Never add an unreviewed fallback that silently reads old data as the new type.
