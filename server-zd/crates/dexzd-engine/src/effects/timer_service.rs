@@ -48,19 +48,9 @@ impl TimerServices {
             wake.note_armed(i64::MIN);
             return;
         }
-        let wake = Arc::new(PartitionTimerWake {
-            notify: Notify::new(),
-            earliest_armed_micros: AtomicI64::new(i64::MAX),
-        });
+        let wake = Arc::new(PartitionTimerWake::new());
         self.partitions.insert(partition, Arc::clone(&wake));
-        let service = PartitionTimerService {
-            context: Arc::clone(&self.context),
-            partition,
-            wake,
-            retry_after: BTreeMap::new(),
-            scan_start_key: partition_index_prefix(partition, IndexKind::Timer),
-            last_full_scan_at: Instant::now(),
-        };
+        let service = PartitionTimerService::new(Arc::clone(&self.context), partition, wake);
         self.context.tracker.spawn(service.run());
     }
 
@@ -79,29 +69,36 @@ impl TimerServices {
 
 /// What the router and one partition timer service share to decide when the service reads the
 /// Timer index again.
-struct PartitionTimerWake {
+pub(super) struct PartitionTimerWake {
     notify: Notify,
     /// Earliest fire time armed since the service's last pass began; `i64::MAX` when none.
     earliest_armed_micros: AtomicI64,
 }
 
 impl PartitionTimerWake {
+    pub(super) fn new() -> Self {
+        Self {
+            notify: Notify::new(),
+            earliest_armed_micros: AtomicI64::new(i64::MAX),
+        }
+    }
+
     /// Records an armed timer and wakes the service. Call it after the timer's index row commits.
-    fn note_armed(&self, fire_at_micros: i64) {
+    pub(super) fn note_armed(&self, fire_at_micros: i64) {
         self.earliest_armed_micros
             .fetch_min(fire_at_micros, Ordering::SeqCst);
         self.notify.notify_one();
     }
 }
 
-struct PartitionTimerService {
+pub(super) struct PartitionTimerService {
     context: Arc<EffectContext>,
     partition: PartitionId,
     wake: Arc<PartitionTimerWake>,
     /// Index keys of fired timers still in the index: when to try again, and the delay that
     /// doubles on each try.
     retry_after: BTreeMap<Vec<u8>, (Instant, Duration)>,
-    /// First Timer index key a pass reads; no key below it was in an earlier pass's snapshot.
+    /// The Timer index key where the next pass starts its due scan.
     scan_start_key: Vec<u8>,
     /// When a pass last read the Timer index from the partition's first timer.
     last_full_scan_at: Instant,
@@ -116,6 +113,21 @@ struct TimerIndexScan {
 }
 
 impl PartitionTimerService {
+    pub(super) fn new(
+        context: Arc<EffectContext>,
+        partition: PartitionId,
+        wake: Arc<PartitionTimerWake>,
+    ) -> Self {
+        Self {
+            context,
+            partition,
+            wake,
+            retry_after: BTreeMap::new(),
+            scan_start_key: partition_index_prefix(partition, IndexKind::Timer),
+            last_full_scan_at: Instant::now(),
+        }
+    }
+
     async fn run(mut self) {
         let mut backoff = self.context.retry_backoff();
         loop {
@@ -151,7 +163,7 @@ impl PartitionTimerService {
     }
 
     /// Fires every due timer. Returns when to look again, or `None` to look again at once.
-    async fn fire_due_timers(&mut self) -> Result<Option<Instant>, EffectError> {
+    pub(super) async fn fire_due_timers(&mut self) -> Result<Option<Instant>, EffectError> {
         self.rewind_scan_start_key();
         let now_micros = self.context.clock.now_unix_micros();
         let lookahead_micros =
@@ -230,6 +242,12 @@ impl PartitionTimerService {
         {
             wake_at = wake_at.min(retry_at);
         }
+        let full_scan_interval = self.context.config.timer_full_scan_interval;
+        if !full_scan_interval.is_zero()
+            && let Some(full_scan_at) = self.last_full_scan_at.checked_add(full_scan_interval)
+        {
+            wake_at = wake_at.min(full_scan_at);
+        }
         Ok(Some(wake_at))
     }
 
@@ -259,10 +277,11 @@ impl PartitionTimerService {
     /// Reads due timer rows from the read cursor, paged by the load limit, then advances the
     /// cursor.
     ///
-    /// Returns up to the load limit of rows outside retry backoff that fire at or before
-    /// `now_micros`, in index order and with the rows in backoff between them. When none of them
-    /// is outside backoff, also returns the fire time of the first timer after `now_micros` and
-    /// at or before `horizon_micros`, if any.
+    /// Returns the rows that fire at or before `now_micros`, in index order and including rows in
+    /// retry backoff. Paging stops after the page that brings the rows outside backoff to the load
+    /// limit, so a pass may return more than the limit. When none of them is outside backoff, also
+    /// returns the fire time of the first timer after `now_micros` and at or before
+    /// `horizon_micros`, if any.
     fn load_timers(
         &mut self,
         now_micros: i64,
@@ -314,6 +333,21 @@ impl PartitionTimerService {
                 }
             }
         }
+        let scanned_keys: BTreeSet<&Vec<u8>> = entries.iter().map(|(key, _)| key).collect();
+        let last_scanned = entries.last().map(|(key, _)| key.as_slice());
+        let scan_start = self.scan_start_key.as_slice();
+        // A wall clock moved back can leave the due range empty; it confirms no row gone.
+        let is_in_scanned_range = |key: &[u8]| {
+            key >= scan_start
+                && if is_due_range_read {
+                    key < due_end.as_slice()
+                } else {
+                    last_scanned.is_some_and(|last| key <= last)
+                }
+        };
+        // Rows beyond the scan keep their backoff; scanned rows no longer in the index lose it.
+        self.retry_after
+            .retain(|key, _| scanned_keys.contains(key) || !is_in_scanned_range(key));
         // The cursor never passes `now_micros`, so a later pass rereads unnotified future timers.
         match entries.first() {
             Some((first_key, _)) => self.scan_start_key.clone_from(first_key),
@@ -322,12 +356,6 @@ impl PartitionTimerService {
             }
             None => {}
         }
-        let scanned_keys: BTreeSet<&Vec<u8>> = entries.iter().map(|(key, _)| key).collect();
-        let last_scanned = entries.last().map(|(key, _)| key.clone());
-        // Rows beyond the scan keep their backoff; scanned rows no longer in the index lose it.
-        self.retry_after.retain(|key, _| {
-            scanned_keys.contains(key) || last_scanned.as_ref().is_some_and(|last| key > last)
-        });
         Ok(TimerIndexScan {
             due_entries: entries,
             next_fire_micros,

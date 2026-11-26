@@ -8,6 +8,7 @@
 
 //! Timer service read cursor: where a pass starts reading the Timer index.
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -17,9 +18,14 @@ use dexzd_protocol::dexzd::v1::TimerId;
 
 use super::timer_tests::{
     fired_commands, seed_timer, sleep_until_micros, timers_fired_override, wait_timer,
+    write_timer_rows,
 };
-use super::{DurableState, EffectHarness, SECOND_MICROS, settings, start_request};
+use super::{
+    DurableState, EffectHarness, SECOND_MICROS, is_timers_fired, ok_override, settings,
+    start_request,
+};
 use crate::effects::EffectsConfig;
+use crate::effects::timer_service::{PartitionTimerService, PartitionTimerWake};
 use crate::flow_coordination::FlowCoordinationEffectSink;
 use dexzd_clock::WallClock;
 
@@ -65,10 +71,18 @@ fn fires_of(harness: &EffectHarness, run_id: RunId, timer: &TimerId) -> Vec<i64>
         .collect()
 }
 
-/// Starts a run and fires its `wait_timer(0)`, so the next pass finds nothing due and moves its
-/// read cursor past it. Returns the run and the timer's fire time.
+/// Starts a run without Steps, so only seeded timers wake its partition's timer service.
+fn start_flow_without_steps(harness: &EffectHarness, flow_id: &str) -> RunId {
+    let mut request = start_request(flow_id);
+    request.start_step_type.clear();
+    harness.start_flow(request, settings())
+}
+
+/// Starts a run and fires its `wait_timer(0)`, moving the read cursor past it.
+///
+/// Returns the run and the timer's fire time.
 async fn fire_first_timer(harness: &EffectHarness, flow_id: &str) -> (RunId, i64) {
-    let run_id = harness.start_flow(start_request(flow_id), settings());
+    let run_id = start_flow_without_steps(harness, flow_id);
     let fire_at = harness.clock.now_unix_micros() + SECOND_MICROS;
     seed_timer(harness, flow_id, run_id, &wait_timer(0), fire_at);
     notify_armed(harness, flow_id, fire_at);
@@ -206,9 +220,11 @@ async fn a_partition_rebuild_reads_the_timer_index_from_the_first_timer() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_timer_behind_the_read_cursor_without_a_notification_fires_after_a_full_scan() {
+async fn an_idle_partition_wakes_for_its_full_scan_and_finds_an_unnotified_timer_on_time() {
     const FLOW_ID: &str = "cursor-backstop";
+    // Without the full scan's own wake, the idle passes come at 1, 101, and 201 seconds.
     let config = EffectsConfig {
+        timer_lookahead: Duration::from_secs(100),
         timer_full_scan_interval: Duration::from_secs(120),
         ..EffectsConfig::default()
     };
@@ -224,20 +240,97 @@ async fn a_timer_behind_the_read_cursor_without_a_notification_fires_after_a_ful
         first_fire_at - MILLI_MICROS,
     );
 
-    // Other timers of the run's Step fire too; count only the seeded timer.
-    sleep_until_micros(&harness, base + 100 * SECOND_MICROS).await;
+    sleep_until_micros(&harness, base + 119 * SECOND_MICROS).await;
     harness.settle().await;
     assert!(
         fires_of(&harness, run_id, &wait_timer(1)).is_empty(),
         "the read cursor skips it"
     );
-    sleep_until_micros(&harness, base + 181 * SECOND_MICROS).await;
+    sleep_until_micros(&harness, base + 121 * SECOND_MICROS).await;
     harness.settle().await;
     assert_eq!(
         fires_of(&harness, run_id, &wait_timer(1)).len(),
         1,
-        "a full scan finds it"
+        "the full scan at 120 seconds finds it"
     );
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_wall_clock_moved_back_keeps_the_backoff_of_a_fired_timer_still_in_the_index() {
+    const FLOW_ID: &str = "clock-rollback";
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    // Apply accepts TimersFired but the timer stays in the index.
+    harness
+        .flow_effect_operations
+        .add_override(ok_override(is_timers_fired));
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    let fire_at = harness.clock.now_unix_micros() + SECOND_MICROS;
+    seed_timer(&harness, FLOW_ID, run_id, &wait_timer(0), fire_at);
+    notify_armed(&harness, FLOW_ID, fire_at);
+    harness.settle().await;
+    sleep_until_micros(&harness, fire_at).await;
+    harness.settle().await;
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 1);
+
+    // The wall clock falls below the fire time; the 1-second retry backoff still holds.
+    harness.clock.move_back(100 * MILLI_MICROS);
+    notify_armed(&harness, FLOW_ID, harness.clock.now_unix_micros());
+    harness.settle().await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    harness.settle().await;
+    assert_eq!(
+        fires_of(&harness, run_id, &wait_timer(0)).len(),
+        1,
+        "no retry before the backoff ends"
+    );
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    harness.settle().await;
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 2);
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timer_armed_after_a_pass_takes_its_snapshot_fires_in_the_next_pass() {
+    const FLOW_ID: &str = "armed-after-snapshot";
+    // No rebuild, so no timer service runs besides the one this test drives.
+    let harness = EffectHarness::new();
+    harness
+        .flow_effect_operations
+        .add_override(timers_fired_override());
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    let partition = harness.partition_of(FLOW_ID);
+    let run = harness.run_location(FLOW_ID, run_id);
+    let wake = Arc::new(PartitionTimerWake::new());
+    let mut service = PartitionTimerService::new(
+        Arc::clone(harness.effect_context()),
+        partition,
+        Arc::clone(&wake),
+    );
+    let fire_at = harness.clock.now_unix_micros() - MILLI_MICROS;
+    let armed_wake = Arc::clone(&wake);
+    *harness
+        .flow_effect_operations
+        .committed_reader_hook
+        .lock()
+        .expect("lock") = Some(Box::new(move |state| {
+        write_timer_rows(state, partition, run, &wait_timer(0), fire_at);
+        armed_wake.note_armed(fire_at);
+    }));
+
+    let first_pass = service
+        .fire_due_timers()
+        .await
+        .expect("the first pass runs");
+    assert!(first_pass.is_some(), "the first snapshot holds no timer");
+    assert!(fires_of(&harness, run_id, &wait_timer(0)).is_empty());
+    let second_pass = service
+        .fire_due_timers()
+        .await
+        .expect("the second pass runs");
+    assert!(second_pass.is_none(), "the second pass fires a timer");
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 1);
     harness.shutdown().await;
 }
 
