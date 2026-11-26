@@ -147,8 +147,7 @@ class TypeScriptAnalyzer {
       this.currentFrame = {};
     }
     this.analyzeRPCs(flow);
-    // Only a lock shared with an RPC can warn, so skip building the type checker otherwise.
-    if (this.graph.edges.some(edge => edge.kind === "resource_lock" && edge.metadata?.phase === "rpc")) this.recordMethodExternalCalls();
+    this.recordMethodExternalCalls();
     this.analyzeTimeoutHandler(flow);
     this.analyzeTriggerBindings(this.method(flow,"getConnectorTriggerBindings"));
     if (this.scopesFlowResources) this.persistenceResourceIds = this.persistenceResources(flow);
@@ -2931,14 +2930,24 @@ class TypeScriptAnalyzer {
     return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors,persistenceResourceIds:this.persistenceResourceIds,diagnosticResourceIds:this.diagnosticResourceIds,viewRPCs:this.viewRPCs,startInput:this.startInput,methodExternalCalls:this.methodExternalCalls,undrawnLockEdges:this.undrawnLockEdges};
   }
 
-  // recordMethodExternalCalls fills methodExternalCalls for every Step waitFor and execute with a fail-closed allowlist.
+  // recordMethodExternalCalls marks each Step waitFor and execute that holds a lock an RPC takes, with a fail-closed allowlist.
+  // Other methods get no marker, which means unchecked; they cannot warn.
   recordMethodExternalCalls() {
+    const rpcLockedResources = new Set(this.graph.edges.filter(edge => edge.kind === "resource_lock" && edge.metadata?.phase === "rpc").map(edge => edge.to));
+    const sharedPhases = new Set();
+    for (const edge of [...this.graph.edges,...this.undrawnLockEdges]) {
+      const phase = edge.metadata?.phase;
+      if (edge.kind === "resource_lock" && (phase === "execute" || phase === "wait_for") && rpcLockedResources.has(edge.to)) sharedPhases.add(`${edge.from} ${phase}`);
+    }
+    // Building the type checker costs more than the rest of the analysis, so build it only when a phase can warn.
+    if (!sharedPhases.size) return;
     const problem = this.createTypeChecker();
     for (const {nodeID,stepName,instance} of this.lockedMethodCandidates) {
       this.currentFrame = {instance};
       // Field reads resolve through the Step instance, so cached helper results hold for one Step only.
       this.exactHelperResults = new Map();
       for (const [phase,methodName] of [["wait_for","waitFor"],["execute","execute"]]) {
+        if (!sharedPhases.has(`${nodeID} ${phase}`)) continue;
         const method = this.method(instance.declaration,methodName);
         if (!method) {
           if (phase === "execute") this.methodExternalCalls.push({nodeId:nodeID,phase,calls:[{callee:`execute of ${stepName}, which is not defined in this file`}]});
@@ -2999,6 +3008,7 @@ class TypeScriptAnalyzer {
         scan.isExact = scan.isExact && found.isExact;
         if (found.external) scan.calls.push({callee:found.external,span:this.span(node)});
       }
+      if (this.ts.isCallExpression(node) || this.ts.isNewExpression(node)) scan.calls.push(...this.callbackArgumentExternalCalls(node));
       this.ts.forEachChild(node,visit);
     };
     for (const node of nodes) visit(node);
@@ -3029,6 +3039,60 @@ class TypeScriptAnalyzer {
       if (constructed && ts.isClassDeclaration(constructed)) return this.classConstructionExternalCall(calleeText,constructed,depth);
     }
     return this.classifyDeclaration(calleeText,declaration,callee,depth);
+  }
+
+  // callbackArgumentExternalCalls returns the callbacks a default-library call, such as map or then, receives
+  // that are not function literals, same-file functions, or pure built-ins; the library calls them.
+  callbackArgumentExternalCalls(node) {
+    const ts = this.ts;
+    if (!node.arguments?.length) return [];
+    let declaration;
+    try {
+      declaration = this.checker.getResolvedSignature(node)?.declaration;
+    } catch {
+      return [];
+    }
+    if (!declaration?.parameters || !this.program.isSourceFileDefaultLibrary(declaration.getSourceFile())) return [];
+    const calls = [];
+    for (const [index,argument] of node.arguments.entries()) {
+      const parameter = declaration.parameters[index] || (declaration.parameters.at(-1)?.dotDotDotToken ? declaration.parameters.at(-1) : undefined);
+      if (!parameter?.type || !this.typeNodeHasFunction(parameter.type,parameter.getSourceFile())) continue;
+      if (this.isCheckedCallback(argument)) continue;
+      calls.push({callee:this.collapsedText(argument),span:this.span(argument)});
+    }
+    return calls;
+  }
+
+  // isCheckedCallback reports whether a callback argument is checked elsewhere or does no I/O.
+  isCheckedCallback(argument) {
+    const ts = this.ts;
+    const value = this.unwrap(argument);
+    if (!value || ts.isArrowFunction(value) || ts.isFunctionExpression(value)) return true;
+    if (value.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(value) && value.text === "undefined")) return true;
+    if (this.dexValueOrigin(value,0)) return true;
+    // A parameter may also accept a non-function, such as the key list of JSON.stringify; an unresolved import is any.
+    const type = this.checker.getTypeAtLocation(value);
+    if (!(type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) && !type.getCallSignatures().length) return true;
+    if (!ts.isIdentifier(value) && !ts.isPropertyAccessExpression(value)) return false;
+    const declaration = this.sourceDeclarationOf(ts.isPropertyAccessExpression(value) ? value.name : value);
+    if (!declaration) return false;
+    const sourceFile = declaration.getSourceFile();
+    if (this.program.isSourceFileDefaultLibrary(sourceFile)) {
+      if (ts.isFunctionDeclaration(declaration)) return pureLibraryFunctions.has(declaration.name?.text);
+      return ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) && pureLibraryContainers.has(declaration.name.text);
+    }
+    if (sourceFile !== this.tree) return false;
+    // classifyFunctionValue follows same-file functions passed as values.
+    return ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration) ||
+      (ts.isVariableDeclaration(declaration) && !!declaration.initializer && (ts.isArrowFunction(this.unwrap(declaration.initializer)) || ts.isFunctionExpression(this.unwrap(declaration.initializer))));
+  }
+
+  typeNodeHasFunction(typeNode,sourceFile) {
+    const ts = this.ts;
+    if (ts.isFunctionTypeNode(typeNode) || ts.isConstructorTypeNode(typeNode)) return true;
+    if (ts.isParenthesizedTypeNode(typeNode)) return this.typeNodeHasFunction(typeNode.type,sourceFile);
+    if (ts.isUnionTypeNode(typeNode) || ts.isIntersectionTypeNode(typeNode)) return typeNode.types.some(part => this.typeNodeHasFunction(part,sourceFile));
+    return ts.isTypeReferenceNode(typeNode) && typeNode.typeName.getText(sourceFile) === "Function";
   }
 
   // classifyFunctionValue checks a function referenced as a value, such as a callback argument, which may run later.

@@ -20,6 +20,7 @@ import (
 
 const typeScriptLockedMethodSource = `import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { sendMail } from "./mailer.js";
 import {
   Attribute,
   Client,
@@ -144,7 +145,8 @@ const typeScriptPureExecuteBody = `const names: string[] = [input.trim().toUpper
     const label = new Intl.NumberFormat("en-US").format(lengths.size);
     counter.set(context, lengths.size + formatReminder(label).length + this.countWords(input));
     const digest = createHash("sha256").update(Buffer.from(input).toString("base64")).digest("hex");
-    ending.set(context, Number.parseInt(digest.slice(0, 1), 16) > 0 || names.some(name => isBlank(name)));`
+    const keys = JSON.stringify({digest}, ["digest"]) + names.map(String).filter(Boolean).join(",");
+    ending.set(context, Number.parseInt(digest.slice(0, 1), 16) > keys.length || names.some(name => isBlank(name)));`
 
 const typeScriptPureHelperSource = `function formatReminder(input: string): string {
   return ` + "`reminder for ${input.trim()}`" + `.padEnd(3);
@@ -235,6 +237,14 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "ending.set(context, readFileSync(input, \"utf8\") === \"\");"},
 			messages: []string{"and calls readFileSync" + typeScriptLockedMessageSuffix},
 		},
+		"map receives an imported callback": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void [input].map(sendMail);"},
+			messages: []string{"and calls sendMail" + typeScriptLockedMessageSuffix},
+		},
+		"then receives an injected method": {
+			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void Promise.resolve(input).then(this.flow.mailer.send);"},
+			messages: []string{"and calls this.flow.mailer.send" + typeScriptLockedMessageSuffix},
+		},
 		"no RPC lock": {
 			source: typeScriptLockedMethodCase{executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);"},
 		},
@@ -267,10 +277,10 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 	}
 }
 
-func TestTypeScriptLockedMethodExternalCallMarksEveryStepMethod(t *testing.T) {
+func TestTypeScriptLockedMethodExternalCallMarksOnlyPhasesWithSharedLocks(t *testing.T) {
 	graph := analyzeTypeScriptLockedMethodSource(t, typeScriptLockedMethodCase{
-		rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: typeScriptPureExecuteBody,
-		deliverBody: "void this.flow.mailer.send(input);", extraSource: typeScriptPureHelperSource,
+		rpcLock: "ending.lock()", executeLock: "ending.lock()", deliverLock: "counter.lock()", executeBody: typeScriptPureExecuteBody,
+		waitBody: "void this.flow.mailer.send(input);", deliverBody: "void this.flow.mailer.send(input);", extraSource: typeScriptPureHelperSource,
 	})
 	require.Empty(t, graph.Diagnostics)
 	markers := make(map[string][]string)
@@ -281,11 +291,7 @@ func TestTypeScriptLockedMethodExternalCallMarksEveryStepMethod(t *testing.T) {
 		}
 		markers[marker.NodeID+" "+marker.Phase] = callees
 	}
-	require.Equal(t, map[string][]string{
-		"step:SendReminderStep wait_for": {},
-		"step:SendReminderStep execute":  {},
-		"step:DeliverStep execute":       {"this.flow.mailer.send"},
-	}, markers)
+	require.Equal(t, map[string][]string{"step:SendReminderStep execute": {}}, markers)
 }
 
 func analyzeTypeScriptLockedMethodSource(t *testing.T, source typeScriptLockedMethodCase) *Graph {
