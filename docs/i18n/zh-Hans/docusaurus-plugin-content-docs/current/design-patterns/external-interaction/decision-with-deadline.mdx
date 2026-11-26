@@ -75,7 +75,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 - **按服务器提交顺序。** 回应窗口或 lock 一次提交接纳一条回应。最先提交的回应胜出，所以不会出现平局。这就是上面的回应窗口。
 - **按检查等待条件时一起就绪的竞争 Channel 排序。** 同一个 `AnyOf` 里一起就绪的 Channel Condition 中，先声明的胜出，`Execute` 使用它消费的消息。这只在 Channel 之间排序。同一个等待里的 Timer 如果也已就绪，会先被选中，消息仍留在 Channel 里。
 
-Timer 胜出后，`Execute` 再检查 Channel 时，看到的是 `Execute` 读取状态时已经提交的回应。这比检查等待条件的时点晚。示例的 `RouteResponseBeforeExpiry` 分支就依赖这一点：它接收在 Timer 胜出之后才提交的回应。
+Timer 胜出后，`Execute` 再检查 Channel 时，看到的是 `Execute` 首次状态快照中已经提交的回应。重试沿用这个快照。这比检查等待条件的时点晚。示例里，`Execute` 先拿到共享的窗口锁，Dex 再建立快照。示例的 `RouteResponseBeforeExpiry` 分支就依赖这一点：它接收在 Timer 胜出之后才提交的回应。
 
 ### 在加锁轮次中给所有事件排序 {#locked-round}
 
@@ -93,7 +93,7 @@ Timer 胜出后，`Execute` 再检查 Channel 时，看到的是 `Execute` 读�
 
 决定只由这一轮的 Attribute 状态得出，所以重试的 `Execute` 会得到同样的决定。`Execute` 在重试和退避期间一直持有锁，所以这期间不会有新的候选加入。截止点是成功提交的加锁关窗，不是 Timer。在它之前接纳的候选都有资格，即使 Timer 已经触发。
 
-`Execute` 用完重试时，关窗和决定都不会提交。给 `Execute` 设一个短的重试预算和一个失败路由。恢复 Step 拿同一组锁，并再次核对窗口。轮次已关闭或不存在时，用 dead end 结束当前分支。否则在一次提交里，它要么根据已存的候选重新仲裁，要么关闭这一轮并记录失败，同时记录给每个候选的答复。然后它以这些答复为输入，进入同一个不持有锁的答复 Step。RPC 也拿这一轮的锁，所以两条路径都不在持有锁时发送答复。它不依赖唤醒消息。没有失败路由时，Flow 失败，发送方从它的终态得知结果。
+`Execute` 用完重试时，关窗和决定都不会提交。给 `Execute` 设一个短的重试预算和一个失败路由。恢复 Step 拿同一组锁，并再次核对窗口。轮次已关闭或不存在时，用 dead end 结束当前分支。否则在一次提交里，它要么根据已存的候选重新仲裁，要么关闭这一轮并记录失败，同时记录给每个候选的答复。然后它以这些答复为输入，进入同一个不持有锁的答复 Step。RPC 也拿这一轮的锁，所以两条路径都不在持有锁时发送答复。即使 Flow 默认是 ASYNC，仲裁 Step 和恢复 Step 的 `Execute` 也保持 SYNC，这样决定和答复在答复 Step 运行之前就已持久化；见 [Durability](/reference/go/step-options#durability)（英文）。它不依赖唤醒消息。没有失败路由时，Flow 失败，发送方从它的终态得知结果。
 
 落选的候选留在记录里。锁的顺序是提交顺序，不是业务优先级，所以加锁的 RPC 从不在有优先级的事件之间做决定。
 

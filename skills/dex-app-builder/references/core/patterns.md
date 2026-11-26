@@ -461,13 +461,14 @@ Send reminders until the recipient opts out. Go folder: `reminders`.
 ```text
 Remind.waitFor(occurrence) -> AnyOf(Timer(interval), OptOut.ForOne())
 Remind.execute(occurrence) -> if the Timer did not fire: gracefulComplete()
-                              if OptOut.size() > 0: gracefulComplete()   // opted out after the Timer won
+                              if OptOut.size() > 0: gracefulComplete()   // in this Execute's first snapshot
                               send the reminder, keyed by Flow ID + occurrence; goTo(Remind, occurrence + 1)
 rpc optOutReminders -> OptOut.publish()
 ```
 
-- Only one Step consumes the opt-out Channel. A Timer-won Execute checks the opt-out Channel before it sends, so an opt-out that committed by then stops the next reminder. A reminder already being sent may still arrive once.
-- Key each send by a stable occurrence ID, so a retried Execute does not send twice.
+- Only one Step consumes the opt-out Channel. The decision point is the Execute's first state snapshot; retries reuse it, and `OptOut.size()` reads it. An opt-out in that snapshot stops this reminder. An opt-out committed after the snapshot may let this already-decided reminder go out once, and the next wait still includes the opt-out Condition, so it stops the following one.
+- When the business needs the opt-out to stop the reminder up to the decision commit, the opt-out RPC and the deciding Step share a lock, and an unlocked Step sends after the commit.
+- Key each send by a stable occurrence ID that the receiver recognizes and deduplicates, so a retried Execute does not deliver twice.
 - The runnable reminders examples show the single-consumer relative-Timer loop. Their send call has no occurrence idempotency key.
 
 ### Idle Timer
@@ -714,7 +715,7 @@ RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected
 - When the wait is evaluated, Dex selects one ready Condition: a ready Timer first, otherwise the first ready Channel in declaration order. When Conditions become ready at different times, the first event to satisfy the wait wins. Declare the decision Channels in business priority order.
 - Declaration order ranks only Channels that are ready when the wait is evaluated. When the business ranks responses, keep that rule and state which definition of "the same moment" the design uses; see [Arbitrate by business priority](#arbitrate-by-business-priority).
 - A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. Two responses can also both be accepted before the wait takes one. With the window, the first response closes it: it is recorded and decides, and every later caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
-- The Timer branch's size check selects a response committed by the time Execute reads its state, even one that committed after the Timer won. That is the window's commit-order boundary, not the wait-evaluation moment.
+- The Timer branch's size check selects a response committed in Execute's first state snapshot, even one that committed after the Timer won; retries reuse that snapshot. Execute takes the shared window lock before Dex builds that snapshot. That is the window's commit-order boundary, not the wait-evaluation moment.
 - The runnable deferred-choice examples show only this first-committed-response window. They have no ranked rounds, recovery route, or reply Step.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
@@ -775,7 +776,7 @@ Use this when the business ranks events against each other, such as a withdrawal
 - **(a) Server commit order.** A reply window or lock admits replies one commit at a time. The first committed reply wins, so ties never occur.
 - **(b) Competing Channels ready when the wait is evaluated.** Among the Channel Conditions of one AnyOf that are ready together, the first declared wins, and Execute uses the messages it consumed. This ranks Channels strictly at that moment. It does not rank a Channel against a Timer: a ready Timer is selected first.
 
-When a Timer wins and Execute then re-checks the Channels, for example by their size, it selects the events committed by the time Execute reads its state. That is a later moment than the wait evaluation: a message that committed after the Timer won, and before Execute took its locks, is included. Say so when the design relies on it, as the [Decision with Deadline](#decision-with-deadline) skeleton does.
+When a Timer wins and Execute then re-checks the Channels, for example by their size, it selects the events committed in Execute's first state snapshot, and its retries reuse that snapshot. That is a later moment than the wait evaluation: a message that committed after the Timer won, and before Dex built the snapshot, is included. A locked Execute takes its locks before the snapshot is built. Say so when the design relies on it, as the [Decision with Deadline](#decision-with-deadline) skeleton does.
 
 To rank every event admitted before the decision, use a locked round instead: its closed window defines which events are eligible, and the arbitration Step ranks them. A reply window can be combined with ranked replies this way.
 
@@ -818,7 +819,7 @@ AnswerSenders.execute({outcome, answers})      // no lock and no round read: the
 ```
 
 - The RPCs answer "received". The receipt confirms admission only; the arbitration Step decides.
-- Every RPC and Step that reads or changes a round's window or candidates holds that round's locks. Both the arbitration Step and the recovery Step commit the outcome and one immutable answer per candidate under those locks, then pass them to an unlocked Step that sends the answers, because the RPCs take the same locks. An RPC names its target round, so a late RPC for a closed round gets "closed" and never reaches a newer round.
+- Every RPC and Step that reads or changes a round's window or candidates holds that round's locks. Both the arbitration Step and the recovery Step commit the outcome and one immutable answer per candidate under those locks, then pass them to an unlocked Step that sends the answers, because the RPCs take the same locks. Keep the Execute of the arbitration Step and the recovery Step SYNC, even when the Flow defaults to ASYNC, so the decision and the answers are stored before the answering Step runs; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability). An RPC names its target round, so a late RPC for a closed round gets "closed" and never reaches a newer round.
 - Each round's candidates hold everything that decides the outcome: a key of round ID, event type, and event ID, a payload reference, rank, and admission order. The key also deduplicates retries and keys the answers.
 - Publish one wake-up, in the same commit, when a round's candidate set goes from empty to non-empty; later admissions only append. The wake-up carries no data and its ChannelMap key is the round ID. Never read a wake-up to decide candidates or the outcome. When the Timer wins, one wake-up may stay pending; delete it with the round's other state when a long-running Flow must reclaim state.
 - The arbitration Step and the recovery Step both recheck the round's window under its locks. When the round is closed or missing, they end the branch with a dead end: no decision and no business route. Never return an empty decision for this case.

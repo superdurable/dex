@@ -395,11 +395,21 @@ total duration, such as a few minutes, in its `StepOptions` retry policy; see
 Some processes accept that an already decided action may still happen once,
 such as a reminder that is about to be sent when a stop request arrives. Such
 a process needs no lock. The RPC publishes the request and answers
-"received". Every later decision handles a stop that has arrived before it
-commits a new action. That includes the branch where a Timer was selected
-first. One message reaches one consumer, so parallel consumers use a durable
-stop Attribute or one message per branch. The already decided action runs
-idempotently with a stable occurrence ID.
+"received". The decision point is the deciding `Execute`'s first state
+snapshot. Its retries reuse that snapshot. The `Execute` checks the stop in
+that snapshot, also in the branch where a Timer was selected first. A stop
+committed after the snapshot may let the already decided action happen once.
+Every later interruptible wait still includes the stop Condition.
+
+One message reaches one consumer, so parallel consumers use a durable stop
+Attribute or one message per branch. The grace then applies per decided action
+or branch. When the business allows only one such action overall, decide the
+actions one at a time. The decided action carries a stable occurrence ID that
+the receiver recognizes and deduplicates.
+
+When the business deadline is the decision commit itself, the stop RPC and the
+deciding Step share a lock. An unlocked Step then makes the call after the
+commit.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 `Execute` runs:
