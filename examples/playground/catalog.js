@@ -153,6 +153,42 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "products",
+    id: "refund-durable-timers",
+    title: "Refund with durable Timers",
+    flowIdPrefix: "refund-timers",
+    note: "Python-only. Send a customer message with documentsComplete=true, then decide. Skip a Timer to fire it now: manager-reminder, customer-idle, settlement-poll, or refund-deadline.",
+    endpoints: [
+      endpoint("GET", "/products/refund-durable-timers/start", "Start", [
+        flowId(),
+        query("settlementPolling", { type: "select", options: ["timer", "heartbeat"], default: "timer" }),
+        query("transientFailures", { default: "0" }),
+        query("rateLimitRetryAfter", { default: "0" }),
+        query("settleAfterChecks", { default: "1" }),
+        query("neverSettle", { type: "select", options: ["false", "true"], default: "false" }),
+      ]),
+      endpoint("GET", "/products/refund-durable-timers/send-customer-message", "Send customer message", [
+        flowId(),
+        query("text", { default: "Here is my bank statement." }),
+        query("documentsComplete", { type: "select", options: ["true", "false"], default: "true" }),
+      ]),
+      endpoint("GET", "/products/refund-durable-timers/decide", "Approve or reject", [
+        flowId(),
+        query("decision", { type: "select", options: ["approve", "reject"], default: "approve" }),
+        query("reason", { default: "Receipts match" }),
+      ]),
+      endpoint("GET", "/products/refund-durable-timers/skip-timer", "Skip a Timer", [
+        flowId(),
+        query("timer", {
+          type: "select",
+          options: ["manager-reminder", "customer-idle", "settlement-poll", "refund-deadline"],
+          default: "manager-reminder",
+        }),
+      ]),
+      endpoint("GET", "/products/refund-durable-timers/describe", "Describe", [flowId()]),
+    ],
+  },
+  {
+    group: "products",
     id: "signup",
     title: "User onboarding process",
     flowIdPrefix: "signup-user",

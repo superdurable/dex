@@ -120,6 +120,13 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "products/refund-durable-timers",
+            lambda c: trigger_get(
+                "/products/refund-durable-timers/start",
+                {"workflowId": new_id("refund-timers")},
+            ),
+        ),
+        FlowSmokeEntry(
             "products/subscription",
             lambda c: trigger_get("/products/subscription/start", {}),
         ),
