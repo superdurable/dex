@@ -294,13 +294,11 @@ class FirstExecutionGate:
         self.entered = asyncio.Event()
         self.released = asyncio.Event()
         self.finished = asyncio.Event()
-        self.context: Context | None = None
         self._original_execute = step.execute
 
     def execute(self, context: Context, input: Any) -> Any:
         if context.flow_id != self.flow_id or self.entered.is_set():
             return self._original_execute(context, input)
-        self.context = context
         self.entered.set()
         return self._execute_after_release(context, input)
 
@@ -310,12 +308,6 @@ class FirstExecutionGate:
             return self._original_execute(context, input)
         finally:
             self.finished.set()
-
-    def is_canceled(self) -> bool:
-        """Returns whether Dex canceled the held execution."""
-        return self.finished.is_set() or (
-            self.context is not None and self.context.is_cancellation_requested()
-        )
 
 
 async def test_rpc_cannot_slip_in_while_a_step_changes_the_stage(
@@ -446,10 +438,9 @@ async def test_lesson5_deadline_cancels_a_pending_documents_request(
         status = (await client.get_attributes(flow_id, CASE_STATUS)).get(CASE_STATUS)
         assert status == "escalated-deadline"
         # The deadline decision canceled the documents email that was still pending.
-        deadline = asyncio.get_running_loop().time() + WAIT_TIMEOUT.total_seconds()
-        while not documents_gate.is_canceled():
-            assert asyncio.get_running_loop().time() < deadline, "documents Step not canceled"
-            await asyncio.sleep(0.1)
+        state = await client.get_flow_state(flow_id)
+        active_ids = [step.step_execution_id for step in state.active_step_executions]
+        assert not any(item.startswith("SendDocumentsRequest") for item in active_ids)
         documents_gate.released.set()
         await asyncio.wait_for(documents_gate.finished.wait(), WAIT_TIMEOUT.total_seconds())
     finally:

@@ -80,9 +80,10 @@ After the email, `SendClosingNotification` force-completes the Flow and
 cancels every Step still running. Until then other Steps keep running, so
 every Step that writes `case-status` first checks for `escalated-deadline`
 and ends with `dead_end()` instead of overwriting it. `SendDocumentsRequest`
-also skips the email when its execution is already canceled. A documents
-email already handed to the email service before the cancellation may still
-be delivered.
+also skips the email when its execution is already canceled. The skip takes
+effect only once the Worker observes the cancellation. Until then a running
+Step keeps its old Attribute snapshot. An email call that started after its
+check cannot be recalled, so that documents email may still be delivered.
 
 At the 7-day deadline, an RPC can still accept a message before the timeout
 handler acquires the `case-status` lock. The message may be processed,
