@@ -43,7 +43,7 @@ Keep your framework (Claude Agent SDK, OpenAI Agents SDK, and more) and start wi
 
 Dex runs *any* long-running agent or workflow to completion:
 
-- **[No replay](https://docs.superdurable.io/intro/what-is-dex#how-this-differs-from-replay-based-durable-execution)**: Most durable execution engines recover a process by running your code again from the top, so your code must behave the same on every run. Dex saves each Step's result and continues from the next Step. Its structured model keeps the API small: fewer primitives, less code, and fewer bugs. Without replay, Dex:
+- **[No replay](https://docs.superdurable.io/intro/compared-to-temporal#the-main-difference-an-explicit-step-graph-not-replayed-code)**: Most durable execution engines recover a process by running your code again from the top, so your code must behave the same on every run. Dex saves each Step's result and continues from the next Step. Its structured model keeps the API small: fewer primitives, less code, and fewer bugs. Without replay, Dex:
   - eliminates non-determinism errors completely: a Step can read the clock, use random values, and call any library
   - supports long-running Flows without "continueAsNew". Dex can keep any history size and length as you want.
   - needs no "sticky cache" in worker memory: No need to worry memory pressure in production. 

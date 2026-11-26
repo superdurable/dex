@@ -6,7 +6,7 @@ slug: /use-cases/order-processing
 
 # 订单处理
 
-运行 [为什么是 Dex？](/intro/what-is-dex) 里介绍的订单 Flow。你会启动 Dex，运行示例应用，通过 HTTP 下一个订单，批准发货，再在 Dex Web 里查看这次运行。
+运行一个订单 Flow。你会启动 Dex，运行示例应用，通过 HTTP 下一个订单，批准发货，再在 Dex Web 里查看这次运行。
 
 ## 1. 启动 Dex
 
@@ -24,7 +24,7 @@ cd dex
 
 <a id="2-flowstep-和-rpc"></a>
 
-下面的代码就是 [为什么是 Dex？](/intro/what-is-dex) 里的 Flow，包括它的 Step、approve 和 describe 两个 RPC，以及它的 Attribute。
+下面的代码就是这个 Flow，包括它的 Step、approve 和 describe 两个 RPC，以及它的 Attribute。
 
 把 mock 的支付和发货 API 传给 Flow 的 constructor，这样从 Worker 注册 Flow 的那一刻起，每个 Step 都能用到它们。用 setter 或全局变量会留下一段 Step 在没有它们的情况下运行的窗口。见[把服务传给 Flow](/components/application#pass-services-to-the-flow)。
 
@@ -1413,5 +1413,4 @@ Timeline 标签页从左到右显示同一次 run 的事件。选中一个事件
 
 - [概念](/concepts)：这个示例用到的 Flow、Step、Channel、Timer 等基本组成部分。
 - [你的应用](/components/application)：怎样在你自己的服务里加入 Worker 和 Client。
-- [Dex vs. 数据库](/intro/compared-to-database)：用数据库和队列实现的同一个订单流程。
 - [产品示例](/use-cases)：更多完整示例，包括两个 AI Agent。
