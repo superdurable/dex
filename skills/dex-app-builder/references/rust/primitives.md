@@ -607,8 +607,9 @@ fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<S
 - "Not ready" stays inside the loop. Only transient provider failures return
   `Err`, so Step retry runs again.
 - A blocking call in a Rust handler cannot observe cancellation, and the
-  Worker slot is released only when the handler returns, so give each
-  provider call its own timeout. Keep the longest gap between heartbeats,
+  Worker slot is released only when the handler returns, so prefer giving
+  each provider call its own timeout; the heartbeat or method timeout still
+  ends the attempt. Keep the longest gap between heartbeats,
   including `POLL_INTERVAL` and the slowest healthy call, below the
   heartbeat timeout the Step sets, with a margin. Raise it only when a healthy call is silent
   longer. The default is in the

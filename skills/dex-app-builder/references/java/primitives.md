@@ -555,8 +555,9 @@ public StepDecision execute(Context context, Void input) {
 
 Follow the polling rules in [../core/patterns.md](../core/patterns.md). In Java:
 one `execute` loops; it calls the provider with a client that honors thread
-interrupts, or gives the call its own timeout when the client ignores them,
-because the Worker slot is released only when the handler returns. It keeps
+interrupts, or preferably gives the call its own timeout when the client
+ignores them, because the Worker slot is released only when the handler
+returns. It keeps
 "not ready" inside the loop, throws only transient errors, writes a Stream message
 or `recordHeartbeat` each round, then `Thread.sleep(interval)`. Restore the
 interrupt flag on `InterruptedException`. Bound the whole wait with
