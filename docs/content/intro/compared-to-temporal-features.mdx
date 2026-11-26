@@ -105,7 +105,24 @@ See [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attribut
 
 ## Features both engines have {#shared-features}
 
-Both engines have these features, and they work differently. [Operating and Recovering Flows](/intro/compared-to-temporal/experience) compares each one.
+### Features that work alike {#shared-alike}
+
+The [terms map](/intro/compared-to-temporal#term-map) lists every pair.
+
+| Feature | Temporal | Dex |
+| --- | --- | --- |
+| Identity | Workflow ID and Run ID | Flow ID and Run ID |
+| ID reuse | Workflow ID Conflict Policy for an open ID, Workflow ID Reuse Policy for a closed one | One ID reuse policy for open and closed Flow IDs |
+| Durable timers | Timer, `sleep` | [Timer](/concepts/primitives/timer) in a Step's `WaitFor` |
+| Retries and timeouts | A retry policy and timeouts on each Activity | A retry policy and timeouts on each Step method, with the same default backoff |
+| Routing | Task Queue | Task queue, with routing by Flow type inside it |
+| Search | Search Attributes | Indexed Attributes |
+| Cancellation | Cancellation of a Workflow or an Activity | An RPC cancels Steps by Step type, and `StopFlow` stops the Flow |
+| Workers | Workers in your process poll the Temporal Service | Workers in your process poll Dex Server |
+
+### Features that work differently {#shared-different}
+
+[Operating and Recovering Flows](/intro/compared-to-temporal/experience) compares each one.
 
 | Feature | Temporal | Dex |
 | --- | --- | --- |

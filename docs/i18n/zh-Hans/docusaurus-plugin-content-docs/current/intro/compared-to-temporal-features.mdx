@@ -105,7 +105,24 @@ Dex 把 hard-delete Attribute 的每个值只存在对象存储里，Flow 历史
 
 ## 两边都有的功能 {#shared-features}
 
-下面这些功能两边都有，但做法不同。[操作和恢复 Flow](/intro/compared-to-temporal/experience) 逐项对比。
+### 做法相近的功能 {#shared-alike}
+
+[术语对照](/intro/compared-to-temporal#term-map)列出了全部对应关系。
+
+| 功能 | Temporal | Dex |
+| --- | --- | --- |
+| 标识 | Workflow ID 和 Run ID | Flow ID 和 Run ID |
+| ID 复用 | 未结束的 ID 用 Workflow ID Conflict Policy，已结束的用 Workflow ID Reuse Policy | 一个 ID reuse policy，同时管未结束和已结束的 Flow ID |
+| 持久的定时器 | Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) |
+| 重试和超时 | 每个 Activity 有重试策略和超时 | 每个 Step 方法有重试策略和超时，默认退避相同 |
+| 路由 | Task Queue | task queue，队列内部按 Flow 类型路由 |
+| 搜索 | Search Attributes | Indexed Attributes |
+| 取消 | 取消一个 Workflow 或 Activity | RPC 按 Step 类型取消 Step，`StopFlow` 停止 Flow |
+| Worker | 你进程里的 Worker 从 Temporal Service 拉取任务 | 你进程里的 Worker 从 Dex Server 拉取任务 |
+
+### 做法不同的功能 {#shared-different}
+
+[操作和恢复 Flow](/intro/compared-to-temporal/experience) 逐项对比。
 
 | 功能 | Temporal | Dex |
 | --- | --- | --- |
