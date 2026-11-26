@@ -40,7 +40,7 @@ var goDeniedStandardLibraryFunctions = map[string]bool{
 // goDexSDKPackagePrefixes are the Dex SDK packages whose calls stay inside Dex.
 var goDexSDKPackagePrefixes = []string{goSDKPackage, "github.com/superdurable/dex/sdk-go/logging"}
 
-// goExternalCallFinder fills methodExternalCalls for every Go Step method with an allowlist.
+// goExternalCallFinder fills methodExternalCalls for Go Step methods with an allowlist.
 type goExternalCallFinder struct {
 	analyzer *goAnalyzer
 	// exactResults caches helpers whose result did not depend on the depth bound or a cycle.
@@ -56,19 +56,62 @@ func newGoExternalCallFinder(analyzer *goAnalyzer) *goExternalCallFinder {
 	}
 }
 
-func (finder *goExternalCallFinder) record() {
+// record marks only the Step methods that share a lock with an RPC.
+func (finder *goExternalCallFinder) record(stepLockEdges []Edge) {
+	graph := finder.analyzer.graph
+	shared := graph.stepMethodsSharingRPCLocks(graph.Edges, stepLockEdges)
+	marked := make(map[string]bool)
 	for _, handler := range finder.analyzer.handlerSummaries {
-		if handler.phase != "execute" && handler.phase != "wait_for" {
+		key := stepMethodKey(handler.ownerID, handler.phase)
+		if !shared[key] || marked[key] {
 			continue
 		}
-		if handler.method == nil || handler.method.Body == nil {
-			continue
+		marked[key] = true
+		calls := []possibleExternalCall{finder.unreadableBody(handler.ownerID, handler.phase)}
+		if handler.method != nil && handler.method.Body != nil {
+			calls, _ = finder.bodyExternalCalls(handler.method.Body, 0, false)
 		}
-		calls, _ := finder.bodyExternalCalls(handler.method.Body, 0, false)
-		finder.analyzer.graph.methodExternalCalls = append(finder.analyzer.graph.methodExternalCalls, methodExternalCalls{
-			NodeID: handler.ownerID, Phase: handler.phase, Calls: calls,
-		})
+		graph.methodExternalCalls = append(graph.methodExternalCalls, methodExternalCalls{NodeID: handler.ownerID, Phase: handler.phase, Calls: calls})
 	}
+	for stepType, nodeID := range finder.analyzer.steps {
+		for _, phase := range []string{"execute", "wait_for"} {
+			key := stepMethodKey(nodeID, phase)
+			if !shared[key] || marked[key] || finder.isDexSDKStepMethod(stepType, phase) {
+				continue
+			}
+			marked[key] = true
+			graph.methodExternalCalls = append(graph.methodExternalCalls, methodExternalCalls{
+				NodeID: nodeID, Phase: phase, Calls: []possibleExternalCall{finder.unreadableBody(nodeID, phase)},
+			})
+		}
+	}
+}
+
+// unreadableBody is the unresolved call reported for a Step method whose body dexcli cannot read.
+func (finder *goExternalCallFinder) unreadableBody(nodeID string, phase string) possibleExternalCall {
+	node := finder.analyzer.node(nodeID)
+	return possibleExternalCall{Callee: stepMethodLabel(phase) + " of " + node.Name + ", whose body dexcli cannot read", Span: node.Span}
+}
+
+// isDexSDKStepMethod reports whether the Step's method comes from an SDK default, such as dex.StepDefaults.
+func (finder *goExternalCallFinder) isDexSDKStepMethod(stepType string, phase string) bool {
+	valueType := finder.analyzer.stepValueTypes[stepType]
+	if valueType == nil {
+		return false
+	}
+	methodName := "Execute"
+	if phase == "wait_for" {
+		methodName = "WaitFor"
+	}
+	if _, isPointer := valueType.(*types.Pointer); !isPointer {
+		valueType = types.NewPointer(valueType)
+	}
+	selection := types.NewMethodSet(valueType).Lookup(nil, methodName)
+	if selection == nil {
+		return false
+	}
+	method, isFunction := selection.Obj().(*types.Func)
+	return isFunction && method.Pkg() != nil && isGoDexSDKPackage(method.Pkg().Path())
 }
 
 // goExternalCallScan collects the possible external calls of one function body.
@@ -162,7 +205,7 @@ func (finder *goExternalCallFinder) classify(callee string, function *types.Func
 		return &possibleExternalCall{Callee: callee}, true
 	}
 	receiver := function.Signature().Recv()
-	if isGoDexClientMethod(function, receiver) {
+	if isGoDexServerFacingCall(function, receiver) {
 		return &possibleExternalCall{Callee: callee}, true
 	}
 	if function.Pkg() == nil || isGoDexSDKPackage(function.Pkg().Path()) {
@@ -212,17 +255,32 @@ func (finder *goExternalCallFinder) helperExternalCall(function *types.Func, dec
 	return result, isExact
 }
 
-// isGoDexClientMethod reports a dex.Client method; it reaches the Dex server, so it counts as external.
-func isGoDexClientMethod(function *types.Func, receiver *types.Var) bool {
-	if receiver == nil || function.Pkg() == nil || function.Pkg().Path() != goSDKPackage {
+// goDexServerFacingReceiverTypes reach the Dex server, read files, or run application callbacks.
+var goDexServerFacingReceiverTypes = map[string]bool{
+	"AESGCMPayloadCodec": true, "Client": true, "Credential": true, "FilePayloadEncryptionKeyProvider": true,
+	"PayloadCodec": true, "PayloadEncryptionKeyProvider": true, "Worker": true,
+}
+
+// goDexServerFacingFunctions construct server connections or read files.
+var goDexServerFacingFunctions = map[string]bool{
+	"APIKeyCredential": true, "FileCredential": true, "NewClient": true, "NewFilePayloadEncryptionKeyProvider": true,
+	"NewWorker": true, "ReadFlowDefinitionFiles": true,
+}
+
+// isGoDexServerFacingCall reports a Dex SDK entry outside the handler API; it counts as external.
+func isGoDexServerFacingCall(function *types.Func, receiver *types.Var) bool {
+	if function.Pkg() == nil || function.Pkg().Path() != goSDKPackage {
 		return false
+	}
+	if receiver == nil {
+		return goDexServerFacingFunctions[function.Name()]
 	}
 	receiverType := receiver.Type()
 	if pointer, isPointer := receiverType.(*types.Pointer); isPointer {
 		receiverType = pointer.Elem()
 	}
 	named, isNamed := receiverType.(*types.Named)
-	return isNamed && named.Obj().Name() == "Client"
+	return isNamed && goDexServerFacingReceiverTypes[named.Obj().Name()]
 }
 
 func isGoDexSDKPackage(path string) bool {

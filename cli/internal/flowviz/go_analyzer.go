@@ -271,7 +271,7 @@ func (analyzer *goAnalyzer) reportStateLoadsAndApplicationLints(getSteps *ast.Fu
 	rpcLocks := &goRPCLockRecorder{analyzer: analyzer, evaluator: evaluator, sources: checker.sources}
 	rpcLocks.record()
 	stepLockEdges := analyzer.stepLockEdges(rpcLocks)
-	newGoExternalCallFinder(analyzer).record()
+	newGoExternalCallFinder(analyzer).record(stepLockEdges)
 	if scopeResources {
 		registered := analyzer.persistenceResources(flowName, evaluator)
 		for _, edge := range stepLockEdges {

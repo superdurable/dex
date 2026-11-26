@@ -119,10 +119,7 @@ func (DeliverStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{DELIVER_LOCK}}
 }
 
-func (step DeliverStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	DELIVER_BODY
-	return dex.GracefulComplete(input), nil
-}
+DELIVER_EXECUTE
 
 EXTRA_SOURCE
 `
@@ -135,8 +132,15 @@ type goLockedMethodCase struct {
 	waitBody    string
 	executeBody string
 	deliverBody string
-	extraSource string
+	// deliverExecute, when set, replaces the whole DeliverStep Execute method.
+	deliverExecute string
+	extraSource    string
 }
+
+const goDefaultDeliverExecute = `func (step DeliverStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	DELIVER_BODY
+	return dex.GracefulComplete(input), nil
+}`
 
 const goPureExecuteBody = `encoded, _ := json.Marshal(map[string]string{"to": strings.ToUpper(input)})
 	slog.Info("reminder", "at", time.Now().Format(time.RFC3339), "body", fmt.Sprintf("%s", encoded))
@@ -194,6 +198,20 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls reminderClient.StartFlow;"},
 		},
+		"bodyless Step method sharing an RPC lock": {
+			source: goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", deliverLock: "dex.LockAttribute(ending)",
+				deliverExecute: "func (step DeliverStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error)",
+			},
+			messages: []string{"and calls Execute of DeliverStep, whose body dexcli cannot read;"},
+		},
+		"bodyless same-package helper": {
+			source: goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "linkedHelper(input)",
+				extraSource: "func linkedHelper(input string)",
+			},
+			messages: []string{"and calls linkedHelper;"},
+		},
 		"standard library sleep": {
 			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "time.Sleep(time.Second)"},
 			messages: []string{"and calls time.Sleep;"},
@@ -223,8 +241,65 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 	}
 }
 
+func TestGoLockedMethodServerFacingSDKCalls(t *testing.T) {
+	const declarations = `var (
+	reminderWorker      *dex.Worker
+	reminderCredential  dex.Credential
+	reminderCodec       dex.PayloadCodec
+	reminderKeyProvider dex.PayloadEncryptionKeyProvider
+	reminderAESCodec    *dex.AESGCMPayloadCodec
+)`
+	testCases := map[string]struct{ body, callee string }{
+		"Worker.Start":                            {"_ = reminderWorker.Start()", "reminderWorker.Start"},
+		"NewClient":                               {"_, _ = dex.NewClient(nil, nil, dex.ClientOptions{})", "dex.NewClient"},
+		"NewWorker":                               {"_, _ = dex.NewWorker(nil, nil, dex.WorkerOptions{})", "dex.NewWorker"},
+		"FileCredential":                          {"_, _ = dex.FileCredential(input)", "dex.FileCredential"},
+		"APIKeyCredential":                        {"_, _ = dex.APIKeyCredential(input, input, input)", "dex.APIKeyCredential"},
+		"Credential.Token":                        {"_, _ = reminderCredential.Token(ctx)", "reminderCredential.Token"},
+		"ReadFlowDefinitionFiles":                 {"_, _ = dex.ReadFlowDefinitionFiles([]string{input}, nil)", "dex.ReadFlowDefinitionFiles"},
+		"NewFilePayloadEncryptionKeyProvider":     {"_, _ = dex.NewFilePayloadEncryptionKeyProvider(input)", "dex.NewFilePayloadEncryptionKeyProvider"},
+		"PayloadCodec.Decode":                     {"_, _ = reminderCodec.Decode(ctx, dex.PayloadContext{}, nil)", "reminderCodec.Decode"},
+		"PayloadEncryptionKeyProvider.CurrentKey": {"_, _ = reminderKeyProvider.CurrentKeyID(ctx, dex.PayloadContext{})", "reminderKeyProvider.CurrentKeyID"},
+		"AESGCMPayloadCodec.Encode":               {"_, _ = reminderAESCodec.Encode(ctx, dex.PayloadContext{}, nil)", "reminderAESCodec.Encode"},
+	}
+	for _, name := range slices.Sorted(maps.Keys(testCases)) {
+		testCase := testCases[name]
+		t.Run(name, func(t *testing.T) {
+			graph := analyzeGoLockedMethodSource(t, goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)",
+				executeBody: testCase.body, extraSource: declarations,
+			})
+			var messages []string
+			for _, diagnostic := range graph.Diagnostics {
+				if diagnostic.Code == "locked_method_external_call" {
+					messages = append(messages, diagnostic.Message)
+				}
+			}
+			require.Len(t, messages, 1, "%+v", graph.Diagnostics)
+			require.Contains(t, messages[0], "and calls "+testCase.callee+";")
+		})
+	}
+}
+
+func TestGoLockedMethodMarksOnlyMethodsSharingRPCLocks(t *testing.T) {
+	graph := analyzeGoLockedMethodSource(t, goLockedMethodCase{
+		rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", deliverLock: "dex.LockAttribute(counter)",
+		executeBody: "_ = step.mailer.Send(input)", deliverBody: "_ = step.mailer.Send(input)",
+	})
+	var marked []string
+	for _, marker := range graph.methodExternalCalls {
+		marked = append(marked, marker.NodeID+" "+marker.Phase)
+	}
+	require.Equal(t, []string{"step:SendReminderStep execute"}, marked)
+}
+
 func analyzeGoLockedMethodSource(t *testing.T, source goLockedMethodCase) *Graph {
 	t.Helper()
+	deliverExecute := source.deliverExecute
+	if deliverExecute == "" {
+		deliverExecute = goDefaultDeliverExecute
+	}
+	contents := strings.Replace(goLockedMethodSource, "DELIVER_EXECUTE", deliverExecute, 1)
 	replacer := strings.NewReplacer(
 		"RPC_LOCK", source.rpcLock,
 		"WAIT_LOCK", source.waitLock,
@@ -241,7 +316,7 @@ func analyzeGoLockedMethodSource(t *testing.T, source goLockedMethodCase) *Graph
 	module := "module reminders\n\ngo 1.26.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.ToSlash(sdkDirectory) + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0o644))
 	sourcePath := filepath.Join(directory, "workflow.go")
-	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(goLockedMethodSource)), 0o644))
+	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(contents)), 0o644))
 	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow"})
 	require.NoError(t, err)
 	return graph
