@@ -22,7 +22,6 @@ pub mod intervention;
 pub mod parallel;
 pub mod parallel_subflows;
 pub mod polling;
-pub mod polling_with_timer;
 pub mod recovery;
 pub mod reminders;
 pub mod sequentially_chunked_attribute_map;
@@ -78,7 +77,7 @@ fn register_with_client(
         .register(parallel_subflows::AdvancedShortLiveParentFlow::default())?
         .register(submit_request)?
         .register(polling::PollingFlow::new(Arc::clone(&polling_jobs)))?
-        .register(polling_with_timer::PollingWithTimerFlow::new(polling_jobs))?
+        .register(polling::timer::PollingWithTimerFlow::new(polling_jobs))?
         .register(recovery::FailureRecoveryFlow::default())?
         .register(reminders::ReminderFlow::default())?
         .register(inactiveness_tracker::InactivenessTrackerFlow::default())?

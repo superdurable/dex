@@ -21,7 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::polling::{FakeJobService, JOB_PROGRESS, JobState, PollingFlow};
-use dex_examples_rust::patterns::polling_with_timer::{
+use dex_examples_rust::patterns::polling::timer::{
     CheckJobStatus, POLL_INTERVAL_TIMER_ID, PollingWithTimerFlow,
 };
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;

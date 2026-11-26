@@ -52,7 +52,7 @@ pub fn build_router(
             client.clone(),
             Arc::clone(&polling_jobs),
         ))
-        .merge(patterns::polling_with_timer::controller::mount(
+        .merge(patterns::polling::timer::controller::mount(
             client.clone(),
             polling_jobs,
         ))

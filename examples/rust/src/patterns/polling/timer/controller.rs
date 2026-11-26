@@ -24,7 +24,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::patterns::polling::job_service::FakeJobService;
-use crate::patterns::polling_with_timer::flow::PollingWithTimerFlow;
+use crate::patterns::polling::timer::flow::PollingWithTimerFlow;
 use crate::server::helpers::{
     ErrorBody, SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text,
     run_blocking,
