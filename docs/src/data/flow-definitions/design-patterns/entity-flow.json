@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-25T08:07:15Z",
+  "generatedAt": "2026-11-25T07:00:14Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -378,41 +378,7 @@
       }
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "lock_requirement_not_declared",
-      "message": "attribute credit_balance is both read and written by RPC AdjustCreditBalance, and dexcli cannot prove that the writes are blind or share one exact registration lock; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock",
-      "span": {
-        "startLine": 82,
-        "startColumn": 22,
-        "endLine": 82,
-        "endColumn": 54
-      }
-    },
-    {
-      "severity": "warning",
-      "code": "lock_requirement_not_declared",
-      "message": "attribute display_name is written by RPC UpdateContactDetails, and dexcli cannot prove that the write is blind or protected by an exact registration lock; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock",
-      "span": {
-        "startLine": 80,
-        "startColumn": 20,
-        "endLine": 80,
-        "endColumn": 50
-      }
-    },
-    {
-      "severity": "warning",
-      "code": "lock_requirement_not_declared",
-      "message": "attribute email is written by RPC UpdateContactDetails, and dexcli cannot prove that the write is blind or protected by an exact registration lock; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock",
-      "span": {
-        "startLine": 81,
-        "startColumn": 13,
-        "endLine": 81,
-        "endColumn": 36
-      }
-    }
-  ],
+  "diagnostics": [],
   "groups": [
     {
       "id": "account-retirement",

@@ -916,19 +916,7 @@
       }
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "lock_requirement_not_declared",
-      "message": "attribute case-status is written by RPC approve_refund, RPC reject_refund, Step CheckPolicy execute, Step CloseCase execute, Step IssueRefund execute, Step ReceiveRequest execute, Step RequestManagerApproval execute, at least one of them reads it, and no exact registration lock is held by every writer; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock",
-      "span": {
-        "startLine": 53,
-        "startColumn": 15,
-        "endLine": 53,
-        "endColumn": 60
-      }
-    }
-  ],
+  "diagnostics": [],
   "groups": [
     {
       "id": "evidence",
