@@ -131,6 +131,7 @@ mappings:
       - docs/content/design-patterns/subflows/partitioning.mdx
       - docs/content/design-patterns/subflows/short-lived-parent.mdx
       - docs/content/design-patterns/subflows/wait-for-half.mdx
+      - docs/content/design-patterns/workflow-dsl.mdx
 
   - skill: dex-app-builder/references/backend-implementation.md
     docs:

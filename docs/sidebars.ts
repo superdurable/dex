@@ -90,6 +90,7 @@ const sidebars: SidebarsConfig = {
       // The overview page lists these groups in the same order.
       link: {type: 'doc', id: 'design-patterns/index'},
       items: [
+        'design-patterns/workflow-dsl',
         {
           type: 'category',
           label: 'Parallel Steps',

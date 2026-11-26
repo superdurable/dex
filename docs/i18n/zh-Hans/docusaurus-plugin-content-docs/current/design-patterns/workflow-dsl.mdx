@@ -1,0 +1,475 @@
+---
+title: 工作流 DSL
+sidebar_label: 工作流 DSL
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
+
+# 工作流 DSL
+
+在运行时把工作流定义为数据，通常用 JSON 表示。保存这些定义，再用同一个解释器 Flow 运行它们。
+当所有工作流都由同一组动作和外部条件组成时，使用这个模式。
+
+操作人员、客户、合作伙伴或其他系统都可以定义工作流。定义遵循可序列化的 schema，由应用自己的定义库保存并管理版本。用户可以编辑、复制、导入和导出这些文档。新增工作流只需添加一份 JSON 文档，无需改代码或发布新版本。
+
+例如，卖家可以定义两种购买流程。一种在买家确认后扣款，另一种先寄样品。两种定义都由同一个解释器运行。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## 工作方式 {#how-it-works}
+
+1. **保存并校验定义。** 在应用边界校验定义，包括保存时和启动 Flow 前。检查引用的状态、动作和条件名称是否存在，并确保每个条件名称只属于一个等待。发现无效定义时，在启动 Flow 前拒绝。
+2. **启动购买流程。** 起始 Step 把完整定义保存到一个 Attribute，并初始化共享状态数据映射。每次运行只在一个位置推进。启动之后，每个 Step 的输入只携带当前位置，例如状态名称和动作索引。
+3. **等待买家。** 如果状态有前置条件，就先等条件满足，再进入该状态。RPC 根据定义校验条件名称，然后将消息发布到一个以条件名称为键的 `ChannelMap`。持久化 schema 在代码中声明这个映射，定义在运行时提供键。每次等待取一条消息。解释器把消息合并到共享状态数据映射中。
+4. **执行一个动作。** 将扣款或交付的处理函数或脚本放在一个 Step 的 `Execute` 中运行。脚本和其他外部调用一样，需要超时、重试和幂等键。把动作结果合并到共享映射。每个动作有自己的检查点，重试时已经完成的动作保持原样。
+5. **选择下一步。** 转换 Step 可以等待另一个条件，并将收到的消息合并到同一个映射。它读取映射来选择下一个状态。解释器用 `GoTo` 在这四种 Step 之间推进，直到购买流程到达没有后续转换的状态。
+6. **记录进度。** 定义决定进度如何表示，例如当前状态、当前步骤或自定义阶段。将进度写入 Attribute，供 Client 读取。需要搜索进度时，使用 [Attribute 同步](/design-patterns/data-storage/entity-flow-attribute-sync)。Flow 图展示解释器的 Step。Attribute 展示某笔购买在其工作流中的位置。
+
+## 示例 {#example}
+
+等待 Step 以条件名称为键，从 `ChannelMap` 取一条消息，并将消息合并到共享状态数据。动作 Step 每次只执行一个动作，然后进入下一个动作或状态转换。每个标签页都链接到完整的可运行示例。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/deal_dsl/deal_dsl_flow.py',
+    go: 'examples/go/products/deal-dsl/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/dealdsl/DealDSLFlow.java',
+    typescript: 'examples/typescript/src/products/deal-dsl/deal-dsl-flow.ts',
+    rust: 'examples/rust/src/products/deal_dsl/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class WaitForDealCondition(Step[StateStepInput]):
+    def __init__(self, flow: "DealDSLFlow") -> None:
+        self.flow = flow
+
+    def wait_for(self, context: Context, input: StateStepInput) -> Wait:
+        state = self.flow.definition.get(context).state(input.state_name)
+        if state.pre_condition is None:
+            return Wait.skip_immediately()
+        self.flow.pending_condition.set(context, state.pre_condition.name)
+        return Wait.until(self.flow.condition_messages.for_one(state.pre_condition.name))
+
+    def execute(self, context: Context, input: StateStepInput) -> StepDecision:
+        state = self.flow.definition.get(context).state(input.state_name)
+        if state.pre_condition is not None:
+            self.flow.merge_condition(context, state.pre_condition.name)
+            self.flow.pending_condition.delete(context)
+        self.flow.current_state.set(context, state.name)
+        if state.actions:
+            return go_to(ExecuteDealAction, ActionStepInput(state.name, 0))
+        return go_to(EvaluateDealTransition, input)
+
+
+# dex:group group-id:actions group-label:"Actions"
+# dex:explanation text:"Run one action of the current state, then the next action or the transition."
+class ExecuteDealAction(Step[ActionStepInput]):
+    def __init__(self, flow: "DealDSLFlow") -> None:
+        self.flow = flow
+
+    def execute(self, context: Context, input: ActionStepInput) -> StepDecision:
+        state = self.flow.definition.get(context).state(input.state_name)
+        if input.action_index < 0 or input.action_index >= len(state.actions):
+            raise ValueError(f"invalid action index {input.action_index}")
+        # The execution ID stays stable on retries and changes when the same action runs again.
+        idempotency_key = f"{context.flow_id}/{context.step_execution_id}"
+        self.flow.execute_action(
+            context, state.actions[input.action_index], idempotency_key
+        )
+        next_index = input.action_index + 1
+        if next_index < len(state.actions):
+            return go_to(ExecuteDealAction, ActionStepInput(state.name, next_index))
+        return go_to(EvaluateDealTransition, StateStepInput(state.name))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go fold="1-4"
+type preConditionStep struct {
+	dex.StepDefaults
+	flow *DealDSLFlow
+}
+
+func (preConditionStep) GetStepType() string {
+	return "WaitForDealCondition"
+}
+
+func (step preConditionStep) WaitFor(
+	ctx dex.Context,
+	input stateStepInput,
+) (*dex.Wait, error) {
+	process, err := ProcessDefinition.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
+	}
+	if state.PreCondition == nil {
+		return dex.SkipWaitImmediately(), nil
+	}
+	if err := PendingPreConditionState.Set(ctx, state.Name); err != nil {
+		return nil, err
+	}
+	if err := PendingPreConditionName.Set(ctx, state.PreCondition.Name); err != nil {
+		return nil, err
+	}
+	return dex.Until(ConditionMessages.ForOne(state.PreCondition.Name)), nil
+}
+
+func (step preConditionStep) Execute(
+	ctx dex.Context,
+	input stateStepInput,
+) (*dex.StepDecision, error) {
+	process, err := ProcessDefinition.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
+	}
+	if state.PreCondition != nil {
+		updates, resultErr := conditionUpdates(ctx, state.PreCondition.Name)
+		if resultErr != nil {
+			return nil, resultErr
+		}
+		if err := mergeStateData(ctx, updates); err != nil {
+			return nil, err
+		}
+		if err := PendingPreConditionState.Delete(ctx); err != nil {
+			return nil, err
+		}
+		if err := PendingPreConditionName.Delete(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
+		return nil, err
+	}
+	if len(state.PreActions) > 0 {
+		return dex.GoTo(
+			executeAction{flow: step.flow},
+			actionStepInput{StateName: state.Name, Phase: preActionPhase},
+		), nil
+	}
+	return step.flow.gotoState(ctx, state)
+}
+
+type executeAction struct {
+	dex.StepDefaultsNoWaitFor[actionStepInput]
+	flow *DealDSLFlow
+}
+
+func (executeAction) GetStepType() string {
+	return "ExecuteDealAction"
+}
+
+func (step executeAction) Execute(
+	ctx dex.Context,
+	input actionStepInput,
+) (*dex.StepDecision, error) {
+	process, err := ProcessDefinition.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	state, err := process.State(input.StateName)
+	if err != nil {
+		return nil, err
+	}
+	actions, err := actionsForPhase(state, input.Phase)
+	if err != nil {
+		return nil, err
+	}
+	actionIndex, err := CurrentActionIndexToExecute.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if actionIndex < 0 || actionIndex >= len(actions) {
+		return nil, fmt.Errorf(
+			"action index %d is invalid for %s actions in state %q",
+			actionIndex,
+			input.Phase,
+			state.Name,
+		)
+	}
+	// StepExecutionID stays stable on retries and changes when the same action runs again.
+	idempotencyKey := ctx.FlowID() + "/" + ctx.StepExecutionID()
+	actionInput := ActionInput{
+		FlowID:         ctx.FlowID(),
+		IdempotencyKey: idempotencyKey,
+		ItemID:         process.ItemID,
+		ItemName:       process.ItemName,
+		TargetState:    state.Name,
+	}
+	actionInput.ProcessID, err = ProcessID.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	actionInput.BuyerID, err = BuyerID.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	actionInput.StateData, err = StateData.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	updates, err := step.flow.actions.execute(actions[actionIndex], actionInput)
+	if err != nil {
+		return nil, err
+	}
+	if err := mergeStateData(ctx, updates); err != nil {
+		return nil, err
+	}
+	nextActionIndex := actionIndex + 1
+	if err := CurrentActionIndexToExecute.Set(ctx, nextActionIndex); err != nil {
+		return nil, err
+	}
+	if nextActionIndex < len(actions) {
+		return dex.GoTo(executeAction{flow: step.flow}, input), nil
+	}
+	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
+		return nil, err
+	}
+	if input.Phase == preActionPhase {
+		return step.flow.gotoState(ctx, state)
+	}
+	return dex.GoTo(
+		postConditionStep{flow: step.flow},
+		stateStepInput{StateName: state.Name},
+	), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java fold="2-5"
+    final class WaitForDealCondition implements Step<StateStepInput> {
+        @Override
+        public Class<StateStepInput> getInputType() {
+            return StateStepInput.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final StateStepInput input) {
+            final DealDefinition.DealState state = definition.get(context).state(input.stateName);
+            if (state.preCondition == null) {
+                return Wait.skipImmediately();
+            }
+            pendingCondition.set(context, state.preCondition.name);
+            return Wait.until(conditionMessages.forOne(state.preCondition.name));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final StateStepInput input) {
+            final DealDefinition.DealState state = definition.get(context).state(input.stateName);
+            if (state.preCondition != null) {
+                mergeCondition(context, state.preCondition.name);
+                pendingCondition.delete(context);
+            }
+            currentState.set(context, state.name);
+            if (!state.actions.isEmpty()) {
+                return StepDecision.goTo(
+                        ExecuteDealAction.class,
+                        new ActionStepInput(state.name, 0));
+            }
+            return StepDecision.goTo(EvaluateDealTransition.class, input);
+        }
+    }
+
+    final class ExecuteDealAction implements Step<ActionStepInput> {
+        @Override
+        public Class<ActionStepInput> getInputType() {
+            return ActionStepInput.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final ActionStepInput input) {
+            final DealDefinition.DealState state = definition.get(context).state(input.stateName);
+            if (input.actionIndex < 0 || input.actionIndex >= state.actions.size()) {
+                throw new IllegalArgumentException("invalid action index " + input.actionIndex);
+            }
+            // The execution ID stays stable on retries and changes when the same action runs again.
+            final String idempotencyKey = context.getFlowId() + "/" + context.getStepExecutionId();
+            runAction(context, state.actions.get(input.actionIndex), idempotencyKey);
+            final int nextIndex = input.actionIndex + 1;
+            if (nextIndex < state.actions.size()) {
+                return StepDecision.goTo(
+                        ExecuteDealAction.class,
+                        new ActionStepInput(state.name, nextIndex));
+            }
+            return StepDecision.goTo(
+                    EvaluateDealTransition.class,
+                    new StateStepInput(state.name));
+        }
+    }
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript fold="2-4"
+class WaitForDealCondition implements Step<StateStepInput> {
+  public readonly inputCodec = stateStepInputCodec;
+
+  public constructor(private readonly flow: DealDSLFlow) {}
+
+  public getStepType(): string {
+    return "WaitForDealCondition";
+  }
+
+  public waitFor(context: Context, input: StateStepInput): Wait {
+    const condition = this.flow.state(context, input.stateName).preCondition;
+    if (condition === undefined) return Wait.skipImmediately();
+    this.flow.pendingCondition.set(context, condition.name);
+    return Wait.until(this.flow.conditionMessages.forOne(condition.name));
+  }
+
+  public execute(context: Context, input: StateStepInput): StepDecision {
+    const state = this.flow.state(context, input.stateName);
+    if (state.preCondition !== undefined) {
+      this.flow.mergeCondition(context, state.preCondition.name);
+      this.flow.pendingCondition.delete(context);
+    }
+    this.flow.currentState.set(context, state.name);
+    if ((state.actions?.length ?? 0) > 0) {
+      return goTo(ExecuteDealAction, { stateName: state.name, actionIndex: 0 });
+    }
+    return goTo(EvaluateDealTransition, input);
+  }
+}
+
+class ExecuteDealAction implements Step<ActionStepInput> {
+  public readonly inputCodec = actionStepInputCodec;
+
+  public constructor(private readonly flow: DealDSLFlow) {}
+
+  public getStepType(): string {
+    return "ExecuteDealAction";
+  }
+
+  public execute(context: Context, input: ActionStepInput): StepDecision {
+    const state = this.flow.state(context, input.stateName);
+    const action = state.actions?.[input.actionIndex];
+    if (action === undefined) throw new Error(`invalid action index ${input.actionIndex}`);
+    // The execution ID stays stable on retries and changes when the same action runs again.
+    const idempotencyKey = `${context.flowId}/${context.stepExecutionId}`;
+    this.flow.executeAction(context, action, idempotencyKey);
+    const nextIndex = input.actionIndex + 1;
+    if (nextIndex < (state.actions?.length ?? 0)) {
+      return goTo(ExecuteDealAction, { stateName: state.name, actionIndex: nextIndex });
+    }
+    return goTo(EvaluateDealTransition, { stateName: state.name });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust fold="1-2"
+#[derive(Default)]
+pub(super) struct WaitForDealCondition;
+
+impl Step for WaitForDealCondition {
+    type Input = StateStepInput;
+
+    fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        let definition = DEAL_DEFINITION.get_required(context)?;
+        let state = deal_state(&definition, &input.state_name)?;
+        let Some(condition) = state.pre_condition else {
+            return Ok(Wait::skip_immediately());
+        };
+        DEAL_PENDING_CONDITION.set(context, condition.name.clone())?;
+        Ok(Wait::until(
+            DEAL_CONDITION_MESSAGES.for_one(&condition.name),
+        ))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let definition = DEAL_DEFINITION.get_required(context)?;
+        let state = deal_state(&definition, &input.state_name)?;
+        if let Some(condition) = state.pre_condition {
+            merge_condition(context, &condition.name)?;
+            DEAL_PENDING_CONDITION.delete(context)?;
+        }
+        DEAL_CURRENT_STATE.set(context, state.name.clone())?;
+        if state.actions.is_empty() {
+            return Ok(StepDecision::go_to(&EvaluateDealTransition, input));
+        }
+        Ok(StepDecision::go_to(
+            &ExecuteDealAction,
+            ActionStepInput {
+                state_name: state.name,
+                action_index: 0,
+            },
+        ))
+    }
+}
+
+#[derive(Default)]
+pub(super) struct ExecuteDealAction;
+
+impl Step for ExecuteDealAction {
+    type Input = ActionStepInput;
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let definition = DEAL_DEFINITION.get_required(context)?;
+        let state = deal_state(&definition, &input.state_name)?;
+        let action = state.actions.get(input.action_index).ok_or_else(|| {
+            HandlerError::new(
+                "InvalidDealDSL",
+                format!("invalid action index {}", input.action_index),
+            )
+        })?;
+        // The execution ID stays stable on retries and changes when the same action runs again.
+        let idempotency_key = format!("{}/{}", context.flow_id(), context.step_execution_id());
+        run_action(context, action, &idempotency_key)?;
+        let next_index = input.action_index + 1;
+        if next_index < state.actions.len() {
+            return Ok(StepDecision::go_to(
+                &ExecuteDealAction,
+                ActionStepInput {
+                    state_name: state.name,
+                    action_index: next_index,
+                },
+            ));
+        }
+        Ok(StepDecision::go_to(
+            &EvaluateDealTransition,
+            StateStepInput {
+                state_name: state.name,
+            },
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 定义版本 {#definition-versions}
+
+| 方式 | 每次运行使用的定义 | 编辑的影响 |
+| --- | --- | --- |
+| 启动时保存快照 | 起始 Step 将完整定义存入一个 Attribute。后续 Step 读取这份副本。Deal DSL 采用这种方式。 | 新版本适用于新启动的 Flow。运行中的 Flow 保留原来的定义。 |
+| 读取最新定义 | 每次进入状态或计算转换时，在 `Execute` 中从定义库读取。读取属于外部调用，可能失败并重试。 | 编辑会影响运行中的 Flow。状态可能改名或被删除，正在等待的条件也可能消失。为不同版本制定兼容规则，或在版本间迁移已保存的位置。 |
+
+## 并行分支 {#parallel-branches}
+
+如果一个状态可以开启多个分支，用 `GoToMany` 启动它们。每个分支在自己的 Step 输入中保存位置，最后在 Join 汇合。并发写入共享状态时使用 Attribute 锁。也可以让各分支分别写入自己的数据，在 Join 之后合并。参见 [并行 Step](/design-patterns/parallel)和[临界区](/design-patterns/parallel/critical-section)。
+
+## 反模式 {#anti-patterns}
+
+- **每个条件声明一个 Channel。** 持久化 schema 在代码中提前声明，条件名称由工作流定义在运行时提供。声明一个 `ChannelMap`，为每个条件使用一个键。
+- **在 RPC 中执行动作或更改状态数据。** RPC 只负责校验和发布。由解释器的 Step 执行动作并更新状态。
+- **用 Flow ID 和动作名称作为重复动作的幂等键。** 在重复索取材料的流程中，两封信都使用 `claim-77/send-letter` 作为幂等键。服务商会把第二封当作重复请求丢弃。用 Flow ID 和 `StepExecutionID` 组成幂等键，例如 `claim-77/ExecuteClaimAction-5`。每轮使用新的执行 ID，同一轮的重试继续使用这个 ID。参见[幂等键](/concepts/step#idempotency-keys)。
+
+## 下一步 {#next}
+
+- [并行 Step](/design-patterns/parallel)
+- [Deal DSL](/use-cases/deal-dsl)
