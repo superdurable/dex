@@ -260,8 +260,11 @@ class AgentSessionClient:
             AgentSessionFailedError: If the session failed. ``reason`` says why.
             FlowNotActiveOrNotFoundError: If the session is not running.
             DexServiceError: With ``RESOURCE_EXHAUSTED`` when the message does
-                not fit under ``limits.maxFlowStateBytes``. Nothing was queued,
-                and the session stays as it was.
+                not fit under ``limits.maxFlowStateBytes``, or when the
+                session's queue of user messages already holds
+                ``limits.maxChannelMessages`` messages. Nothing was queued,
+                and the session stays as it was. When the queue is full, wait
+                until the session takes queued messages, then send again.
         """
         validate_image_references(images)
         return await self._raise_session_failure(
