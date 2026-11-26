@@ -25,7 +25,7 @@ Measured numbers come from the [dex-vs-temporal-demo](https://github.com/superdu
 | [Running the server](/intro/compared-to-temporal/operations#run-the-server) | [Frontend, History, Matching, and Worker services](https://docs.temporal.io/temporal-service/temporal-server) on Cassandra, MySQL, or PostgreSQL, plus a Visibility store. | One binary. Its only required dependency is object storage: Amazon S3, Google Cloud Storage, Azure Blob Storage, Aliyun OSS, Tencent COS, or an S3-compatible store such as MinIO. db9 can take its place. |
 | [Long-running processes](/intro/compared-to-temporal/operations#history-limit) | An Event History holds at most [51,200 events or 50 MB](https://docs.temporal.io/workflow-execution/limits). A longer process needs Continue-As-New in your code. | Dex keeps each run's newest events and prunes older ones. The run keeps going without a new run. |
 | [Data size](/intro/compared-to-temporal/operations#data-size) | A payload holds at most [2 MB](https://docs.temporal.io/troubleshooting/blob-size-limit-error). A self-hosted server warns at 512 KB. | A value holds up to 16 MiB, and a Flow run up to 64 MiB of active state, by [default](/reference/server/configuration#limits). |
-| [Going back to an earlier point](/intro/compared-to-temporal/experience#time-travel) | [Reset](https://docs.temporal.io/cli/workflow) terminates the current run and starts a new run with a new Run ID. | Time Travel moves the same run back to an earlier point. The Run ID stays the same, and the run gets a new run attempt. |
+| [Going back to an earlier point](/intro/compared-to-temporal/shared-features#time-travel) | [Reset](https://docs.temporal.io/cli/workflow) terminates the current run and starts a new run with a new Run ID. | Time Travel moves the same run back to an earlier point. The Run ID stays the same, and the run gets a new run attempt. |
 | [Features only in Dex](/intro/compared-to-temporal/features) | The page gives the workaround in Temporal for each feature. | Flow designs drawn from source, forms generated in Dex Web, Clone fork, Connectors, `SkipTimer`, waits for a Step or an Attribute, and reads without a Worker. |
 | [Changing code](/intro/compared-to-temporal/programming-model#change-code) | A deploy that changes the commands of an open run fails its Workflow Task with a nondeterminism error. [Patching](https://docs.temporal.io/develop/python/workflows/versioning#patching) or [Worker Versioning](https://docs.temporal.io/worker-versioning) keeps open runs working. | Each Step runs the code of the Worker that takes it. The demo's change needed no versioning code. |
 | [Writing code](/intro/compared-to-temporal/programming-model#more-code) | Workflow code must be [deterministic](#the-main-difference-an-explicit-step-graph-not-replayed-code). The demo's reply-with-approval Workflow has 26 lines. | Steps are ordinary code. The same Flow has 26 lines. |
@@ -74,7 +74,7 @@ The two engines continue a run in different ways after a Worker stops.
 | Search Attributes | Indexed Attributes | |
 | Workflow ID Conflict Policy, for an open Workflow ID. Workflow ID Reuse Policy, for a closed one. | ID reuse policy, for open and closed Flow IDs. Start request ID. | The start request ID lets Dex recognize a retried start request. See [StartFlowOptions](/reference/python/start-flow-options). |
 | Cancellation | An RPC cancels Steps by Step type. `StopFlow` stops the Flow. | In both, your Worker code stops its external work cooperatively. Dex discards anything a canceled attempt returns later. See [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). |
-| Reset | [Time Travel](/components/operate-and-debug#time-travel) | See [Going back to an earlier point](/intro/compared-to-temporal/experience#time-travel). |
+| Reset | [Time Travel](/components/operate-and-debug#time-travel) | See [Going back to an earlier point](/intro/compared-to-temporal/shared-features#time-travel). |
 | Continue-As-New, to keep the history small | Not needed | See [The history limit](/intro/compared-to-temporal/operations#history-limit). |
 | Patching, Worker Versioning | Not needed | See [Changing code](/intro/compared-to-temporal/programming-model#change-code). |
 | Schedule | A Flow that loops on a Timer | See [Cron schedule](/design-patterns/durable-timer/cron). |
@@ -98,5 +98,5 @@ The videos are in English.
 - [Performance](/intro/compared-to-temporal/performance)
 - [Operations](/intro/compared-to-temporal/operations)
 - [Features Only in Dex](/intro/compared-to-temporal/features)
-- [Operating and Recovering Flows](/intro/compared-to-temporal/experience)
+- [Features Both Have](/intro/compared-to-temporal/shared-features)
 - [Programming Model](/intro/compared-to-temporal/programming-model)

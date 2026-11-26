@@ -38,7 +38,7 @@ import TemporalDeploymentDiagram from '@site/src/components/diagrams/TemporalDep
 | Continue-As-New | 应用代码在达到 history 上限之前把状态交给一次新的运行。见 [Continue-As-New](#continue-as-new)。 | Flow 不需要为 history 大小换成新的运行。 |
 | payload 大小 | 每个 payload 2 MB，每条 gRPC 消息 4 MB。自托管的 server 在 512 KB 时警告（[blob size limit](https://docs.temporal.io/troubleshooting/blob-size-limit-error)）。在 [Temporal Cloud](https://docs.temporal.io/cloud/limits) 上，一次 Event History 事务最多 4 MB。 | 默认每个值 16 MiB，每次 Flow 运行 64 MiB 活跃状态。见[数据大小](#data-size)。 |
 | 部署新代码 | Patching API 让新代码和打开的运行保持兼容。[Worker Versioning](https://docs.temporal.io/worker-versioning) 从 2026-03-30 起正式可用（[公告](https://temporal.io/blog/ga-worker-versioning-public-preview-upgrade-on-continue-as-new)）。Auto-Upgrade 的 Workflow 仍然需要 patching。 | 每个 Step 运行接手它的 Worker 上的代码。见[修改代码](/intro/compared-to-temporal/programming-model#change-code)。 |
-| 每个执行的消息数 | 10,000 个 Signal，10 个进行中的 Update，总共 2,000 个 Update（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)），默认最多 2,000 个未完成的 Child Workflow（[defaults](https://docs.temporal.io/self-hosted-guide/defaults)）。 | Channel 消息和 RPC 都没有每次运行的总数上限。见[操作和恢复 Flow](/intro/compared-to-temporal/experience#channel)。 |
+| 每个执行的消息数 | 10,000 个 Signal，10 个进行中的 Update，总共 2,000 个 Update（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)），默认最多 2,000 个未完成的 Child Workflow（[defaults](https://docs.temporal.io/self-hosted-guide/defaults)）。 | Channel 消息和 RPC 都没有每次运行的总数上限。见[两边都有的功能](/intro/compared-to-temporal/shared-features#channel)。 |
 
 ### history 上限 {#history-limit}
 
@@ -107,6 +107,6 @@ Flow 有并行分支时，Dex 并行运行这些分支上的 Step，可能在同
 ## 下一步 {#next}
 
 - [Dex 独有的功能](/intro/compared-to-temporal/features)：Flow design、生成的表单、Clone fork、Connector 等。
-- [操作和恢复 Flow](/intro/compared-to-temporal/experience)：Time Travel、SubFlow、RPC、Channel 和 Stream。
+- [两边都有的功能](/intro/compared-to-temporal/shared-features)：Time Travel、SubFlow、RPC、Channel 和 Stream。
 - [在生产环境运行 Dex](/components/production)：上线前要改的设置，以及如何确定节点规格。
 - [性能](/intro/compared-to-temporal/performance)：Worker 内存和服务器吞吐。

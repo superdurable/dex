@@ -1,15 +1,28 @@
 ---
-title: 操作和恢复 Flow
-sidebar_label: 操作和恢复 Flow
-slug: /intro/compared-to-temporal/experience
-description: Dex 和 Temporal 在恢复和消息上的区别。Time Travel 保留 Run ID，Reset 则开始新的运行；Dex 的 RPC 和 Channel 没有迫使运行换新的单次运行总量上限。
+title: 两边都有的功能
+sidebar_label: 两边都有的功能
+slug: /intro/compared-to-temporal/shared-features
+description: Dex 和 Temporal 都有的功能。有些做法不同，例如回到较早的时间点、子流程、同步调用、消息、流式输出和 heartbeat。有些做法相近，例如定时器、重试和 ID 复用。
 ---
 
-# 操作和恢复 Flow
+# 两边都有的功能
 
-Dex 的 Time Travel 让同一次运行退回到较早的点，Temporal 的 Reset 则结束当前运行并开始一次新的运行（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)）。Dex 的 RPC 和 Channel 消息没有单次运行的总量上限，Stream 消息也不进入运行的历史。
+本页的功能 Dex 和 Temporal 都有。有些做法不同，有些做法相近。
 
-## Time Travel 与 Reset {#time-travel}
+## 做法不同的功能 {#shared-different}
+
+每一行链接到下面对应的小节。
+
+| 功能 | Temporal | Dex |
+| --- | --- | --- |
+| [流式输出](#stream) | Workflow Streams 通过 Signal 发布，Signal 记录在 Event History 里。持久，但会增加 history。 | Stream 消息保存在 Dex Server 的内存里，不进入运行的 history。尽力而为。同一 Flow 类型的所有运行共用每个 Stream 的容量。 |
+| [回到较早的时间点](#time-travel) | Reset 终止当前运行，从某个 Workflow Task 事件开始一次新的运行。 | Time Travel 让同一次运行回到某个 Step，多一个新的 run attempt。 |
+| [子流程](#subflow) | 父 Workflow 使用 Continue-As-New 时，Child Workflow 不会带过去。 | 父 Flow 的 SubFlow 等待一直留在同一次运行里。 |
+| [同步调用](#rpc) | Update，每个 Workflow Execution 最多 10 个进行中、总共 2,000 个。 | RPC，没有每个 Flow 的进行中上限，也没有单次运行的总数上限。 |
+| [消息](#channel) | Signal，每个 Workflow Execution 最多 10,000 个。 | Channel 消息，单次运行没有总数上限。 |
+| [长时间运行的工作](#long-running-step) | 每次 Heartbeat 都由 Activity 代码发送。 | 一条 Stream 消息也算一次 heartbeat。 |
+
+### Time Travel 与 Reset {#time-travel}
 
 | Temporal | Dex |
 | --- | --- |
@@ -26,7 +39,7 @@ Dex 的 Time Travel 让同一次运行退回到较早的点，Temporal 的 Reset
 
 为失败的 Step 部署修复之后使用 Time Travel。那个点之后的每个 Step 都会重新运行，所以每个外部调用都需要幂等键。见[用 Time Travel 恢复 Flow](/components/operate-and-debug#time-travel)。
 
-## SubFlow 与 Child Workflow {#subflow}
+### SubFlow 与 Child Workflow {#subflow}
 
 | Temporal | Dex |
 | --- | --- |
@@ -36,7 +49,7 @@ Dex 的 Time Travel 让同一次运行退回到较早的点，Temporal 的 Reset
 
 SubFlow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。见 [SubFlow](/concepts/primitives/subflow)。
 
-## RPC 与 Update {#rpc}
+### RPC 与 Update {#rpc}
 
 | Temporal | Dex |
 | --- | --- |
@@ -46,7 +59,7 @@ SubFlow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。�
 
 RPC handler 可以读写 Attribute、向 Channel 发布消息，以及启动新的 Step。见 [RPC](/concepts/primitives/rpc)。
 
-## Channel 与 Signal {#channel}
+### Channel 与 Signal {#channel}
 
 | Temporal | Dex |
 | --- | --- |
@@ -57,7 +70,7 @@ RPC handler 可以读写 Attribute、向 Channel 发布消息，以及启动新�
 
 Channel 是一次 Flow 运行内部的持久化先进先出队列。Step 在 `WaitFor` 里等待 Channel 来消费它的消息。见 [Channel](/concepts/primitives/channel)。
 
-## Stream 与 Workflow Streams {#stream}
+### Stream 与 Workflow Streams {#stream}
 
 | Temporal | Dex |
 | --- | --- |
@@ -67,7 +80,7 @@ Channel 是一次 Flow 运行内部的持久化先进先出队列。Step 在 `Wa
 
 Stream 适合实时进度，例如生成的文本片段。不能丢失的数据用 Channel 或 Attribute。见 [Stream](/concepts/primitives/stream)。
 
-## 长时间运行的 Step 与 Activity {#long-running-step}
+### 长时间运行的 Step 与 Activity {#long-running-step}
 
 | Temporal | Dex |
 | --- | --- |
@@ -76,6 +89,21 @@ Stream 适合实时进度，例如生成的文本片段。不能丢失的数据�
 | 每次 Heartbeat 都由 Activity 代码调用 Heartbeat API。 | 一条 Stream 消息也算一次 heartbeat。把进度写进 Stream 的 Step 不需要另外调用 heartbeat。 |
 
 见 [Heartbeat](/reference/go/step-options#heartbeat)（英文）。
+
+## 做法相近的功能 {#shared-alike}
+
+[术语对照](/intro/compared-to-temporal#term-map)列出了全部对应关系。
+
+| 功能 | Temporal | Dex |
+| --- | --- | --- |
+| 标识 | Workflow ID 和 Run ID | Flow ID 和 Run ID |
+| ID 复用 | 未结束的 ID 用 Workflow ID Conflict Policy，已结束的用 Workflow ID Reuse Policy | 一个 ID reuse policy，同时管未结束和已结束的 Flow ID |
+| 持久的定时器 | Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) |
+| 重试和超时 | 每个 Activity 有重试策略和超时 | 每个 Step 方法有重试策略和超时，默认退避相同 |
+| 路由 | Task Queue | task queue，队列内部按 Flow 类型路由 |
+| 搜索 | Search Attributes | Indexed Attributes |
+| 取消 | 取消一个 Workflow 或 Activity | RPC 按 Step 类型取消 Step，`StopFlow` 停止 Flow |
+| Worker | 你进程里的 Worker 从 Temporal Service 拉取任务 | 你进程里的 Worker 从 Dex Server 拉取任务 |
 
 ## 下一步 {#next}
 

@@ -103,37 +103,7 @@ Dex 把 hard-delete Attribute 的每个值只存在对象存储里，Flow 历史
 
 见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
 
-## 两边都有的功能 {#shared-features}
-
-### 做法相近的功能 {#shared-alike}
-
-[术语对照](/intro/compared-to-temporal#term-map)列出了全部对应关系。
-
-| 功能 | Temporal | Dex |
-| --- | --- | --- |
-| 标识 | Workflow ID 和 Run ID | Flow ID 和 Run ID |
-| ID 复用 | 未结束的 ID 用 Workflow ID Conflict Policy，已结束的用 Workflow ID Reuse Policy | 一个 ID reuse policy，同时管未结束和已结束的 Flow ID |
-| 持久的定时器 | Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) |
-| 重试和超时 | 每个 Activity 有重试策略和超时 | 每个 Step 方法有重试策略和超时，默认退避相同 |
-| 路由 | Task Queue | task queue，队列内部按 Flow 类型路由 |
-| 搜索 | Search Attributes | Indexed Attributes |
-| 取消 | 取消一个 Workflow 或 Activity | RPC 按 Step 类型取消 Step，`StopFlow` 停止 Flow |
-| Worker | 你进程里的 Worker 从 Temporal Service 拉取任务 | 你进程里的 Worker 从 Dex Server 拉取任务 |
-
-### 做法不同的功能 {#shared-different}
-
-[操作和恢复 Flow](/intro/compared-to-temporal/experience) 逐项对比。
-
-| 功能 | Temporal | Dex |
-| --- | --- | --- |
-| [流式输出](/intro/compared-to-temporal/experience#stream) | Workflow Streams 通过 Signal 发布，Signal 记录在 Event History 里。持久，但会增加 history。 | Stream 消息保存在 Dex Server 的内存里，不进入运行的 history。尽力而为。同一 Flow 类型的所有运行共用每个 Stream 的容量。 |
-| [回到较早的时间点](/intro/compared-to-temporal/experience#time-travel) | Reset 终止当前运行，从某个 Workflow Task 事件开始一次新的运行。 | Time Travel 让同一次运行回到某个 Step，多一个新的 run attempt。 |
-| [子流程](/intro/compared-to-temporal/experience#subflow) | 父 Workflow 使用 Continue-As-New 时，Child Workflow 不会带过去。 | 父 Flow 的 SubFlow 等待一直留在同一次运行里。 |
-| [同步调用](/intro/compared-to-temporal/experience#rpc) | Update，每个 Workflow Execution 最多 10 个进行中、总共 2,000 个。 | RPC，没有每个 Flow 的进行中上限，也没有单次运行的总数上限。 |
-| [消息](/intro/compared-to-temporal/experience#channel) | Signal，每个 Workflow Execution 最多 10,000 个。 | Channel 消息，单次运行没有总数上限。 |
-| [长时间运行的工作](/intro/compared-to-temporal/experience#long-running-step) | 每次 Heartbeat 都由 Activity 代码发送。 | 一条 Stream 消息也算一次 heartbeat。 |
-
 ## 下一步 {#next}
 
-- [操作和恢复 Flow](/intro/compared-to-temporal/experience)：Time Travel 与 Reset、SubFlow 与 Child Workflow、RPC、Channel 和 Stream。
+- [两边都有的功能](/intro/compared-to-temporal/shared-features)：Time Travel 与 Reset、SubFlow 与 Child Workflow、RPC、Channel 和 Stream。
 - [Dex 与 Temporal 对比](/intro/compared-to-temporal)：总览和术语对照。

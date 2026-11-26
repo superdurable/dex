@@ -36,7 +36,7 @@ A Dex standby node takes over after the active node's [lease](/reference/server/
 | Continue-As-New | Application code that hands the state to a new run before the history limit. See [Continue-As-New](#continue-as-new). | A Flow needs no new run for history size. |
 | Payload size | 2 MB per payload and 4 MB per gRPC message. A self-hosted server warns at 512 KB ([blob size limit](https://docs.temporal.io/troubleshooting/blob-size-limit-error)). An Event History transaction holds at most 4 MB on [Temporal Cloud](https://docs.temporal.io/cloud/limits). | 16 MiB per value and 64 MiB of active state per Flow run, by default. See [Data size](#data-size). |
 | Deploying new code | Patching APIs keep new code compatible with open runs. [Worker Versioning](https://docs.temporal.io/worker-versioning) is Generally Available since 2026-03-30 ([announcement](https://temporal.io/blog/ga-worker-versioning-public-preview-upgrade-on-continue-as-new)). Auto-Upgrade Workflows still need patching. | Each Step runs the code of the Worker that takes it. See [Changing code](/intro/compared-to-temporal/programming-model#change-code). |
-| Messages per execution | 10,000 Signals, 10 in-flight and 2,000 total Updates ([Temporal Cloud limits](https://docs.temporal.io/cloud/limits)), and 2,000 pending Child Workflows by default ([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). | Channel messages and RPCs have no per-run total. See [Operating and Recovering Flows](/intro/compared-to-temporal/experience#channel). |
+| Messages per execution | 10,000 Signals, 10 in-flight and 2,000 total Updates ([Temporal Cloud limits](https://docs.temporal.io/cloud/limits)), and 2,000 pending Child Workflows by default ([defaults](https://docs.temporal.io/self-hosted-guide/defaults)). | Channel messages and RPCs have no per-run total. See [Features Both Have](/intro/compared-to-temporal/shared-features#channel). |
 
 ### The history limit {#history-limit}
 
@@ -105,6 +105,6 @@ When a Flow has parallel branches, Dex runs their Steps in parallel, on one Work
 ## Next
 
 - [Features Only in Dex](/intro/compared-to-temporal/features): Flow design, generated forms, Clone fork, Connectors, and more.
-- [Operating and Recovering Flows](/intro/compared-to-temporal/experience): Time Travel, SubFlows, RPCs, Channels, and Streams.
+- [Features Both Have](/intro/compared-to-temporal/shared-features): Time Travel, SubFlows, RPCs, Channels, and Streams.
 - [Run Dex in Production](/components/production): the settings to change before launch and how to size a node.
 - [Performance](/intro/compared-to-temporal/performance): Worker memory and server throughput.

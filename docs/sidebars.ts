@@ -215,7 +215,7 @@ const sidebars: SidebarsConfig = {
             'intro/compared-to-temporal-performance',
             'intro/compared-to-temporal-operations',
             'intro/compared-to-temporal-features',
-            'intro/compared-to-temporal-experience',
+            'intro/compared-to-temporal-shared-features',
             'intro/compared-to-temporal-programming-model',
           ],
         },
