@@ -37,15 +37,17 @@ type goHandlerStateLoads struct {
 
 // goStateLoadSources holds load selections; one whose Step or RPC is unknown applies to all of them.
 type goStateLoadSources struct {
-	stepOptionOverrides         map[string][]goScopedExpression
-	stepOptionUnknowns          map[string][]goUnresolvedConstruct
-	unattributedStepOverrides   []goScopedExpression
-	unattributedStepUnknowns    []goUnresolvedConstruct
-	rpcOptions                  map[string][]goScopedExpression
-	rpcInvocationLoads          map[string]*goHandlerStateLoads
-	unattributedInvocationLoads *goHandlerStateLoads
-	timeoutOptions              []goScopedExpression
-	timeoutFieldValues          map[string][]goScopedExpression
+	stepOptionOverrides       map[string][]goScopedExpression
+	stepOptionUnknowns        map[string][]goUnresolvedConstruct
+	unattributedStepOverrides []goScopedExpression
+	unattributedStepUnknowns  []goUnresolvedConstruct
+	rpcOptions                map[string][]goScopedExpression
+	rpcInvocationLoads        map[string]*goHandlerStateLoads
+	// hasUnattributedRPCRegistration records a DefineRPC whose method value dexcli cannot name, such as an alias.
+	hasUnattributedRPCRegistration bool
+	unattributedInvocationLoads    *goHandlerStateLoads
+	timeoutOptions                 []goScopedExpression
+	timeoutFieldValues             map[string][]goScopedExpression
 }
 
 type goStateLoadSourceCollector struct {
@@ -467,10 +469,11 @@ func (collector *goStateLoadSourceCollector) collectRPCRegistration(call *ast.Ca
 		return
 	}
 	rpcName := collector.flowMethodName(call.Args[0])
+	sources := collector.checker.sources
 	if rpcName == "" {
+		sources.hasUnattributedRPCRegistration = true
 		return
 	}
-	sources := collector.checker.sources
 	sources.rpcOptions[rpcName] = append(sources.rpcOptions[rpcName], goScopedExpression{expression: call.Args[1], scope: collector.scope})
 }
 

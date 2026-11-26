@@ -908,6 +908,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         if method is None:
             return locks
         returns = self.function_returns(method)
+        if len(returns) > 1:
+            for field in fields:
+                locks[field]["hasSeveralConfigurations"] = True
         for statement in returns or [None]:
             value = statement.value if statement is not None else None
             if not isinstance(value, ast.Call) or not self.is_dex_reference(value.func, "StepOptions") or value.args:
@@ -1005,7 +1008,39 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 "span": self.span(call),
                 "unproven": unproven,
             })
-        self.lock_handlers.append({"ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses})
+        self.lock_handlers.append({
+            "ownerId": owner_id, "phase": phase, "label": label, "locks": locks, "accesses": accesses,
+            "mayReadAny": self.context_reaches_other_code(owner_id, method), "method": method,
+        })
+
+    # Reading an Attribute needs the context. The handler's reads are fully known only when the context appears
+    # solely as the first argument of a resource method call or in an attribute lookup such as context.flow_id.
+    def context_reaches_other_code(self, owner_id, method):
+        # The context's position follows the method binding: first for a staticmethod, second otherwise.
+        context_index = 1
+        for decorator in method.decorator_list:
+            function = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(decorator, ast.Name) and decorator.id == "staticmethod":
+                context_index = 0
+            elif isinstance(decorator, ast.Name) and decorator.id == "classmethod":
+                context_index = 1
+            elif not self.is_dex_reference(function, "rpc"):
+                return True
+        positional = [*method.args.posonlyargs, *method.args.args]
+        if len(positional) <= context_index or method.args.vararg is not None or method.args.kwarg is not None:
+            return True
+        context_name = positional[context_index].arg
+        allowed = set()
+        for node in ast.walk(method):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args and self.resource_for(node.func.value, owner_id):
+                allowed.add(node.args[0])
+            elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == context_name:
+                allowed.add(node.value)
+        called_lookups = {node.func.value for node in ast.walk(method) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
+        for node in ast.walk(method):
+            if isinstance(node, ast.Name) and node.id == context_name and (node not in allowed or node in called_lookups):
+                return True
+        return False
 
     # Nodes that run whenever the function body runs past them: no nested scopes and no constant-false branches.
     def surely_reached_nodes(self, function):
@@ -1170,10 +1205,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
             requirement, readable[resource_id] = self.declared_lock_requirement(resource_id)
             if requirement is not None:
                 requirements[resource_id] = requirement
-        writers = {}
-        rpc_writers = set()
-        unlocked_writers = {}
-        unlocked_read_writers = {}
+        # The nudge is left out only when every writer is fully analyzable and either all writers hold one exact
+        # common lock with no read in a Step's other phase, or no writer reads the Attribute. Anything else warns.
+        handler_reads = []
+        handler_writes = []
+        phase_facts = {}
+        has_step_option_overrides = self.has_step_option_overrides()
         for handler in self.lock_handlers:
             reads = set()
             writes = set()
@@ -1188,33 +1225,227 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
                 is_guarded = (is_attribute and access["method"] in {"set", "delete"}) or (resource_id.startswith("resource:channel:") and access["method"] == "publish")
                 if is_guarded and resource_id in requirements and handler["phase"] != "timeout":
                     self.check_declared_lock(handler, access, requirements[resource_id])
-            # A writer that registers the Attribute's own lock cannot lose an update; unreadable locks count as held.
-            locks = handler["locks"]
-            is_lock_unknown = locks is None or locks["unresolved"] is not None
-            held = set() if is_lock_unknown else {lock[0] for lock in locks["locks"]}
+            held = self.exact_held_locks(handler, has_step_option_overrides)
+            facts = {"reads": reads, "mayReadAny": handler.get("mayReadAny", False), "held": held}
+            facts["isFullyAnalyzed"] = held is not None and not facts["mayReadAny"]
+            handler_reads.append(facts)
+            handler_writes.append(writes)
+            if handler["phase"] in {"execute", "wait_for"}:
+                phase_facts.setdefault(handler["ownerId"], {})[handler["phase"]] = facts
+
+        def reads_attribute(facts, resource_id):
+            return facts is not None and (facts["mayReadAny"] or resource_id in facts["reads"])
+
+        other_phase = {"execute": "wait_for", "wait_for": "execute"}
+        writers = {}
+        rpc_writers = set()
+        read_writers = set()
+        rpc_read_writers = {}
+        rpc_read_facts = {}
+        common_locks = {}
+        blocked_exemptions = set()
+        cross_phase_reads = set()
+        for handler, facts, writes in zip(self.lock_handlers, handler_reads, handler_writes):
+            sibling = phase_facts.get(handler["ownerId"], {}).get(other_phase.get(handler["phase"], ""))
             # Only writes that can overlap count: an RPC can run beside any handler, while Steps alone may run in sequence.
             is_rpc = handler["phase"] == "rpc"
             for resource_id in writes:
                 writers.setdefault(resource_id, set()).add(handler["label"])
+                reads_here = reads_attribute(facts, resource_id)
+                # A read in the other phase of the same Step runs under a separate lock hold, so no lock protects it.
+                reads_in_other_phase = reads_attribute(sibling, resource_id)
+                if reads_here or reads_in_other_phase:
+                    read_writers.add(resource_id)
                 if is_rpc:
                     rpc_writers.add(resource_id)
-                if is_lock_unknown or resource_id in held:
+                    if reads_here:
+                        rpc_read_writers.setdefault(resource_id, set()).add(handler["label"])
+                        rpc_read_facts.setdefault(resource_id, []).append(facts)
+                if sibling is not None and resource_id in sibling["reads"]:
+                    cross_phase_reads.add(resource_id)
+                if not facts["isFullyAnalyzed"] or reads_in_other_phase or (sibling is not None and not sibling["isFullyAnalyzed"]):
+                    blocked_exemptions.add(resource_id)
                     continue
-                unlocked_writers.setdefault(resource_id, set()).add(handler["label"])
-                if resource_id in reads and is_rpc:
-                    unlocked_read_writers.setdefault(resource_id, set()).add(handler["label"])
+                common_locks[resource_id] = common_locks[resource_id] & facts["held"] if resource_id in common_locks else set(facts["held"])
+
+        # States why the nudge fires; it claims a missing lock only when every writer was fully analyzed.
+        def cause(resource_id, proven_cause):
+            if resource_id in cross_phase_reads:
+                return ", and a Step reads it in its other phase, which holds its locks separately"
+            if resource_id in blocked_exemptions:
+                return ", and dexcli cannot prove that the writes are blind or share one exact registration lock"
+            return proven_cause
+
         for resource_id in sorted(writers):
             if resource_id in requirements or not readable.get(resource_id, False):
                 continue
-            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and resource_id in unlocked_writers:
-                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + ", and " + ", ".join(sorted(unlocked_writers[resource_id])) + " registers no lock of it"
-            elif resource_id in unlocked_read_writers:
-                reason = "is both read and written without its lock by " +", ".join(sorted(unlocked_read_writers[resource_id]))
+            if resource_id not in blocked_exemptions and common_locks.get(resource_id):
+                continue
+            if len(writers[resource_id]) >= 2 and resource_id in rpc_writers and (resource_id in read_writers or resource_id in blocked_exemptions):
+                reason = "is written by " + ", ".join(sorted(writers[resource_id])) + cause(resource_id, ", at least one of them reads it, and no exact registration lock is held by every writer")
+            elif resource_id in rpc_read_writers:
+                labels = ", ".join(sorted(rpc_read_writers[resource_id]))
+                # A read seen in the code is named; a read only possible through the context is not.
+                if any(resource_id in facts["reads"] for facts in rpc_read_facts[resource_id]):
+                    reason = "is both read and written by " + labels + cause(resource_id, " without an exact registration lock")
+                else:
+                    reason = "is written by " + labels + ", and dexcli cannot prove that the write is blind or protected by an exact registration lock"
             else:
                 continue
             call, _ = self.resource_declarations[resource_id]
             name = self.node_name(resource_id)
             self.warning("lock_requirement_not_declared", f"attribute {name} {reason}; its definition declares no lock requirement. If these writes can run concurrently, declare writes_require_lock and register that lock", self.span(call))
+
+    # Lock identities that a handler surely holds, for the nudge only: a singleton's ID, or a map ID with a constant key.
+    # Returns None unless the registration is direct, literal, single, and, for a Step, never overridden.
+    def exact_held_locks(self, handler, has_step_option_overrides):
+        locks = handler["locks"]
+        if locks is None or locks["unresolved"] is not None or locks.get("notLiteral") or locks.get("hasSeveralConfigurations"):
+            return None
+        if handler["phase"] in {"execute", "wait_for"} and has_step_option_overrides:
+            return None
+        held = set()
+        for resource_id, instance, has_instance in locks["locks"]:
+            if not has_instance:
+                held.add(resource_id)
+            elif instance is not None:
+                held.add(f"{resource_id}\x00{instance}")
+        return held
+
+    # Fails closed: Step registration locks prove something only when every movement in the file has the one
+    # allowed form, StepMovement.of(target, input) with no options, no failure route is configured, and no
+    # StepOptions is built outside get_step_options.
+    def has_step_option_overrides(self):
+        registration_nodes = set()
+        for node in ast.walk(self.tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "get_step_options":
+                registration_nodes.update(ast.walk(node))
+        annotation_nodes = set()
+        for node in ast.walk(self.tree):
+            annotations = []
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                annotations.append(node.returns)
+                arguments = node.args
+                annotations.extend(argument.annotation for argument in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs, arguments.vararg, arguments.kwarg] if argument is not None)
+            elif isinstance(node, ast.AnnAssign):
+                annotations.append(node.annotation)
+            for annotation in annotations:
+                if annotation is not None:
+                    annotation_nodes.update(ast.walk(annotation))
+        allowed_movement_references = set(annotation_nodes)
+        allowed_option_references = set(annotation_nodes)
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if (isinstance(node.func, ast.Attribute) and node.func.attr == "of"
+                    and self.is_dex_reference(node.func.value, "StepMovement") and len(node.args) == 2 and not node.keywords):
+                allowed_movement_references.add(node.func.value)
+            if node in registration_nodes and self.is_dex_reference(node.func, "StepOptions"):
+                allowed_option_references.add(node.func)
+        for node in ast.walk(self.tree):
+            if not isinstance(node, (ast.Name, ast.Attribute)):
+                continue
+            if self.is_dex_reference(node, "StepOptions") and node not in allowed_option_references:
+                return True
+            if self.is_dex_reference(node, "StepMovement") and node not in allowed_movement_references:
+                return True
+            if isinstance(node, ast.Attribute) and node.attr in {"on_execute_failure_proceed_to", "on_failure_proceed_to"}:
+                return True
+        return not self.movements_are_literal()
+
+    # Fails closed: every movement that reaches a decision, an RPC result, or a Join fork must visibly be the allowed
+    # StepMovement.of(target, input), directly or through a local list built only from such calls. Every handler
+    # return must be a direct SDK call, so a helper cannot hand back a decision built elsewhere.
+    def movements_are_literal(self):
+        def is_allowed_movement(node):
+            return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "of"
+                    and self.is_dex_reference(node.func.value, "StepMovement") and len(node.args) == 2 and not node.keywords)
+
+        def enclosing_function(target):
+            return next((node for node in ast.walk(self.tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and target in set(ast.walk(node))), None)
+
+        # A local list is known only when every binding of the name in the function is a plain or annotated
+        # assignment of a literal list of allowed movements; any other binding, or none, leaves it unknown.
+        def is_literal_list(name, function):
+            if function is None or name in {argument.arg for argument in ast.walk(function.args) if isinstance(argument, ast.arg)}:
+                return False
+            allowed_bindings = set()
+            for node in ast.walk(function):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id == name:
+                        value = node.value
+                        if isinstance(value, (ast.List, ast.Tuple)) and all(is_allowed_movement(element) for element in value.elts):
+                            allowed_bindings.add(target)
+            bindings = [node for node in ast.walk(function) if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, (ast.Store, ast.Del))]
+            if not bindings or any(binding not in allowed_bindings for binding in bindings):
+                return False
+            allowed_uses = set()
+            for node in ast.walk(function):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == name:
+                    if node.func.attr == "append" and len(node.args) == 1 and is_allowed_movement(node.args[0]):
+                        allowed_uses.add(node.func.value)
+                    elif node.func.attr == "extend" and len(node.args) == 1 and isinstance(node.args[0], (ast.List, ast.Tuple)) and all(is_allowed_movement(element) for element in node.args[0].elts):
+                        allowed_uses.add(node.func.value)
+                elif isinstance(node, ast.Starred) and isinstance(node.value, ast.Name) and node.value.id == name:
+                    allowed_uses.add(node.value)
+            for node in ast.walk(function):
+                if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load) and node not in allowed_uses:
+                    return False
+            return True
+
+        def is_allowed_argument(node):
+            if is_allowed_movement(node):
+                return True
+            if isinstance(node, ast.Starred) and isinstance(node.value, ast.Name):
+                return is_literal_list(node.value.id, enclosing_function(node))
+            if isinstance(node, (ast.List, ast.Tuple)):
+                return all(is_allowed_argument(element) for element in node.elts)
+            return False
+
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if self.is_dex_reference(node.func, "go_to_many"):
+                if node.keywords or not all(is_allowed_argument(argument) for argument in node.args):
+                    return False
+            elif self.is_dex_reference(node.func, "go_to"):
+                if node.keywords or len(node.args) != 2:
+                    return False
+            elif self.is_dex_reference(node.func, "RPCResult"):
+                movements = [keyword.value for keyword in node.keywords if keyword.arg == "next_steps"] + node.args[1:]
+                if (any(keyword.arg is None for keyword in node.keywords) or any(isinstance(argument, ast.Starred) for argument in node.args)
+                        or not all(is_allowed_argument(movement) for movement in movements)):
+                    return False
+            elif self.is_dex_reference(node.func, "force_complete_if_channels_empty"):
+                fallbacks = [keyword.value for keyword in node.keywords if keyword.arg == "fallback"] + node.args[1:2]
+                if any(keyword.arg is None for keyword in node.keywords) or any(isinstance(argument, ast.Starred) for argument in node.args) or len(fallbacks) != 1 or not is_allowed_movement(fallbacks[0]):
+                    return False
+            elif self.is_dex_reference(node.func, "StepDecision"):
+                return False
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in {"fork", "fork_with_round_key"}:
+                for builder_list in [*node.args[1:], *(keyword.value for keyword in node.keywords)]:
+                    builders = builder_list.elts if isinstance(builder_list, (ast.List, ast.Tuple)) else [builder_list.elt] if isinstance(builder_list, (ast.ListComp, ast.GeneratorExp)) else [builder_list]
+                    if not all(isinstance(builder, ast.Lambda) and is_allowed_movement(builder.body) for builder in builders):
+                        return False
+        for handler in self.lock_handlers:
+            method = handler.get("method")
+            for statement in self.function_returns(method) if method is not None else []:
+                value = statement.value
+                if value is None or isinstance(value, ast.Constant):
+                    continue
+                if not isinstance(value, ast.Call) or not self.is_dex_callee(value.func):
+                    return False
+        return True
+
+    # A callee is a Dex SDK name, such as go_to_many, or an attribute of one, such as Wait.any_of.
+    def is_dex_callee(self, function):
+        root = function
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
+            return False
+        return root.id in self.imports or root.id in self.module_aliases
 
     def node_name(self, node_id):
         for node in self.graph["nodes"]:

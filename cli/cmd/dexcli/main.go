@@ -98,7 +98,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
 	fmt.Fprintln(output, "  connectors mcp  Serve the Dex Connectors MCP server alone, without Dex Server or Dex Web")
 	fmt.Fprintln(output, "  health    Check Dex FlowService health")
-	fmt.Fprintln(output, "  visualize Render a static Flow graph from Go or Python source")
+	fmt.Fprintln(output, "  visualize Render a static Flow graph from source (experimental)")
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")
 	fmt.Fprintln(output, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(output, "  version   Print version information or check Server compatibility")

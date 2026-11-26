@@ -16,10 +16,12 @@ inputs, Attributes, and failures, and act on it.
   **Timeline** lists each event of the run with its inputs, outputs, and
   Attribute changes.
 - The **Flow canvas** draws a Flow's Steps and transitions from its Flow
-  Definition Graph. The **dexcli visualize** analyzer produces this graph from
+  Definition Graph. `dexcli visualize` builds the graph by statically analyzing
   Flow source. Each `Execute` returns its decision, and every successful Wait
   return of `WaitFor` resolves to a Wait factory the analyzer can read, inline or
-  through a local variable.
+  through a local variable. This graph is experimental. See
+  [Flow visualization](/reference/web/flow-visualization) for current
+  limitations and how to report issues.
 - **Start Flow** starts a Flow, and **Actions** call RPCs on a selected run.
 - Features such as **Designs**, **Work Queue**, **Connectors**, and the
   **Agent session** view show only when they apply. Their release status is in
