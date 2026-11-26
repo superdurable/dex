@@ -32,6 +32,27 @@ const definitionOptionMethodsByConstructor = {Attribute:attributeOptionMethods,A
 const contextTypeNames = new Set(["Context","AsyncContext"]);
 const reflectiveWriteNames = new Set(["Object.assign","Object.defineProperty","Object.defineProperties","Object.setPrototypeOf","Reflect.set","Reflect.defineProperty","Reflect.setPrototypeOf","Reflect.deleteProperty"]);
 const builtinClassNames = new Set(["Map","WeakMap","Set","WeakSet","Array","Date","RegExp","Error","Promise","URL"]);
+// Dex SDK exports that reach the Dex server, the network, or files; every other Dex export stays inside the Step.
+const dexExternalExports = new Set(["Client","Worker","PullWorker","openBlobCache","FileCredential","ApiKeyCredential","FilePayloadEncryptionKeyProvider"]);
+// Default-library interfaces, namespaces, and globals whose members do no I/O.
+const pureLibraryContainers = new Set([
+  "String","StringConstructor","Number","NumberConstructor","Boolean","BooleanConstructor","BigInt","BigIntConstructor",
+  "Symbol","SymbolConstructor","Array","ReadonlyArray","ArrayConstructor","Map","ReadonlyMap","MapConstructor",
+  "Set","ReadonlySet","SetConstructor","WeakMap","WeakMapConstructor","WeakSet","WeakSetConstructor",
+  "Object","ObjectConstructor","Math","JSON","Date","DateConstructor","RegExp","RegExpConstructor",
+  "RegExpMatchArray","RegExpExecArray","Promise","PromiseLike","PromiseConstructor","Console","Intl",
+  "Iterator","IteratorObject","IterableIterator","ArrayIterator","MapIterator","SetIterator","StringIterator",
+  "RegExpStringIterator","Generator","ArrayBuffer","ArrayBufferConstructor","DataView","DataViewConstructor",
+  "URL","URLSearchParams","TextEncoder","TextDecoder",
+]);
+const pureLibraryContainerPattern = /^(?:\w*Error|(?:Big)?(?:Int|Uint|Float)\d+(?:Clamped)?Array)(?:Constructor)?$/;
+// Node exports that compute in memory; other Node modules, such as fs, http, and timers, do I/O or wait.
+const pureNodeExports = new Map([
+  ["crypto",new Set(["createHash","createHmac","randomUUID","timingSafeEqual"])],
+  ["path",new Set(["basename","dirname","extname","format","isAbsolute","join","normalize","parse","relative","sep"])],
+  ["util",new Set(["format","isDeepStrictEqual"])],
+]);
+const pureLibraryFunctions = new Set(["parseInt","parseFloat","isNaN","isFinite","encodeURI","encodeURIComponent","decodeURI","decodeURIComponent","structuredClone"]);
 
 class TypeScriptAnalyzer {
   constructor(request) {
@@ -74,6 +95,11 @@ class TypeScriptAnalyzer {
     this.rpcLockErrors = [];
     this.viewRPCs = [];
     this.inputTypes = new Map();
+    this.undrawnLockEdges = [];
+    this.lockedMethodCandidates = [];
+    this.methodExternalCalls = [];
+    this.exactHelperResults = new Map();
+    this.helpersInProgress = new Set();
   }
 
   analyze() {
@@ -113,10 +139,16 @@ class TypeScriptAnalyzer {
       const instance = this.stepInstances.get(stepName);
       this.currentFrame = {instance};
       this.analyzeStep(stepName,nodeID,instance.declaration);
-      if (this.scopesFlowResources) this.analyzeStepLocks(nodeID,instance.declaration);
+      // Single-Flow graphs do not draw Step locks; the locked-method check still needs them.
+      const lockEdges = this.stepLockEdges(nodeID,instance.declaration);
+      if (this.scopesFlowResources) this.graph.edges.push(...lockEdges);
+      else this.undrawnLockEdges.push(...lockEdges);
+      this.lockedMethodCandidates.push({nodeID,stepName,instance});
       this.currentFrame = {};
     }
     this.analyzeRPCs(flow);
+    // Only a lock shared with an RPC can warn, so skip building the type checker otherwise.
+    if (this.graph.edges.some(edge => edge.kind === "resource_lock" && edge.metadata?.phase === "rpc")) this.recordMethodExternalCalls();
     this.analyzeTimeoutHandler(flow);
     this.analyzeTriggerBindings(this.method(flow,"getConnectorTriggerBindings"));
     if (this.scopesFlowResources) this.persistenceResourceIds = this.persistenceResources(flow);
@@ -1190,7 +1222,9 @@ class TypeScriptAnalyzer {
     return {kind:"object",fields};
   }
 
-  analyzeStepLocks(nodeID,declaration) {
+  // stepLockEdges returns the resource_lock edges of the Step's registration locks.
+  stepLockEdges(nodeID,declaration) {
+    const edges = [];
     const method = this.method(declaration,"getStepOptions");
     const phases = new Map([["waitForLockAttributes","wait_for"],["executeLockAttributes","execute"]]);
     this.walkStatements(this.handlerStatements(method),"",expression => {
@@ -1204,11 +1238,12 @@ class TypeScriptAnalyzer {
         for (const element of list.elements) {
           const lock = this.resolvedValue(element,this.currentFrame).node;
           const resourceID = this.lockedAttribute(lock);
-          if (resourceID) this.graph.edges.push({kind:"resource_lock",from:nodeID,to:resourceID,label:"lock",span:this.span(lock),metadata:{phase}});
+          if (resourceID) edges.push({kind:"resource_lock",from:nodeID,to:resourceID,label:"lock",span:this.span(lock),metadata:{phase}});
         }
       }
       return true;
     });
+    return edges;
   }
 
   lockedAttribute(expression) {
@@ -2893,8 +2928,360 @@ class TypeScriptAnalyzer {
     const attributes = this.graph.nodes.filter(node => node.kind === "attribute")
       .sort((left,right) => left.span.startLine - right.span.startLine || left.span.startColumn - right.span.startColumn)
       .map(node => this.attributeFact(node));
-    return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors,persistenceResourceIds:this.persistenceResourceIds,diagnosticResourceIds:this.diagnosticResourceIds,viewRPCs:this.viewRPCs,startInput:this.startInput};
+    return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors,persistenceResourceIds:this.persistenceResourceIds,diagnosticResourceIds:this.diagnosticResourceIds,viewRPCs:this.viewRPCs,startInput:this.startInput,methodExternalCalls:this.methodExternalCalls,undrawnLockEdges:this.undrawnLockEdges};
   }
+
+  // recordMethodExternalCalls fills methodExternalCalls for every Step waitFor and execute with a fail-closed allowlist.
+  recordMethodExternalCalls() {
+    const problem = this.createTypeChecker();
+    for (const {nodeID,stepName,instance} of this.lockedMethodCandidates) {
+      this.currentFrame = {instance};
+      // Field reads resolve through the Step instance, so cached helper results hold for one Step only.
+      this.exactHelperResults = new Map();
+      for (const [phase,methodName] of [["wait_for","waitFor"],["execute","execute"]]) {
+        const method = this.method(instance.declaration,methodName);
+        if (!method) {
+          if (phase === "execute") this.methodExternalCalls.push({nodeId:nodeID,phase,calls:[{callee:`execute of ${stepName}, which is not defined in this file`}]});
+          continue;
+        }
+        let calls;
+        if (problem) calls = [{callee:`code dexcli could not type-check (${problem})`,span:this.span(method)}];
+        else if (!method.body) calls = [{callee:`${methodName}, which has no body in this file`,span:this.span(method)}];
+        else calls = this.bodyExternalCalls([method.body],0,false).calls;
+        this.methodExternalCalls.push({nodeId:nodeID,phase,calls});
+      }
+      this.currentFrame = {};
+    }
+  }
+
+  // createTypeChecker type-checks the source alone with the compiler's default library; imports stay unresolved.
+  // It returns undefined, or the reason the checker could not be built.
+  createTypeChecker() {
+    const ts = this.ts;
+    try {
+      const options = {target:ts.ScriptTarget.ESNext,module:ts.ModuleKind.ESNext,noResolve:true,types:[],noEmit:true,skipLibCheck:true,experimentalDecorators:true,strict:true};
+      const libraryDirectory = path.dirname(ts.getDefaultLibFilePath(options));
+      const sourcePath = path.resolve(this.path);
+      const isLibraryFile = fileName => path.dirname(path.resolve(fileName)) === libraryDirectory && path.basename(fileName).startsWith("lib.");
+      const host = {
+        getSourceFile: (fileName,languageVersion) => {
+          if (path.resolve(fileName) === sourcePath) return this.tree;
+          return isLibraryFile(fileName) && fs.existsSync(fileName) ? ts.createSourceFile(fileName,fs.readFileSync(fileName,"utf8"),languageVersion) : undefined;
+        },
+        getDefaultLibFileName: compilerOptions => path.join(libraryDirectory,ts.getDefaultLibFileName(compilerOptions)),
+        getDefaultLibLocation: () => libraryDirectory,
+        writeFile: () => {},
+        getCurrentDirectory: () => path.dirname(sourcePath),
+        getCanonicalFileName: fileName => fileName,
+        useCaseSensitiveFileNames: () => true,
+        getNewLine: () => "\n",
+        fileExists: fileName => path.resolve(fileName) === sourcePath || (isLibraryFile(fileName) && fs.existsSync(fileName)),
+        readFile: fileName => path.resolve(fileName) === sourcePath ? this.source : isLibraryFile(fileName) && fs.existsSync(fileName) ? fs.readFileSync(fileName,"utf8") : undefined,
+      };
+      this.program = ts.createProgram({rootNames:[sourcePath],options,host});
+      this.checker = this.program.getTypeChecker();
+      return undefined;
+    } catch (error) {
+      return error.message;
+    }
+  }
+
+  // bodyExternalCalls returns the possible external calls in nodes, and whether the result is exact.
+  // When firstOnly is set it stops at the first call found.
+  bodyExternalCalls(nodes,depth,firstOnly) {
+    const scan = {calls:[],isExact:true};
+    const visit = node => {
+      if (!node || (firstOnly && scan.calls.length) || this.ts.isTypeNode(node)) return;
+      let found;
+      if (this.ts.isCallExpression(node) || this.ts.isNewExpression(node) || this.ts.isTaggedTemplateExpression(node)) found = this.classifyInvocation(node,depth);
+      else if (this.ts.isIdentifier(node) || this.ts.isPropertyAccessExpression(node)) found = this.classifyFunctionValue(node,depth);
+      if (found) {
+        scan.isExact = scan.isExact && found.isExact;
+        if (found.external) scan.calls.push({callee:found.external,span:this.span(node)});
+      }
+      this.ts.forEachChild(node,visit);
+    };
+    for (const node of nodes) visit(node);
+    return scan;
+  }
+
+  // classifyInvocation returns {external, isExact} for a call, new, or tagged template; external is the callee text or empty.
+  classifyInvocation(node,depth) {
+    const ts = this.ts;
+    const calleeExpression = ts.isTaggedTemplateExpression(node) ? node.tag : node.expression;
+    const callee = this.unwrap(calleeExpression);
+    const calleeText = this.calleeText(node,calleeExpression);
+    const allowed = {external:"",isExact:true};
+    const external = {external:calleeText,isExact:true};
+    if (!callee || callee.kind === ts.SyntaxKind.ImportKeyword) return external;
+    if (ts.isCallExpression(node) && (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee))) return allowed;
+    const dexExport = this.dexInvocationExport(callee);
+    if (dexExport) return dexExternalExports.has(dexExport) ? external : allowed;
+    if (ts.isElementAccessExpression(callee) && !this.memberCall(callee)?.method) return external;
+    let declaration;
+    try {
+      declaration = this.checker.getResolvedSignature(node)?.declaration;
+    } catch {
+      return external;
+    }
+    if (!declaration && ts.isNewExpression(node)) {
+      const constructed = this.sourceDeclarationOf(ts.isPropertyAccessExpression(callee) ? callee.name : callee);
+      if (constructed && ts.isClassDeclaration(constructed)) return this.classConstructionExternalCall(calleeText,constructed,depth);
+    }
+    return this.classifyDeclaration(calleeText,declaration,callee,depth);
+  }
+
+  // classifyFunctionValue checks a function referenced as a value, such as a callback argument, which may run later.
+  classifyFunctionValue(node,depth) {
+    const ts = this.ts;
+    if (ts.isIdentifier(node) && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) return undefined;
+    if (node.parent && ts.isDeclaration(node.parent) && node.parent.name === node) return undefined;
+    let use = node;
+    while (this.isTransparentWrapper(use.parent)) use = use.parent;
+    const parent = use.parent;
+    if (!parent) return undefined;
+    if ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === use) return undefined;
+    if (ts.isTaggedTemplateExpression(parent) && parent.tag === use) return undefined;
+    if ((ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === use) return undefined;
+    if (ts.isTypeOfExpression(parent)) return undefined;
+    const declaration = this.sourceDeclarationOf(ts.isPropertyAccessExpression(node) ? node.name : node);
+    if (!declaration) return undefined;
+    const isFunction = ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration) ||
+      (ts.isVariableDeclaration(declaration) && declaration.initializer && (ts.isArrowFunction(this.unwrap(declaration.initializer)) || ts.isFunctionExpression(this.unwrap(declaration.initializer))));
+    if (!isFunction) return undefined;
+    const calleeText = this.collapsedText(use);
+    const target = ts.isVariableDeclaration(declaration) ? this.unwrap(declaration.initializer) : declaration;
+    return this.classifyDeclaration(calleeText,target,node,depth);
+  }
+
+  // classifyDeclaration classifies a callee by its resolved declaration; no declaration is a dynamic or unresolved call.
+  classifyDeclaration(calleeText,declaration,callee,depth) {
+    const ts = this.ts;
+    const allowed = {external:"",isExact:true};
+    const external = {external:calleeText,isExact:true};
+    if (!declaration) return external;
+    const sourceFile = declaration.getSourceFile();
+    if (this.program.isSourceFileDefaultLibrary(sourceFile)) return this.isPureLibraryDeclaration(declaration) ? allowed : external;
+    if (sourceFile !== this.tree) return external;
+    declaration = this.implementationOf(declaration);
+    if (!declaration) return external;
+    if (ts.isConstructorDeclaration(declaration)) return this.classConstructionExternalCall(calleeText,declaration.parent,depth);
+    const isClassMember = ts.isMethodDeclaration(declaration) || ts.isGetAccessor(declaration) || ts.isSetAccessor(declaration) ||
+      ((ts.isArrowFunction(declaration) || ts.isFunctionExpression(declaration)) && ts.isPropertyDeclaration(declaration.parent));
+    if (isClassMember) {
+      const owner = ts.isPropertyDeclaration(declaration.parent) ? declaration.parent.parent : declaration.parent;
+      // Another object's method may be an injected implementation, so only calls on this or a proven same-file object are followed.
+      if (!ts.isClassDeclaration(owner) || !this.isProvenSameFileReceiver(callee)) return external;
+      return this.helperExternalCall(calleeText,declaration,[declaration.body],depth);
+    }
+    const isFunction = ts.isFunctionDeclaration(declaration) ||
+      ((ts.isArrowFunction(declaration) || ts.isFunctionExpression(declaration)) && ts.isVariableDeclaration(declaration.parent));
+    if (!isFunction || !declaration.body) return external;
+    return this.helperExternalCall(calleeText,declaration,[declaration.body],depth);
+  }
+
+  // implementationOf returns the declaration with a body for an overload signature, or undefined when there is none.
+  implementationOf(declaration) {
+    if (declaration.body) return declaration;
+    const sibling = declaration.symbol?.declarations?.find(candidate => candidate.kind === declaration.kind && candidate.body);
+    return sibling;
+  }
+
+  // isProvenSameFileReceiver reports whether a member callee runs on this, super, a class, or a same-file object the analyzer proves.
+  isProvenSameFileReceiver(callee) {
+    const ts = this.ts;
+    if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false;
+    const receiver = this.unwrap(callee.expression);
+    if (!receiver) return false;
+    if (receiver.kind === ts.SyntaxKind.ThisKeyword || receiver.kind === ts.SyntaxKind.SuperKeyword) return true;
+    const receiverDeclaration = ts.isIdentifier(receiver) ? this.sourceDeclarationOf(receiver) : undefined;
+    if (receiverDeclaration && ts.isClassDeclaration(receiverDeclaration)) return true;
+    const value = this.resolvedValue(receiver,this.currentFrame).node;
+    if (value?.kind === ts.SyntaxKind.ThisKeyword) return !!this.selfReferenceClass(value);
+    return !!value && ts.isNewExpression(value) && !!this.sourceDeclarationOf(this.unwrap(value.expression)) && ts.isClassDeclaration(this.sourceDeclarationOf(this.unwrap(value.expression)));
+  }
+
+  // classConstructionExternalCall checks the constructor, instance field initializers, and base class of a same-file class.
+  classConstructionExternalCall(calleeText,declaration,depth) {
+    const ts = this.ts;
+    const constructor = this.constructorOf(declaration);
+    const base = this.extendsClause(declaration);
+    if (!constructor && base) {
+      const baseDeclaration = this.sourceDeclarationOf(this.unwrap(base.expression));
+      if (!baseDeclaration || !ts.isClassDeclaration(baseDeclaration)) return {external:calleeText,isExact:true};
+    }
+    const nodes = declaration.members.filter(member => ts.isPropertyDeclaration(member) && !this.isStatic(member) && member.initializer).map(member => member.initializer);
+    if (constructor) nodes.push(constructor.body);
+    const result = this.helperExternalCall(calleeText,declaration,nodes,depth);
+    if (result.external || constructor || !base) return result;
+    const baseResult = this.classConstructionExternalCall(calleeText,this.sourceDeclarationOf(this.unwrap(base.expression)),depth + 1);
+    return {external:baseResult.external,isExact:result.isExact && baseResult.isExact};
+  }
+
+  // helperExternalCall follows a same-file helper and reports its first possible external call, as "helper (calls inner)".
+  helperExternalCall(calleeText,key,nodes,depth) {
+    let inner;
+    let isExact = true;
+    if (this.exactHelperResults.has(key)) inner = this.exactHelperResults.get(key);
+    else if (this.helpersInProgress.has(key)) return {external:"",isExact:false};
+    else if (depth + 1 > maximumHelperDepth) return {external:`${calleeText} (calls a helper chain deeper than dexcli follows)`,isExact:false};
+    else {
+      this.helpersInProgress.add(key);
+      const scan = this.bodyExternalCalls(nodes,depth + 1,true);
+      this.helpersInProgress.delete(key);
+      inner = scan.calls[0]?.callee || "";
+      isExact = scan.isExact;
+      if (isExact) this.exactHelperResults.set(key,inner);
+    }
+    return {external:inner ? `${calleeText} (calls ${inner})` : "",isExact};
+  }
+
+  // dexInvocationExport returns the Dex SDK export or pure Node export a callee calls or calls a method of, or undefined.
+  dexInvocationExport(callee) {
+    const ts = this.ts;
+    const named = this.allowedRootName(callee);
+    if (named) return named;
+    if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return undefined;
+    const receiver = this.unwrap(callee.expression);
+    if (this.accessedResource(receiver) || this.resourceFor(receiver)) return "resource";
+    if (this.isDexContextValue(receiver)) return "Context";
+    return this.dexValueOrigin(receiver,0);
+  }
+
+  // dexValueOrigin returns the Dex SDK or pure Node export a value comes from, such as Attribute or Context, or undefined.
+  // A property, element, or method result of such a value comes from it too.
+  dexValueOrigin(expression,depth) {
+    const ts = this.ts;
+    const value = this.unwrap(expression);
+    if (!value || depth > 2 * maximumHelperDepth) return undefined;
+    const named = this.allowedRootName(value);
+    if (named) return named;
+    if (ts.isIdentifier(value)) {
+      const declaration = this.sourceDeclarationOf(value);
+      return declaration ? this.declarationDexOrigin(declaration,depth + 1) : undefined;
+    }
+    if (ts.isPropertyAccessExpression(value)) {
+      const symbol = this.checker.getSymbolAtLocation(value.name);
+      if (!symbol) return this.dexValueOrigin(value.expression,depth + 1);
+      const declaration = symbol.valueDeclaration;
+      return declaration && declaration.getSourceFile() === this.tree ? this.declarationDexOrigin(declaration,depth + 1) : undefined;
+    }
+    if (ts.isElementAccessExpression(value)) return this.dexValueOrigin(value.expression,depth + 1);
+    if (ts.isNewExpression(value)) return this.allowedRootName(this.unwrap(value.expression));
+    if (ts.isCallExpression(value)) {
+      const callee = this.unwrap(value.expression);
+      if (!callee) return undefined;
+      if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) return this.allowedRootName(callee) || this.dexValueOrigin(callee.expression,depth + 1);
+      return this.allowedRootName(callee);
+    }
+    return undefined;
+  }
+
+  // allowedRootName returns the Dex SDK export or pure Node export a name refers to, or undefined.
+  allowedRootName(expression) {
+    return expression ? this.dexName(expression) || this.pureNodeExport(expression) : undefined;
+  }
+
+  // pureNodeExport returns module.export for an allowlisted Node export, or Buffer for the unbound Buffer global.
+  pureNodeExport(expression) {
+    const ts = this.ts;
+    if (ts.isPropertyAccessExpression(expression)) {
+      const namespace = this.unwrap(expression.expression);
+      const imported = namespace && ts.isIdentifier(namespace) ? this.nodeImportOf(namespace) : undefined;
+      return imported && !imported.exportName && pureNodeExports.get(imported.moduleName)?.has(expression.name.text) ? `${imported.moduleName}.${expression.name.text}` : undefined;
+    }
+    if (!ts.isIdentifier(expression)) return undefined;
+    if (expression.text === "Buffer" && !this.checker.getSymbolAtLocation(expression)) return "Buffer";
+    const imported = this.nodeImportOf(expression);
+    return imported?.exportName && pureNodeExports.get(imported.moduleName)?.has(imported.exportName) ? `${imported.moduleName}.${imported.exportName}` : undefined;
+  }
+
+  // nodeImportOf returns the module and export name an identifier imports, or undefined; a namespace or default import has no export name.
+  nodeImportOf(identifier) {
+    const ts = this.ts;
+    const declaration = this.checker.getSymbolAtLocation(identifier)?.declarations?.[0];
+    let statement = declaration;
+    while (statement && !ts.isImportDeclaration(statement)) statement = statement.parent;
+    if (!statement || statement.importClause?.isTypeOnly || !ts.isStringLiteral(statement.moduleSpecifier)) return undefined;
+    const moduleName = statement.moduleSpecifier.text.replace(/^node:/,"");
+    if (ts.isImportSpecifier(declaration)) return {moduleName,exportName:(declaration.propertyName || declaration.name).text};
+    return ts.isNamespaceImport(declaration) || ts.isImportClause(declaration) ? {moduleName} : undefined;
+  }
+
+  declarationDexOrigin(declaration,depth) {
+    const ts = this.ts;
+    if (ts.isBindingElement(declaration)) {
+      let root = declaration.parent;
+      while (root && (ts.isObjectBindingPattern(root) || ts.isArrayBindingPattern(root) || ts.isBindingElement(root))) root = root.parent;
+      return root ? this.declarationDexOrigin(root,depth + 1) : undefined;
+    }
+    if (!ts.isParameter(declaration) && !ts.isVariableDeclaration(declaration) && !ts.isPropertyDeclaration(declaration) && !ts.isPropertySignature(declaration)) return undefined;
+    if (declaration.type) return this.typeNodeDexOrigin(declaration.type,new Set());
+    if (declaration.initializer) return this.dexValueOrigin(declaration.initializer,depth + 1);
+    // An untyped callback parameter, such as the item of results.map(...), comes from the call's receiver.
+    const callback = declaration.parent;
+    if (ts.isParameter(declaration) && callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && ts.isCallExpression(callback.parent) && callback.parent.arguments.includes(callback)) {
+      const callee = this.unwrap(callback.parent.expression);
+      if (callee && (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))) return this.dexValueOrigin(callee.expression,depth + 1);
+    }
+    return undefined;
+  }
+
+  typeNodeDexOrigin(typeNode,seen) {
+    const ts = this.ts;
+    if (!typeNode || seen.has(typeNode)) return undefined;
+    seen.add(typeNode);
+    if (ts.isParenthesizedTypeNode(typeNode) || ts.isTypeOperatorNode(typeNode)) return this.typeNodeDexOrigin(typeNode.type,seen);
+    if (ts.isArrayTypeNode(typeNode)) return this.typeNodeDexOrigin(typeNode.elementType,seen);
+    if (ts.isUnionTypeNode(typeNode) || ts.isIntersectionTypeNode(typeNode)) {
+      for (const part of typeNode.types) {
+        const origin = this.typeNodeDexOrigin(part,seen);
+        if (origin) return origin;
+      }
+      return undefined;
+    }
+    if (!ts.isTypeReferenceNode(typeNode)) return undefined;
+    const name = typeNode.typeName;
+    if (ts.isQualifiedName(name)) return this.imports.get(name.left.getText(this.tree)) === "*" ? name.right.text : undefined;
+    const imported = this.imports.get(name.text);
+    if (imported) return imported;
+    const alias = this.inputTypes.get(name.text);
+    return alias && ts.isTypeAliasDeclaration(alias) ? this.typeNodeDexOrigin(alias.type,seen) : undefined;
+  }
+
+  // sourceDeclarationOf returns the value declaration a name resolves to, through import aliases, or undefined.
+  sourceDeclarationOf(node) {
+    if (!node) return undefined;
+    let symbol;
+    try {
+      symbol = this.checker.getSymbolAtLocation(node);
+      if (symbol && symbol.flags & this.ts.SymbolFlags.Alias) symbol = this.checker.getAliasedSymbol(symbol);
+    } catch {
+      return undefined;
+    }
+    return symbol?.valueDeclaration || symbol?.declarations?.[0];
+  }
+
+  // isPureLibraryDeclaration reports whether a default-library declaration belongs to an allowlisted container or function.
+  isPureLibraryDeclaration(declaration) {
+    const ts = this.ts;
+    if (ts.isFunctionDeclaration(declaration) && ts.isSourceFile(declaration.parent)) return pureLibraryFunctions.has(declaration.name?.text);
+    for (let current = declaration.parent; current && !ts.isSourceFile(current); current = current.parent) {
+      let name;
+      if (ts.isInterfaceDeclaration(current) || ts.isClassDeclaration(current) || ts.isModuleDeclaration(current)) name = current.name?.text;
+      else if (ts.isTypeLiteralNode(current) && ts.isVariableDeclaration(current.parent)) name = current.parent.name.getText(current.getSourceFile());
+      // Members of an allowlisted namespace, such as Intl.NumberFormat, are allowed too.
+      if (name !== undefined && (pureLibraryContainers.has(name) || pureLibraryContainerPattern.test(name))) return true;
+    }
+    return false;
+  }
+
+  calleeText(node,calleeExpression) {
+    const text = this.collapsedText(calleeExpression);
+    return this.ts.isNewExpression(node) ? `new ${text}` : text;
+  }
+
+  collapsedText(node) { return node.getText(this.tree).replace(/\s+/g," ").replace(/ ?(\??\.) ?/g,"$1"); }
 
   attributeFact(node) {
     const declaration = this.attributeDeclarations.get(node.id);
