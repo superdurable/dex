@@ -49,11 +49,13 @@ checks.
 
 Default applications get no integration or browser test suites, mocks,
 fixtures, or test-framework dependencies. Generate application tests only when
-the user asks. Requested tests follow a real-dependency policy: no component
-mocks, fake providers, or intercepted API responses. Trigger each case through
-real APIs, or record the unverified invariant. A requested executed test stays
-incomplete until its real dependencies pass. Connector-library verification
-keeps its own rules.
+the user asks or the project already has tests. Fakes may test the
+application's own branch logic. Claims about Dex durability, retries, or
+provider behavior need the real Server and the real provider; otherwise
+record them as unverified. A requested executed test of such a claim stays
+incomplete until its real dependencies pass. A stand-in for an external
+service keeps the real call's heartbeat timeout and is never modeled as a
+Timer. Connector-library verification keeps its own rules.
 
 Complete, checked source can be handed off without a private Connector key or
 an isolated test stack. Record real execution as pending and finish the
@@ -212,8 +214,9 @@ Ensure:
 - every top-level Flow is justified by its owner, retention, independent
   waits or Timers, and terminal lifecycle;
 - no two Flows exchange RPCs or messages on frequent events;
-- parallel work stays in Steps, and every SubFlow has evidence, rejected
-  alternatives, a defined parent-child lifecycle, and user confirmation;
+- parallel work prefers Steps, and every SubFlow has a child that needs its
+  own lifecycle, history, or retries, or a very large fan-out, with defined
+  input, output, cancellation, and failure handling;
 - temporary validation, failure, and expiry state cannot pollute a
   long-lived authoritative owner;
 - authorization starts with `admin`, Action permissions are granular, and
@@ -242,7 +245,7 @@ Ensure:
   internal-library decision or why a generic HTTP Connector remains
   appropriate;
 - every provider call without a Connector runs in `Execute` with an
-  idempotency identity, a bounded timeout, and recovery;
+  idempotency identity and recovery;
 - each Connector Step has a static connection name, receives only its
   current result, and uses a pure `MapToOperationInput`;
 - each Trigger binding has a static binding name, an application-owned
@@ -259,12 +262,12 @@ Ensure:
   another Step;
 - who computes each decision and status matches the recorded design, which
   by default has the Flow compute them from the facts the caller supplies;
-- business deadlines are durable Timers, never clock comparisons, and
-  idempotency keys and business IDs never derive from the current time; a
-  decision with a deadline races its Channels and Timer in one waiting Step
-  that checks which Condition fired;
-- tests skip business Timers through the Client and keep the real
-  durations;
+- deadlines that trigger work are durable Timers, and idempotency keys and
+  business IDs never derive from the current time; a decision with a
+  deadline races its Channels and Timer in one waiting Step that checks
+  which Condition fired;
+- tests, when present, preferably skip business Timers through the Client
+  and keep the real durations;
 - dependencies and Connector versions are pinned to exact releases, with no
   local path dependency, `go.work`, local `replace`, branch, pseudo-version,
   or commit SHA in the
@@ -282,6 +285,8 @@ Finish with:
 - Connector release or contribution status;
 - exact test evidence, including observed Flow IDs;
 - the FDG check result;
+- any [code check](core/self-check.md#code-check) item the code does not
+  meet;
 - remaining limitations, unimplemented integrations, and release blockers;
 - when deployment was requested, the observed Server, definition,
   configuration, and real end-to-end identities.

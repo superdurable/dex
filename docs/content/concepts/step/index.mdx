@@ -340,18 +340,26 @@ The defaults fit short calls, and the default heartbeat timeout is short. If
 the attempt reaches its heartbeat deadline without a heartbeat or a Dex
 Stream write, Dex times out the attempt. Raising only the method timeout
 keeps that deadline. A Step with a call that can stay silent that long sets
-two options itself:
+its heartbeat timeout itself, and checks its retry total duration:
 
-- a heartbeat timeout of at least that call's method timeout. A loop of short
-  calls that heartbeats between them keeps its longest silent interval below
-  the heartbeat timeout instead.
-- a retry total duration chosen for what it bounds. After a failure, Dex
+- a heartbeat timeout above the longest reasonable silent interval, with a
+  margin. Or the Step sends heartbeats while the call runs, between short
+  calls or from a background task. A background heartbeat shows only that the
+  Worker runs, so a truly hung call then ends at the method timeout.
+- a retry total duration, when the default would allow fewer retries than
+  the Step needs or retries must stop sooner. After a failure, Dex
   uses it only to decide whether to schedule another attempt. Queueing can
   start a scheduled attempt late, and a running attempt is never cut short.
   To allow several near-full attempts, size it at about the maximum attempts
   times the method timeout, plus backoff. That is an estimate: retry delays
   and queue time also use the budget. A deadline for the whole Flow uses the
   Flow timeout. A deadline for one wait uses a durable Timer.
+
+These timeouts end a hung attempt. Dex sends cancellation to the handler and
+retries the attempt by its retry policy. Pass the cancellation signal into
+each call that accepts one. A Worker slot is released only when the handler
+returns. So a blocking call that cannot observe cancellation gets its own
+timeout.
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

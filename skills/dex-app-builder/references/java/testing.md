@@ -47,7 +47,9 @@ class OrderFlowIntegTest {
 ```
 
 - `DexRuntime` is the bootstrap class from [java.md](java.md#worker-and-client-bootstrap).
-- Give every test a unique Flow ID. Never reuse a fixed ID across tests or runs.
+- Give every test a unique Flow ID, such as one with `UUID.randomUUID()`.
+  Never reuse a fixed ID across tests or runs. Application Flow IDs derive
+  from the business key.
 - Use a temporary `BlobCache` directory per test run.
 - Register every Flow the tests start, including SubFlow children.
 - Replace external services with fakes injected through the Flow constructor.
@@ -86,9 +88,9 @@ private static void awaitStatus(String flowId, String expected) throws Interrupt
 Report the last observed value in the failure message. Keep deadlines short
 but not flaky.
 
-## Required scenarios
+## Scenarios to cover
 
-Cover the scenario list in [../core/testing.md](../core/testing.md). In
+Cover the matching scenarios in [../core/testing.md](../core/testing.md). In
 this language:
 
 - Worker replacement: while the Flow waits or retries, start a new Worker

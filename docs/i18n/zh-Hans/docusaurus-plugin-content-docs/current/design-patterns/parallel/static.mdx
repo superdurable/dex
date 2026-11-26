@@ -13,7 +13,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 **Init** 在同一个 decision 中为 `WorkAStep` 和 `WorkBStep` 各返回一个 movement。Dex 同时运行这两个 Step，它们各自完成。每个分支的职责和输入类型都已知时，使用这种形状。
 
-每种固定的工作都用自己按业务领域命名的 Step 类型，即使分支看起来相似。这样图上能看出每种工作，每种也能有自己的选项和失败路由。用一个 Step 类型加 kind 字段会把它们藏起来。
+每种固定的工作最好都用自己按业务领域命名的 Step 类型，即使分支看起来相似。这样图上能看出每种工作，每种也能有自己的选项和失败路由。用一个 Step 类型加 kind 字段会把它们藏起来。
 
 ## 核心实现
 

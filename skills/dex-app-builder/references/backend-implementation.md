@@ -9,28 +9,30 @@ Worker lifecycle. Do not restate them in the application.
 
 The product constraints take precedence over the general SDK rules: external effects
 only in `Execute`, no provider or Dex mutation in `WaitFor` except Step
-execution local values (read-only, idempotent, time-bounded provider calls
-are allowed there), and strict FDG 2.0
+execution local values (read-only, idempotent provider calls are allowed
+there), and strict FDG 2.0
 rendering with the directives the Flow visualization reference lists for the
 language.
 
 ## Design before code
 
-Answer the Dex SDK design self-check in the application's design
-documentation. Then state, before you edit a Flow:
+For a non-trivial Flow, write a short model in the application's design
+documentation before you edit it:
 
 - the Flow identity, typed input, and output;
 - Steps and transitions, with each Step's commit boundary;
 - Attributes, AttributeMaps, Channels, RPCs, Timers, and Streams;
 - selective loads and locks;
-- retries, timeouts, and recovery, including uncertain effects;
+- recovery, including uncertain effects, and StepOptions where the defaults
+  do not fit;
 - Connector boundaries.
 
-Read [FDG authoring](fdg-authoring.md) before you edit a Flow. New
-applications default to no SubFlows. Use parallel Steps inside one lifecycle.
-Use independently started top-level Flows with typed RPCs or Channels only
-when the confirmed data lifecycle needs another owner. Implement a SubFlow
-only after the [SubFlow gate](core/subflow.md#evolution-gate) passes and the user confirms it.
+Read [FDG authoring](fdg-authoring.md) before you edit a Flow. Prefer
+parallel Steps inside one lifecycle. Use independently started top-level
+Flows with typed RPCs or Channels only when the confirmed data lifecycle
+needs another owner. Use a SubFlow when the child needs its own lifecycle,
+history, or retries, or when one fan-out is very large; see
+[SubFlow](core/subflow.md#when-to-use-a-subflow).
 
 ## Dex-first storage
 
@@ -68,31 +70,30 @@ and Attribute Store sync when Dex stays authoritative. Add external storage
 only for a confirmed need beyond Dex's model: complex or ad-hoc secondary
 indexes, full-text or vector search, a hot record that cannot accept
 Attribute-lock serialization, joins or transactions across independently
-owned records, or large cross-Flow analytics. Then document the operation and
-scale, one authoritative owner per fact, the synchronization and recovery
-design, and tests for failure and reconciliation.
+owned records, or large cross-Flow analytics. Name one authoritative owner
+per fact and a synchronization and recovery design.
 
 ## Runs that can be measured and improved
 
-Build every Flow so that its own history answers which runs succeeded, for
-whom, at what cost, and what a different decision would have done. These rules
-cost little now and are expensive to retrofit.
+Consider these when the business wants to measure runs: which succeeded, for
+whom, at what cost, and what a different decision would have done.
 
-- **Outcomes are visible in the Run.** Each business outcome the contract
-  names, such as approved, paid, activated, replied, or resolved, is a Step
-  the Run enters, an Action it accepts, or an Attribute value. When the
+- **Prefer outcomes visible in the Run.** Each business outcome the contract
+  names, such as approved, paid, activated, replied, or resolved, can be a
+  Step the Run enters, an Action it accepts, or an Attribute value. When the
   outcome happens in another system, record it when the application learns
   it, through a Trigger, an Action, or a Step.
-- **Segment facts have their own scalar Attributes.** A fact the business
-  compares runs by, such as plan, region, source, tier, or customer size, is
-  a scalar Attribute set once when known. It is not only a field inside JSON
-  or a display string. Index it only when a list needs it.
-- **Decisions are plain functions.** Routing, scoring, thresholds, lane
-  choices, and Timer durations come from plain functions of recorded facts
-  and configuration. The Step calls the function and records its inputs. The
-  same function can then replay past runs under a changed rule.
-- **Model calls are their own Steps.** Each model call is its own Step, so
-  its result and token usage are in the Run's history. When the user chose
+- **Prefer scalar Attributes for segment facts.** A fact the business
+  compares runs by, such as plan, region, source, tier, or customer size, can
+  be a scalar Attribute set once when known, not only a field inside JSON or
+  a display string. Index it only when a list needs it.
+- **Prefer decisions as plain functions.** Routing, scoring, thresholds, lane
+  choices, and Timer durations can come from plain functions of recorded
+  facts and configuration. The Step calls the function and records its
+  inputs, so the function can replay past runs under a changed rule.
+- **Prefer model calls as their own Steps.** A model call in its own Step
+  keeps its result and token usage in the Run's history, and a retry of a
+  later call does not repeat it. When the user chose
   the `llm` Connector, use an `llm` Connector Step, as
   [text generation](connector-architecture.md#text-generation) describes.
   Otherwise the Step's `Execute` calls the model and records a safe result,
@@ -136,14 +137,15 @@ has how its Work Queue uses this history.
 
 ## Effects and waits
 
-- Keep external effects in `Execute`, with a stable idempotency identity, a
-  bounded timeout, and query-first reconciliation of uncertain outcomes.
-- `WaitFor` sets up a durable wait. It may use a read-only, idempotent,
-  time-bounded call to get a deadline and return a Timer for it. Its only Dex
-  state writes are Step execution local values. Provider writes run in
-  `Execute`.
-- Handle a deterministic, non-retryable condition in `Execute`: route to the
-  failure Step with an ordinary decision. Use the SDK's force-fail decision
+- Keep external effects in `Execute`, with a stable idempotency identity and
+  query-first reconciliation of uncertain outcomes. Pass the cancellation
+  signal into calls that accept it; give a blocking call that cannot observe
+  cancellation its own timeout.
+- `WaitFor` sets up a durable wait. It may use a read-only, idempotent call
+  to get a deadline and return a Timer for it. Its only Dex state writes are
+  Step execution local values. Provider writes run in `Execute`.
+- Prefer handling a deterministic, non-retryable condition in `Execute`:
+  route to the failure Step with an ordinary decision. Use the SDK's force-fail decision
   (`dex.ForceFail` in Go) only when the whole Flow must end at once. A
   returned error is retried for the whole retry budget. Return errors only
   for provider errors the application treats as retryable.
@@ -188,8 +190,8 @@ capability for a chosen public product is a Connector contribution and a
 release blocker.
 
 When the user declines a Connector for a system, the application calls it
-from its own Step code in `Execute`. Each call keeps an idempotency identity,
-a bounded timeout, and recovery. Its credentials stay out of code and Flow
+from its own Step code in `Execute`. Each call keeps an idempotency identity
+and recovery. Its credentials stay out of code and Flow
 state.
 
 ## Application API contract

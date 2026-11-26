@@ -23,7 +23,7 @@ Each round of the polling Step runs these steps:
 4. On a terminal status, `Execute` returns the next decision: success or a business failure.
 5. While the work is not finished, `Execute` returns `GoTo` to the same Step with the next round's input.
 
-"Not ready yet" is a normal decision. It is never an error.
+"Not ready yet" is a normal decision. Prefer it to returning an error and letting retries loop. An error mixes "not ready" with real failures and spends the retry budget.
 
 ## Rules {#rules}
 

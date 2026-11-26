@@ -41,11 +41,14 @@ Attribute locks serialize Steps and RPCs that declare the same lock within one F
 - Lock the exact AttributeMap instance when parallel Steps or RPCs read-modify-write the same value. Unrelated instances stay concurrent.
 - Without a lock, a read-modify-write can lose an update. Dex commits a write without checking that the values the handler read are still current.
 - Locks are cooperative. Every writer that must be serialized declares the same lock. A writer that skips it bypasses the protection.
-- Keep locked RPCs short. An RPC takes a free lock ahead of queued Steps, so a steady stream of locked RPCs can delay them. Lock order is in the [Attribute lock reference](https://docs.superdurable.io/reference/server/runtime-data#lock-order).
+- Keep locked RPCs short, so they do not delay the Steps that wait for the lock. Lock order is in the [Attribute lock reference](https://docs.superdurable.io/reference/server/runtime-data#lock-order).
 - A lock does not load data. A read-modify-write of a dynamic instance selects that instance both as a lock and as a load.
 - An RPC that needs a held lock fails at once with the RPC lock-conflict error. It is not queued. Retry it with bounded backoff and keep it idempotent. The holder can be a Step in retry backoff, because a method keeps its locks until the method call ends.
 - A Step takes its locks when Dex hands its attempt to a Worker. See [step.md](step.md#retry-snapshots-and-locks) for queued and retrying attempts.
-- Keep lock scope narrow. Do not hold a lock across a long wait or a slow external call; commit the locked change in a short following Step. Executes that declare the same lock run one at a time, so a lock on long parallel branches serializes them; short commits of parallel branches may share it.
+- When an Execute declares a lock that an RPC also takes, do not call an external system in that Execute. Decide and commit under the lock in that Step, then make the call in the next, unlocked Step. Otherwise every RPC that needs the lock fails with a lock conflict while the call and its retries run. The same applies to a WaitFor or a Flow timeout handler that declares such a lock, and starting or calling another Flow counts as an external call.
+- A lock that only Steps share may cover an external call; those Steps run one at a time. A lock on long parallel branches therefore serializes them, and a failing Step keeps the lock through its retries. A polling Step never holds a lock that its deadline watchdog also needs, because the watchdog would wait until the loop ends.
+- When the business accepts that an already-decided action may still happen once, no lock is needed: the RPC publishes its request, such as a stop, and answers "received". The decision point is the deciding Execute's first state snapshot, which its retries reuse. Check the stop in that snapshot, including in the branch where a Timer was selected first. A stop committed after the snapshot may let that already-decided occurrence happen once; every later interruptible wait still includes the stop Condition. One message reaches one consumer, so parallel consumers each get a stop message on their own Channel, such as one per branch, which wakes a waiting branch. A durable stop Attribute records the fact but wakes no waiting branch, because WaitFor has no Attribute Condition; reading it when another event resumes the branch fits only when the business accepts that the wait is not interrupted at once. The grace is per decided action or branch, and when the business allows only one such action overall, decide actions one at a time. The decided action carries a stable occurrence ID that the receiver recognizes and deduplicates.
+- When the business deadline is the decision commit itself, the stop RPC and the deciding Step share a lock, and an unlocked Step sends after the commit.
 
 ### Whole-map coordination
 
@@ -87,78 +90,26 @@ An indexed AttributeMap does not create one search entry per instance. All insta
 
 Use a hard-delete Attribute or AttributeMap for a short-lived secret that the Flow itself must hold, such as an API key it uses a few times and then discards. Keep long-lived credentials in the deployment's secret management.
 
-Behavior:
+- Dex keeps the value out of Flow history. Deleting it, or writing null, permanently deletes the stored value.
+- Delete the secret as soon as the Flow no longer needs it.
+- The value is written before the attempt commits, so a failed attempt's write can be visible. Make handlers safe to repeat, and never read-modify-write a hard-delete Attribute.
+- It cannot be indexed, synced to an Attribute Store, or used in an Attribute match or an Action condition. Keep a revision in a regular Attribute when something must wait on a change.
+- When the value can be absent, such as after time travel, design the Flow to request a fresh secret.
 
-- Dex stores the value only in object storage, never in Flow history. History keeps a reference.
-- Deleting it, or writing null, permanently deletes the stored value. Neither Dex APIs nor history can recover it.
-- Every write through the definition carries the setting: Step, RPC, and timeout-handler writes, and StartFlow and SubFlow initial values.
-- Handlers receive the value inline. The SDK never stores it in the BlobCache.
-- The Client Attribute read returns the currently stored value. The SDK never caches it.
-
-Constraints:
-
-- Only string and object values, including bytes. Wrap a numeric secret in an object with one field. Null is always allowed.
-- It cannot be indexed or synced to an Attribute Store.
-- WaitForAttributeMatch rejects it, and Action conditions cannot use it. Keep a revision in a regular Attribute and read the secret through a Client Attribute read or an RPC. Return it only to callers authorized to hold it.
-- The SDK refuses to write it to a Server that does not support it.
-- Build StartFlow and SubFlow initial values from the same definition the target Flow registers.
-
-The stored value is written in place, before the attempt commits:
-
-- A retried attempt, other Steps and RPCs, and any Attribute read can see a write or deletion from an attempt that later failed. Make handlers safe to repeat. Never read-modify-write a hard-delete Attribute.
-- Concurrent writers to one key may not leave the last committed write. Use a single writer when order matters.
-- A start that fails because the Flow ID is running still overwrites, or with null deletes, the running Flow's value.
-- Runs that reuse a Flow ID share the stored value.
-- Time travel does not restore a deleted value, and a restarted SubFlow may read it as absent. Design the Flow to request a fresh secret when the value is absent.
-- Removing the option from the definition leaves the stored value until Dex removes the Flow. Delete the value through the hard-delete definition first.
-- Delete the secret as soon as the Flow no longer needs it. Object storage backups and bucket versioning outside Dex can keep copies; configure them separately.
+Value types, write paths, and the other edge cases are in the [hard-delete Attributes reference](https://docs.superdurable.io/reference/server/runtime-data#hard-delete-attributes).
 
 ## Attribute Store sync
 
 Attribute Store sync projects selected Attribute writes into PostgreSQL tables that the application owns. Each destination is an Attribute Store. It is a Dex Server feature, not a Worker feature. The application and its reports query the tables with SQL.
 
-### Contract
-
 - The Flow stays the source of truth. The table is an eventual, latest-state projection. Never read it to make a Flow decision.
-- A Flow opts in per Attribute or AttributeMap with the sync-to-Attribute-Store option, and names one or more configured stores in its Flow configuration at start. Initial Attribute values also project.
-- PostgreSQL is the only store type.
-- Dex never creates, migrates, or backfills a destination. Create every table, and the Dex fencing table, before the Server starts. An invalid destination fails Server startup.
-- Delivery is asynchronous and at least once, for one Flow at a time. Every write is an idempotent upsert keyed by the Flow ID.
-- Writes never block a Step, RPC, or start commit. Rows normally appear shortly after the commit.
-- While a store is unavailable, Flows keep running. Failed writes retry for a bounded time, then drop with an error log. A projection failure never rolls back Flow state.
-- Dex does not replay old Attributes, re-send a dropped batch, or backfill a newly configured store. Make important projections reconcilable from the Flow.
-- After time travel, Dex rewrites the run's synced rows from the restored state.
-- Deleting an Attribute keeps the row and projects NULL. Dex never deletes rows when a Flow closes. Give the table its own retention.
-- Hard-delete Attributes cannot be synced.
+- A Flow opts in per Attribute or AttributeMap, and names the stores in its Flow configuration at start.
+- Dex never creates, migrates, or backfills a destination; the application owns the tables and their retention.
+- Delivery is asynchronous and at least once. A write can be dropped after its retries, and a projection failure never rolls back Flow state, so make important projections reconcilable from the Flow.
+- A row key template makes the Flow ID format a storage contract. Settle both before the first write.
 - Update or delete projected data only through the Flow.
 
-### Flow close
-
-A naturally closing Flow stays running while pending writes finish. See [Completion requests](https://docs.superdurable.io/reference/server/step-and-flow-close#completion-requests). A dropped write still needs reconciliation, so completion does not prove the table is current.
-
-StopFlow closes the run at once; remaining writes keep syncing after the close.
-
-### Row keys, column names, and AttributeMap tables
-
-A store can split each Flow ID into the table's key columns with a row key template, map Attribute names to column names, and write each instance of an AttributeMap as a row of its own table. Settle these choices together with the Flow ID format before the first write.
-
-- A row key template makes the Flow ID format a storage contract. Choose the Flow ID format and the template together.
-- A Flow ID that does not match the template writes no row, and a retry cannot fix it. Select such a store only on Flow types whose IDs match.
-- Attributes never write the key columns.
-- Dex never migrates rows. A later change to the template or to the Flow ID format is an application data migration.
-- Several stores may write one table. Each write sets only its own columns. Give each column one owning Flow type.
-- An AttributeMap table holds one row per instance. Writing an instance replaces its row, and deleting the instance deletes the row.
-- Write each instance as one complete value. A partial value erases the columns it omits.
-- The store row and its instance rows commit together. Do not add foreign keys between them: a violation fails the whole batch and holds back later writes.
-- A value with no matching column, or one that does not convert, is skipped with a log entry. The Flow never sees that error. Before you sync, verify how every Attribute name and every instance name maps to a column, especially for a dynamic map.
-
-### Schema changes
-
-- Add a column before the Workers that write it start.
-- Never remove or change a column that a Flow still writes. Later writes to it are skipped or retried.
-- Watch the Server log for skipped writes, skipped batches, and exhausted retries.
-
-The configuration format, the row key template syntax, column naming, value conversion, schema refresh, retry settings, the fencing table statement, the SQL type contract, and metrics are in the [Server Attribute Store reference](https://docs.superdurable.io/reference/server/attribute-store-sync). For local development, `dexcli dev` accepts an Attribute Store configuration file; see the [CLI reference](https://docs.superdurable.io/reference/cli/#start-locally).
+Store types, row keys, column mapping, AttributeMap tables, schema changes, Flow close, the fencing table, and metrics are in the [Server Attribute Store reference](https://docs.superdurable.io/reference/server/attribute-store-sync). For local development, `dexcli dev` accepts an Attribute Store configuration file; see the [CLI reference](https://docs.superdurable.io/reference/cli/#start-locally).
 
 ## Reading and writing from outside a Flow
 
@@ -174,7 +125,5 @@ The configuration format, the row key template syntax, column naming, value conv
 - Does every application index use a generic typed slot, and does every slot search constrain FlowType?
 - Are secrets kept out of indexes, regular Attributes, logs, and Streams?
 - Is the Flow the only writer of each projected fact?
-- Do the Flow ID format and the row key template match for every Flow type that selects the store?
-- Are tables and the fencing table created before the Server starts?
 - Can the projection be reconciled after a dropped write?
 - Does no Flow decision read the projection?

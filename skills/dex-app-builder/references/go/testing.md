@@ -1,7 +1,7 @@
 # Testing Go applications
 
-Read [core testing](../core/testing.md) for the required scenarios and the
-`dexcli dev` setup. This page gives the Go harness.
+Read [core testing](../core/testing.md) for when to write tests, the
+scenarios, and the `dexcli dev` setup. This page gives the Go harness.
 
 ## Rules
 

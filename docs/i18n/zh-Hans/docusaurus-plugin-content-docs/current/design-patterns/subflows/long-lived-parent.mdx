@@ -590,11 +590,11 @@ impl Step for LongLiveHandleSubFlow {
 
 ## 关闭接收 {#close-the-intake}
 
-示例在运行中的子 Flow 结束后停止。如果父 Flow 要永久关闭接收，还要结束空闲的 worker，并交还排队中的请求：
+上面的可运行示例演示基础变体：由后续的 Step 启动每个子 Flow，**Stop** RPC 在子 Flow 结束后结束 worker。它们没有可关闭的接收、共享的准入 lock 或交还请求的回复。如果父 Flow 要永久关闭接收，还要结束空闲的 worker，并交还排队中的请求：
 
 - 关闭 RPC 把接收标记为已关闭，并发布一条关闭消息。此后接收 RPC 拒绝新请求，调用方可以把请求重新提交给新的父 Flow run。
-- 两个 RPC 和 worker 的 `Execute` 声明同一个 `intakeClosed` lock。
-- 每个 worker 负责自己消费的请求。在这个 lock 下，它要么启动子 Flow，要么在关闭后通过幂等的路径把请求记为已交还，比如回复提交方。排队的请求不会被丢掉，也不会被交还两次。
+- 两个 RPC 和 `HandleRequest` 中 worker 的 `Execute` 声明同一个 `intakeClosed` lock。
+- 每个 worker 负责自己消费的请求。在这个 lock 下，它只提交下一步：进入不持有 lock 的 `HandleChild` 启动子 Flow；或者在关闭后进入不持有 lock 的 `ReturnRequest`，通过以请求为键的幂等路径交还请求（比如回复提交方），再领取下一个请求。RPC 也拿这个 lock，所以 worker 持有它时不调用其他系统或 Flow。排队的请求不会被丢掉，也不会被交还两次。
 - 一个关闭 Step 等待关闭消息，然后 graceful complete。
 - Channel condition 仍然优先于 graceful completion condition，所以关闭后 worker 继续领取并交还排队的请求。队列清空后，空闲的 worker 通过 graceful completion condition 被唤醒并结束自己的分支。有运行中子 Flow 的 worker 先等它结束。
 - 接收 RPC 用 Channel 大小检查上限。每个 RPC 都能拿到 Channel 大小，所以父 Flow 不需要另外的等待计数器。
@@ -604,7 +604,7 @@ impl Step for LongLiveHandleSubFlow {
 
 1. `sendRequest` 持有 `intakeClosed` lock。接收开放且当前队列长度低于上限时，它接受请求，把它排进 `Requests` Channel。
 2. `HandleRequest` 中的每个 worker 等待一个排队的请求，或者等待 graceful completion 请求。
-3. 领到请求的 worker 持有 `intakeClosed` lock，启动它的子 Flow。关闭之后，它改为把请求记为已交还，然后等待下一个请求。
+3. 领到请求的 worker 持有 `intakeClosed` lock，提交进入 `HandleChild` 的一步，由它在不持有 lock 时启动子 Flow。关闭之后，它改为进入 `ReturnRequest`，由它在不持有 lock 时交还请求，然后等待下一个请求。
 4. 本次等待经 graceful completion 请求唤醒、且没有消费请求的 worker 结束自己的分支。
 5. `closeIntake` 持有 `intakeClosed` lock，把接收标记为已关闭，并发布一条关闭消息。`CloseIntake` 收到它后 graceful complete 这个 Flow。
 

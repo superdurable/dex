@@ -40,7 +40,7 @@ The Client Attribute read returns committed values of known Attributes and exact
 - **No Worker.** Dex serves it directly. It works while no Worker runs and costs less latency than an RPC.
 - **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. It takes no run ID.
 - **Committed state.** It never sees writes that a running Step or RPC has staged. Hard-delete values are the exception: they are stored before commit, so the read can return a value from an attempt that later failed.
-- **Batch only.** There is no single-Attribute method. Pass every Attribute and map instance the response needs in one call. Never issue one call per Attribute. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
+- **Batch only.** There is no single-Attribute method. Pass every Attribute and map instance the response needs in one call; one call per Attribute costs round trips and can read different commits. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
 - **Exact keys.** Each read is a singleton Attribute or one exact map instance. It cannot enumerate a map and does not read Channels.
 - **Registered definitions.** Each definition must be registered by some Flow in the Client's registry. Dex reads by name and does not check that the target Flow declares it, so a same-named Attribute of another type fails to decode.
 - **Large values.** The Client hydrates blob-backed values through its BlobCache before decoding.
@@ -62,7 +62,7 @@ Errors:
 
 ## Read-after-write
 
-Classify every write API and read API pair. A returned call, a completed future, or a nil error proves only that the API's own response boundary was reached.
+After an RPC write, a direct read of the same state sees it; do not poll. Search and Attribute Store tables lag. A direct read does not prove that triggered Steps finished. A returned call, a completed future, or a nil error proves only that the API's own response boundary was reached. The table below is a reference for less common pairs.
 
 Three different guarantees:
 
@@ -124,7 +124,7 @@ Every result or status a user must see has a durable read path: a result Attribu
 ## Self-check
 
 - Does every business decision and status write live in a Step or RPC, with the caller only supplying facts and reading results?
-- Is each read after a write classified by the matrix above, with no polling on strong pairs?
+- Is a direct read after an RPC write read once, with polling kept for search and Attribute Store tables?
 - Does each response read all its values in one Client Attribute read call or one read-only RPC?
 - Is every wait bounded by a request timeout at an HTTP boundary?
 - Is search used only for discovery, never as proof of a write?

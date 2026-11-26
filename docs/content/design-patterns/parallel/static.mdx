@@ -12,7 +12,7 @@ Start a fixed set of distinct Step types concurrently.
 
 **Init** returns one movement for `WorkAStep` and one for `WorkBStep` in a single decision. Dex runs both at the same time, and each completes on its own. Use this shape when each branch has a known job and input type.
 
-Give each fixed kind of work its own domain-named Step type, even when the branches look alike. The graph then shows each kind, and each can have its own options and failure route. A single Step type with a kind field hides them.
+Prefer one domain-named Step type per fixed kind of work, even when the branches look alike. The graph then shows each kind, and each can have its own options and failure route. A single Step type with a kind field hides them.
 
 ## Core implementation
 

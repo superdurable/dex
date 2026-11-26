@@ -86,8 +86,8 @@ test("greeting completes and rejects a duplicate Flow ID", async () => {
 });
 ```
 
-- Use `node:test` or the project's framework. Generate Flow IDs with
-  `randomUUID()`.
+- Use `node:test` or the project's framework. Generate test Flow IDs with
+  `randomUUID()`; application Flow IDs derive from the business key.
 - Give each environment its own `mkdtemp` BlobCache directory. Close the
   Worker, then the Client, and then the BlobCache in `finally`.
 - Bound every wait: `waitForFlow(flowId, timeoutMs)`, `requestTimeoutMs` on

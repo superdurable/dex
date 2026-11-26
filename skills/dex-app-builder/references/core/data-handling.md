@@ -18,7 +18,7 @@ Start with Dex as the durable system of record for every fact the Flow model can
 
 - Data shared by several processes does not by itself need a database. Give shared facts one stable domain or entity Flow owner and expose typed operations on it. Do not turn an arbitrary process Flow into a global database, and do not copy one authoritative fact into several process Flows.
 - Do not add a database, cache, ORM, outbox, or shadow read model for hypothetical flexibility.
-- An external store needs a confirmed requirement Dex cannot reasonably meet: complex or ad-hoc secondary indexes, full-text or vector search, sustained high-contention writes to one hot record that cannot accept Attribute-lock serialization, relational joins or transactions across independently owned records, or large analytical scans. Record the operation, scale, consistency need, and the Dex alternative you evaluated.
+- Default to Dex state. Add an external store when Dex's model does not fit the access pattern, such as complex or ad-hoc secondary indexes, full-text or vector search, sustained high-contention writes to one hot record that cannot accept Attribute-lock serialization, relational joins or transactions across independently owned records, or large analytical scans.
 - When Dex can stay authoritative and only the query shape is missing, prefer an [Attribute Store projection](attribute.md#attribute-store-sync) over application dual writes.
 - When an external store must own a fact, define that boundary explicitly. Keep the Flow's Attributes to process state, durable references, and recovery facts.
 - One fact never has two ambiguous authorities. Name the source of truth for each fact and define synchronization, failure, and reconciliation.
@@ -38,9 +38,7 @@ The Client Attribute read uses the same path in the Client. Hard-delete Attribut
 
 Rules:
 
-- The BlobCache is disposable acceleration. Dex stays the source of truth.
-- Create one cache-owned, writable directory per Worker replica. Share the opened cache between that process's Worker and Client when the SDK allows. Size it for the hot set, and close it after both stop.
-- A persistent volume can keep entries across restarts, but correctness must not depend on it.
+- The BlobCache is disposable acceleration. Dex stays the source of truth, and correctness never depends on cached entries. Directory, sharing, sizing, and shutdown are in the language's Workers reference, such as [Go](https://docs.superdurable.io/reference/go/workers).
 - Never parse, construct, persist, or forward blob references. A reference omits its owning Flow ID; Dex and the SDK supply it. When a value crosses to another Flow through a start, SubFlow, or RPC, Dex copies or inlines it, so the destination stays recoverable.
 - Do not build application-level blob references, download logic, deduplication, or cache eviction unless requirements exceed this path.
 - The inline threshold and value size limits are Server settings. See the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits).

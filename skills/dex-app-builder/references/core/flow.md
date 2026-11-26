@@ -12,7 +12,7 @@ A Flow is one durable run of a business process, with a stable identity and life
 | Run attempt | Dex Server | Increments on each time travel of a run | Capture it before an operator mutation. |
 | Step type | the application | Stable name of a Step definition in the Flow | Part of the durable contract of open runs, not just a function name. |
 | Step execution ID | Dex Server | One execution of a Step type, formatted Step type plus a number | Use it, with the Flow ID, to key external effects. |
-| RPC name | the application | Durable name of an RPC handler | Must start with a concrete action verb. |
+| RPC name | the application | Durable name of an RPC handler | Prefer a concrete action verb first. |
 
 Go, Java, Python, and Rust derive the default Flow type from the type or class name without its package or module. Flow types must therefore be unique within one Worker registry and on one Server. A generic Flow or Step type must override its type name. Dex Web and search show the Flow type as written.
 
@@ -28,7 +28,7 @@ Rules:
 
 - Dex rejects a read or write of an Attribute or Channel name that the schema does not declare. Register every one before use.
 - A Flow with no start Step, or an empty Step list, is valid when RPCs drive it into Steps later.
-- One Step type can run many times, including in parallel. Its input distinguishes the executions. That fits the same work on different items. Different kinds of work, such as calls to different services, get distinct domain-named Step types, never one Step type with a kind field.
+- One Step type can run many times, including in parallel. Its input distinguishes the executions. That fits the same work on different items. Prefer one Step type per kind of work, such as calls to different services, so the graph shows it and it can have its own options.
 - Initial Attribute values passed at start must match an Attribute or AttributeMap in the schema. Dex creates the Flow and its initial values in one operation, so the first Step sees them.
 - Flow completion with a null output stores no output. When "completed with null" must differ from "completed without output", return an explicit result object.
 
@@ -45,7 +45,7 @@ For each candidate data set or process, ask:
 
 | Answers | Decision |
 | --- | --- |
-| 4 is yes | Do not split, whatever else holds. Every cross-Flow call adds history to both Flows and is a separate engine operation with its own latency and cost. Keep a deadline such as inactivity in the Flow where the operations happen. |
+| 4 is yes | Do not split, whatever else holds. Every cross-Flow call, even a read, adds latency and history to both Flows. Keep a deadline such as inactivity in the Flow where the operations happen. |
 | 1 to 3 are all yes, 4 is no | Use an independent top-level Flow. Start it independently and coordinate with typed RPCs or Channels. It is not a SubFlow just because another Flow consumes its result. |
 | Otherwise | Use Steps, Attributes, or AttributeMaps in the existing Flow. |
 
@@ -55,9 +55,9 @@ Cross-Flow calls are fine for rare events: a start, a completion, a cancellation
 
 Keep long-lived authoritative facts in their stable owner. A temporary Flow stores only the validation or coordination state its own wait needs, and cleans it up by its own retention policy. Failed, expired, or temporary state must not pollute the authoritative store.
 
-### Default to no SubFlows
+### Prefer parallel Steps to SubFlows
 
-Default a new design to no SubFlows. Use parallel Steps when work shares one Flow identity and lifecycle. Use ordinary language helpers or interfaces for code and provider abstraction. A SubFlow is an evolution step that must pass the gate in [subflow.md](subflow.md#evolution-gate).
+Prefer parallel Steps when work shares one Flow identity and lifecycle. Use ordinary language helpers or interfaces for code and provider abstraction. Use a SubFlow when the child needs its own lifecycle, history, or retries, or when one fan-out is very large; see [subflow.md](subflow.md#when-to-use-a-subflow).
 
 ### One owning Flow per business operation
 
@@ -89,8 +89,11 @@ Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/g
 
 ```text
 StartChildJob.execute(job)                    // Client injected through the Flow constructor
-    client.startFlow(ChildJobFlow, flowId = job.number, requestId = from the complete request,
+    result = client.startFlow(ChildJobFlow, flowId = job.number, requestId = from the complete request,
                      reuse = disallow, ignore already started, Flow timeout = the job's limit)
+    if result is already started:             // another logical request, even from this entry point
+        if the run's stored business identity matches job: claim it
+        else: record job.number as rejected; deadEnd()   // never wait for, count, or stop it
     goTo(AwaitChildJob, job)
 AwaitChildJob.waitFor(job) -> AnyOf(ChildReports[job.number].ForOne(), Timer(reconcile interval))
 AwaitChildJob.execute(job)
@@ -108,13 +111,13 @@ ChildJobFlow:
 ```
 
 - Start the child with a stable Flow ID and Request ID, so a retried Execute repeats the same start.
-- When several entry points can start the same child, they all derive the same Flow ID and Request ID from the same complete request. Otherwise catch the typed already-started error, read the existing run, and track it only after its business identity matches. A deliberate new attempt gets a new Flow ID or an explicit reuse policy.
+- Skip the identity check only when the mapping from business identity to child Flow ID guarantees that a Flow ID is only ever started again by a replay of the same logical request. Otherwise another logical request can start a run with the same Flow ID with a different Request ID, even from the same entry point or the same parent run. Catch the typed already-started error, read the existing run, and claim it only when its stored business identity matches. Otherwise record a rejected admission that the parent lists but never waits for, counts, or stops. A deliberate new attempt gets a new Flow ID or an explicit reuse policy.
 - Receive the result durably. The child reports through a parent RPC that publishes to a Channel, or a [Polling](patterns.md#polling) Step waits for the child's terminal state through the Client. Never keep the result only in Worker memory.
 - Keep the Execute of the outcome Step and the report Step SYNC, the default, even when the Flow defaults to ASYNC. Under ASYNC durability the report Step could start before the outcome commit is stored; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability).
 - The report carries a stable Request ID derived from the child Flow ID and its purpose, such as `report:<child Flow ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
 - Give each business attempt its own child Flow ID. DescribeFlow and the Client Attribute read see only the current or latest run, so a reused Flow ID mixes up attempts.
-- Give every child its own Flow timeout. A closing parent never stops its children. Keep the child's timeout longer than its retry budget, so retries can finish before the timeout fires.
-- A child that fails or times out on its own does not report either, because its report Step never runs. Route the child's terminal failure to a recovery Step, or its timeout to a timeout handler, that reports the failure to the parent; or keep the parent's reconcile Timer so it reads the child's terminal state.
+- Give every child its own Flow timeout. Even when the child must report its timeout, use the Flow timeout and a timeout handler that reports, never a Timer Step inside the child. The Flow timeout is a start option, so each starter sets it. A closing parent never stops its children. Keep the child's timeout longer than its retry budget, so retries can finish before the timeout fires.
+- A child that fails or times out on its own does not report either, because its report Step never runs. Route the child's terminal failure to a recovery Step, or its timeout to a timeout handler, that reports the failure to the parent; or keep the parent's reconcile Timer so it reads the child's terminal state. A timeout handler that holds a lock an RPC takes records the outcome and moves to an unlocked Step that reports idempotently and then force-closes. Keep that handler SYNC, even when the Flow defaults to ASYNC, so the outcome is stored before the report. A handler that force-closes at once only records the outcome, and the parent reconciles it, unless the handler holds no such lock and reports itself.
 - When the parent does not need to know how a stopped child ended, stop the child and move on; a parent that needs only a quorum stops the remaining children this way. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive.
 - When the parent needs to know how a stopped child ended, reconcile it: for example, to count its result, undo or bill its side effects, or show its outcome. In that case:
   - Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
@@ -186,21 +189,19 @@ The current option names, defaults, and limits are in the language's Developer r
 
 ## Turn the business process into a Step graph
 
-Before code, write down for each Step:
+Before code, sketch for each Step:
 
 - typed input;
 - the Conditions WaitFor returns;
 - the side effects Execute performs, and their idempotency keys;
 - Attribute and Channel reads and writes, with selective loads and locks;
-- durability: inherited Flow default or a method override;
-- WaitFor and Execute method timeouts, heartbeat timeout, and retry budget;
 - the success transition;
 - the exhausted-retry or business-failure transition;
 - compensation and operator recovery, as explicit Steps.
 
-For every external side effect, also decide which failures are retryable, the total retry budget, whether it needs heartbeats, what happens after retry exhaustion, whether compensation is needed, and what deadline ends the business process.
+For every external side effect, also decide which failures are retryable, what happens after retry exhaustion, whether compensation is needed, and what deadline ends the business process.
 
-Treat StepOptions as part of the graph, not tuning added later. See [step.md](step.md).
+The StepOptions defaults fit short, idempotent methods. Decide StepOptions with the graph only for a method that runs long or stays silent, holds a lock, makes a non-idempotent effect, needs a failure route, or loads AttributeMaps or pending messages. See [step.md](step.md#configure-the-method-policy-where-defaults-do-not-fit).
 
 ## Self-check
 

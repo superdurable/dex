@@ -25,9 +25,9 @@ The polling Step repeats these steps:
 4. Report progress. Write a Stream message when the status changes. Otherwise record a heartbeat with the checkpoint.
 5. Sleep for the polling interval, then start again.
 
-"Not ready yet" is a normal branch of the loop. It is never an error.
+"Not ready yet" is a normal branch of the loop. Prefer it to returning an error and letting retries loop. An error mixes "not ready" with real failures and spends the retry budget.
 
-A plain sleep is enough. Honor cancellation through the language SDK's mechanism. When the external call accepts a cancellation argument, pass it, and keep the call's own timeout. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](/reference/server/runtime-data#cancel-honour).
+A plain sleep is enough. Honor cancellation through the language SDK's mechanism. When the external call accepts a cancellation argument, pass it. Give a blocking call that cannot observe cancellation its own timeout, because the Worker slot is released only when the handler returns. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](/reference/server/runtime-data#cancel-honour).
 
 ## Rules {#rules}
 
@@ -69,8 +69,9 @@ A plain sleep is enough. Honor cancellation through the language SDK's mechanism
   heartbeat otherwise. Stream messages are best effort, so consumers recover
   from durable state, such as Attributes, a read RPC, or the Flow result.
 - <a id="locks"></a>Return the result from the polling Step, and commit
-  anything that needs a lock in a short following Step, so
-  `ExecuteLockAttributes` is held only briefly.
+  anything that needs a lock in a short following Step. A polling Step that
+  held the lock for the whole wait would make every Step that needs it, such
+  as a watchdog, wait until the loop ends, and every RPC that needs it fail.
 
 ## Example
 

@@ -244,4 +244,4 @@ class decorators other than `dataclass` and `final`. See
 - [ ] Flow and Step types are domain names and unchanged for open runs.
 - [ ] The Worker waits for registration with a deadline and is always closed.
 - [ ] Client calls have bounded waits and catch typed exceptions.
-- [ ] Tests run against a real Dex Server with unique Flow IDs.
+- [ ] Tests, when the project has them, run against a real Dex Server with unique Flow IDs.

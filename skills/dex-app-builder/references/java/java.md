@@ -272,4 +272,4 @@ See [Flow visualization](https://docs.superdurable.io/reference/web/flow-visuali
 - [ ] Worker runs on its own thread; startup waits for registration and fails on error.
 - [ ] One shared `BlobCache`; Client, Worker, and cache closed on shutdown.
 - [ ] External effects in Steps are idempotent (see [error-handling.md](error-handling.md)).
-- [ ] Integration tests run against a real Dex Server (see [testing.md](testing.md)).
+- [ ] Integration tests, when the project has them, run against a real Dex Server (see [testing.md](testing.md)).

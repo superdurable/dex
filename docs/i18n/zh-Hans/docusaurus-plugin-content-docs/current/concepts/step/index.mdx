@@ -266,10 +266,12 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 
 每个方法使用 server 的默认值，除非 StepOptions 另行设置。所有 SDK 的默认值都一样；见 [StepOptions 默认值](/reference/python/step-options#defaults)（英文）。
 
-默认值适合短调用，默认的 heartbeat timeout 很短。如果 attempt 到达它的 heartbeat 截止时间时，既没有发送 heartbeat，也没有写 Dex Stream，Dex 就让这个 attempt 超时。只提高 method timeout，这个截止时间仍然存在。有调用可能静默这么久的 Step，要自己设置两个选项：
+默认值适合短调用，默认的 heartbeat timeout 很短。如果 attempt 到达它的 heartbeat 截止时间时，既没有发送 heartbeat，也没有写 Dex Stream，Dex 就让这个 attempt 超时。只提高 method timeout，这个截止时间仍然存在。有调用可能静默这么久的 Step，要自己设置 heartbeat timeout，并检查 retry total duration：
 
-- heartbeat timeout 至少等于这次调用的 method timeout。在短调用之间发送 heartbeat 的循环，则让最长的静默间隔低于 heartbeat timeout。
-- 按要限定的对象选择 retry total duration。失败之后，Dex 只用它决定是否安排下一次尝试。排队可能让已安排的尝试晚开始，进行中的尝试也不会被截断。要允许几次接近完整时长的尝试，大约取最大尝试次数乘以 method timeout，再加上 backoff。这只是估算：重试延迟和排队时间也占用这个预算。整个 Flow 的截止时间用 Flow timeout，一次等待的截止时间用 durable Timer。
+- heartbeat timeout 高于最长的合理静默间隔，并留出余量。或者在调用执行期间发送 heartbeat，可以在短调用之间发，也可以由后台任务发。后台 heartbeat 只表示 Worker 仍在运行，所以真正卡住的调用要到 method timeout 才结束。
+- 默认值允许的重试次数少于 Step 需要的次数，或者重试必须更早停止时，设置 retry total duration。失败之后，Dex 只用它决定是否安排下一次尝试。排队可能让已安排的尝试晚开始，进行中的尝试也不会被截断。要允许几次接近完整时长的尝试，大约取最大尝试次数乘以 method timeout，再加上 backoff。这只是估算：重试延迟和排队时间也占用这个预算。整个 Flow 的截止时间用 Flow timeout，一次等待的截止时间用 durable Timer。
+
+这些超时会结束挂住的 attempt。Dex 向 handler 发送取消，并按重试策略重试这个 attempt。把取消信号传给每个支持它的调用。handler 返回之后 Worker 槽才会释放，所以观察不到取消的阻塞调用要有自己的 timeout。
 
 <a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>

@@ -606,9 +606,11 @@ fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<S
 
 - "Not ready" stays inside the loop. Only transient provider failures return
   `Err`, so Step retry runs again.
-- Give each provider call its own timeout, and keep
-  `POLL_INTERVAL + call timeout <= heartbeat timeout - 10 s`, against the
-  heartbeat timeout the Step sets. Raise it only when a healthy call is silent
+- A blocking call in a Rust handler cannot observe cancellation, and the
+  Worker slot is released only when the handler returns, so give each
+  provider call its own timeout. Keep the longest gap between heartbeats,
+  including `POLL_INTERVAL` and the slowest healthy call, below the
+  heartbeat timeout the Step sets, with a margin. Raise it only when a healthy call is silent
   longer. The default is in the
   [StepOptions reference](https://docs.superdurable.io/reference/rust/step-options#defaults).
 - Keep `maximum_attempts` small, such as 3 to 5. `total_duration` bounds the

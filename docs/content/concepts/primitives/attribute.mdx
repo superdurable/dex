@@ -375,12 +375,45 @@ A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
 not declare it can still write the Attribute, unless the Attribute declares
 that its writes require the lock.
 
-Keep locked Steps and RPCs short; an RPC can take a free lock ahead of waiting
-Steps (see [Lock order](/reference/server/runtime-data#lock-order)). Make slow external calls in a Step that holds no
-lock, and set a short total duration, such as a few minutes, in the locked
-method's `StepOptions` retry policy. A failing locked Step holds its lock
-through every retry; see
+Keep locked RPCs short; an RPC can take a free lock ahead of waiting Steps
+(see [Lock order](/reference/server/runtime-data#lock-order)).
+
+When a Step declares a lock that an RPC also takes, the Step makes no
+external call while it holds the lock. It decides and commits under the lock.
+The next Step, which holds no lock, makes the call. Otherwise every RPC that
+requests that lock during the call fails with a lock conflict. The same holds for a
+`WaitFor` or a Flow timeout handler that declares such a lock. Starting or
+calling another Flow is an external call too.
+
+A lock that only Steps share may cover an external call. Those Steps wait for
+the lock and run one at a time. A polling Step should not hold a lock that its
+deadline watchdog also needs, because the watchdog would wait until the loop
+ends. A failing locked Step holds its lock through every retry, so set a short
+total duration, such as a few minutes, in its `StepOptions` retry policy; see
 [Lock holding](/reference/server/runtime-data#lock-holding).
+
+Some processes accept that an already decided action may still happen once,
+such as a reminder that is about to be sent when a stop request arrives. Such
+a process needs no lock. The RPC publishes the request and answers
+"received". The decision point is the deciding `Execute`'s first state
+snapshot. Its retries reuse that snapshot. The `Execute` checks the stop in
+that snapshot, also in the branch where a Timer was selected first. A stop
+committed after the snapshot may let the already decided action happen once.
+Every later interruptible wait still includes the stop Condition.
+
+One message reaches one consumer, so parallel consumers each get their own
+stop message, such as one per branch on each branch's Channel. That message
+wakes a waiting branch. A durable stop Attribute can record the stop as a
+fact, but it wakes no waiting branch, because `WaitFor` has no Attribute
+Condition. A branch may read that Attribute when another event resumes it,
+when the business accepts that its wait is not interrupted at once. The grace
+then applies per decided action or branch. When the business allows only one such action overall, decide the
+actions one at a time. The decided action carries a stable occurrence ID that
+the receiver recognizes and deduplicates.
+
+When the business deadline is the decision commit itself, the stop RPC and the
+deciding Step share a lock. An unlocked Step then makes the call after the
+commit.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 `Execute` runs:
