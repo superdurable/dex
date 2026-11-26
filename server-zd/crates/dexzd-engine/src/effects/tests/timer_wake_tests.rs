@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Timer service read cursor: where a pass starts reading the Timer index.
+//! Timer service wake gate and read cursor: when a pass runs and where it starts reading.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -118,6 +118,91 @@ async fn fire_first_timer(harness: &EffectHarness, flow_id: &str) -> (RunId, i64
         "the first timer fires"
     );
     (run_id, fire_at)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timer_due_after_the_planned_wake_fires_without_an_extra_pass() {
+    const FLOW_ID: &str = "wake-gate-later";
+    let harness = start_harness(EffectsConfig::default()).await;
+    let run_id = harness.start_flow(start_request(FLOW_ID), settings());
+    let base = harness.clock.now_unix_micros();
+    let committed_reads = &harness.flow_effect_operations.committed_reads;
+
+    let reads_before_first = committed_reads.load(Ordering::SeqCst);
+    seed_timer(
+        &harness,
+        FLOW_ID,
+        run_id,
+        &wait_timer(0),
+        base + 5 * SECOND_MICROS,
+    );
+    notify_armed(&harness, FLOW_ID, base + 5 * SECOND_MICROS);
+    harness.settle().await;
+    assert!(
+        committed_reads.load(Ordering::SeqCst) > reads_before_first,
+        "an earlier timer wakes a pass"
+    );
+
+    let reads_before_later = committed_reads.load(Ordering::SeqCst);
+    seed_timer(
+        &harness,
+        FLOW_ID,
+        run_id,
+        &wait_timer(1),
+        base + 10 * SECOND_MICROS,
+    );
+    notify_armed(&harness, FLOW_ID, base + 10 * SECOND_MICROS);
+    harness.settle().await;
+    assert_eq!(
+        committed_reads.load(Ordering::SeqCst),
+        reads_before_later,
+        "a later timer wakes no pass"
+    );
+
+    sleep_until_micros(&harness, base + 5 * SECOND_MICROS).await;
+    harness.settle().await;
+    sleep_until_micros(&harness, base + 10 * SECOND_MICROS - MILLI_MICROS).await;
+    harness.settle().await;
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 1);
+    assert!(
+        fires_of(&harness, run_id, &wait_timer(1)).is_empty(),
+        "no timer fires early"
+    );
+    sleep_until_micros(&harness, base + 10 * SECOND_MICROS).await;
+    harness.settle().await;
+
+    let fires = fires_of(&harness, run_id, &wait_timer(1));
+    assert_eq!(fires.len(), 1, "{fires:?}");
+    assert!(fires[0] >= base + 10 * SECOND_MICROS);
+    assert!(fires[0] < base + 10 * SECOND_MICROS + 10 * MILLI_MICROS);
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timer_armed_after_the_wall_clock_jumps_forward_wakes_the_sleeping_service() {
+    const FLOW_ID: &str = "wake-gate-clock-jump";
+    let harness = start_harness(EffectsConfig::default()).await;
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    harness.settle().await;
+    // The empty partition sleeps one 60-second lookahead of monotonic time.
+    let slept_at = tokio::time::Instant::now();
+
+    harness.clock.move_back(-120 * SECOND_MICROS);
+    let fire_at = harness.clock.now_unix_micros() + SECOND_MICROS;
+    seed_timer(&harness, FLOW_ID, run_id, &wait_timer(0), fire_at);
+    notify_armed(&harness, FLOW_ID, fire_at);
+    harness.settle().await;
+    tokio::time::sleep_until(slept_at + Duration::from_millis(1100)).await;
+    harness.settle().await;
+
+    let fires = fires_of(&harness, run_id, &wait_timer(0));
+    assert_eq!(
+        fires.len(),
+        1,
+        "it fires long before the 60-second wake: {fires:?}"
+    );
+    assert!(fires[0] >= fire_at);
+    harness.shutdown().await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -315,6 +400,55 @@ async fn a_wall_clock_moved_back_keeps_the_backoff_of_a_fired_timer_still_in_the
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_timer_armed_during_a_pass_after_the_old_planned_wake_fires_on_time() {
+    const FLOW_ID: &str = "armed-during-pass-sentinel";
+    // No rebuild, so the snapshot hook reaches only the timer service this test runs.
+    let harness = EffectHarness::new();
+    harness
+        .flow_effect_operations
+        .add_override(timers_fired_override());
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    let partition = harness.partition_of(FLOW_ID);
+    let base = harness.clock.now_unix_micros();
+    let wake = Arc::new(PartitionTimerWake::new(
+        Arc::clone(&harness.clock) as Arc<dyn WallClock>
+    ));
+    let service = PartitionTimerService::new(
+        Arc::clone(harness.effect_context()),
+        partition,
+        Arc::clone(&wake),
+    );
+    let service_task = tokio::spawn(service.run());
+    // The empty partition plans its next pass at 60 seconds.
+    harness.settle().await;
+
+    // At 10 seconds a pass plans 70 seconds; a timer due at 61 is armed during it.
+    sleep_until_micros(&harness, base + 10 * SECOND_MICROS).await;
+    let fire_at = base + 61 * SECOND_MICROS;
+    let racing_timer = TimerArmedAfterSnapshot {
+        partition,
+        run: harness.run_location(FLOW_ID, run_id),
+        fire_at_micros: fire_at,
+        wake: Arc::clone(&wake),
+    };
+    *harness
+        .flow_effect_operations
+        .committed_reader_hook
+        .lock()
+        .expect("lock") = Some(Box::new(move |state| racing_timer.commit_and_notify(state)));
+    wake.note_armed(harness.clock.now_unix_micros());
+    harness.settle().await;
+    sleep_until_micros(&harness, fire_at + 10 * MILLI_MICROS).await;
+    harness.settle().await;
+
+    let fires = fires_of(&harness, run_id, &wait_timer(0));
+    assert_eq!(fires.len(), 1, "it fires at 61 seconds, not 70: {fires:?}");
+    assert!(fires[0] >= fire_at);
+    harness.shutdown().await;
+    service_task.await.expect("the timer service stops");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_timer_armed_after_a_pass_takes_its_snapshot_fires_in_the_next_pass() {
     const FLOW_ID: &str = "armed-after-snapshot";
     // No rebuild, so no timer service runs besides the one this test drives.
@@ -325,7 +459,9 @@ async fn a_timer_armed_after_a_pass_takes_its_snapshot_fires_in_the_next_pass() 
     let run_id = start_flow_without_steps(&harness, FLOW_ID);
     let partition = harness.partition_of(FLOW_ID);
     let run = harness.run_location(FLOW_ID, run_id);
-    let wake = Arc::new(PartitionTimerWake::new());
+    let wake = Arc::new(PartitionTimerWake::new(
+        Arc::clone(&harness.clock) as Arc<dyn WallClock>
+    ));
     let mut service = PartitionTimerService::new(
         Arc::clone(harness.effect_context()),
         partition,

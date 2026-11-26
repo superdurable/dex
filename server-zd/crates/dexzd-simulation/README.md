@@ -650,6 +650,38 @@ builds unstamped commands, so no apply pin moved.
 | `FIRST_REDEPLOY_SEED` | `0xb25da8d0050508150779b54ffd0e3ad0` | `0x3a31ce4b8e648ede3fc4932389ffc5b2` |
 | `FIRST_HOT_STANDBY_SEED` | `0x66a018be2e982dea2faefe938e1ac7a2` | `0x80655540ae6c7452fc1d3907bccbbc85` |
 
+### Timer wake gate digest changes
+
+These pins compare with origin/main at `8ee7a87a8`. A TimerArmed effect now wakes a partition
+timer service only when the timer's deadline is earlier than the instant the service sleeps
+until. Skipped wakes mean fewer timer passes, so TimersFired commands are proposed in a
+different order within one instant. Command IDs follow proposal order, so the digests change.
+Five engine pins moved; `3856990400`, `FIRST_SEED + 1`, `FIRST_SEED + 2`, and
+`FIRST_HOT_STANDBY_SEED` keep their origin/main digests. With only the
+gate forced open, every pin shows its origin/main digest. Every invariant and coverage
+assertion of the crate passes with the gate. The committed commands were not compared one by
+one. The timer service read cursor that the gate builds on moved no pin. No apply pin moved.
+
+| Engine seed | origin/main digest | Wake-gate digest |
+| --- | --- | --- |
+| `3856990760` | `0xac35d59ef59f127d385b68fd58f8db97` | `0x27140fc90c95fb40bfd9b1e5d4858fe0` |
+| `3856990458` | `0x45039bfaec23ff23764644474747fd79` | `0x332153dad9139f952d281b1266975858` |
+| `3856990875` | `0x0c646bb2bcdc594887db798e075a2ac0` | `0x55ebb607a462757e9c830a0a6b0b65a5` |
+| `FIRST_SEED` | `0x9c931225c57ab470cce804b73d3482c1` | `0xab200e9c36946f0abff79649b528c3d9` |
+| `FIRST_REDEPLOY_SEED` | `0x3a31ce4b8e648ede3fc4932389ffc5b2` | `0x3e7d0d867919ed2dc3b1013fb9a51049` |
+
+The four engine regression seeds were checked again with the #847 fix reverted, by removing
+the purging-run rejection in `read_run`, on the final gate. `3856990760`, `3856990458`,
+`3856990875`, and `3856990400` all pass at 120 and 600 simulated seconds, as they did on an
+earlier draft of the gate. None of them is confirmed as a detector, and none was replaced. They
+stay historical baseline cases, as before this change. A search for a replacement on the
+earlier draft found none: under the same revert, the 400 seeds from `3900000000` at 120
+seconds each completed without an invariant failure. The deterministic
+`a_crash_after_the_purge_decision_before_object_deletion_purges_after_restart` still fails
+with the revert, and
+[issue #1033](https://github.com/superdurable/dex/issues/1033) still tracks a randomized #847
+detector. `FIRST_SEED` and `FIRST_REDEPLOY_SEED` pin no regression.
+
 ### Running
 
 ```bash
