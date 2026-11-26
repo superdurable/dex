@@ -76,6 +76,8 @@ SDK = "sdk"
 CONTEXT = "context"
 OPAQUE = "opaque"
 LOCAL_FUNCTION = "local_function"
+# A value whose kind depends on itself, such as value = value.strip(); other bindings decide it.
+CYCLE = "cycle"
 
 
 class ExternalCallScope:
@@ -93,6 +95,36 @@ class ExternalCallAnalyzer:
         # Helper results keyed by function and parameter kinds; only exact results are cached.
         self.helper_external_call_results = {}
         self.helpers_in_progress = set()
+        self.kinds_in_progress = set()
+        self.pending_method_external_calls = []
+
+    def defer_method_external_calls(self, owner_id, step_class, phase):
+        self.pending_method_external_calls.append((owner_id, step_class, phase, self.current_frame))
+
+    # Checks only Step methods that share a lock with an RPC; other methods get no marker, meaning unchecked.
+    def record_deferred_method_external_calls(self):
+        method_locks = {}
+        rpc_locks = set()
+        for edge in self.graph["edges"]:
+            if edge["kind"] != "resource_lock":
+                continue
+            phase = edge.get("metadata", {}).get("phase")
+            if phase == "rpc":
+                rpc_locks.add(edge["to"])
+            elif phase in ("execute", "wait_for"):
+                method_locks.setdefault((edge["from"], phase), set()).add(edge["to"])
+        step_frame = self.current_frame
+        for owner_id, step_class, phase, frame in self.pending_method_external_calls:
+            if not method_locks.get((owner_id, phase), set()) & rpc_locks:
+                continue
+            self.current_frame = frame
+            try:
+                self.record_method_external_calls(owner_id, step_class, phase)
+            except RecursionError:
+                self.kinds_in_progress.clear()
+                self.helpers_in_progress.clear()
+                self.add_method_external_calls(owner_id, phase, [{"callee": f"code dexcli cannot read ({phase} nests too deeply)", "span": self.span(step_class)}])
+        self.current_frame = step_frame
 
     def record_method_external_calls(self, owner_id, step_class, phase):
         method = self.method(step_class, phase)
@@ -208,6 +240,9 @@ class ExternalCallAnalyzer:
         if self.is_resource_receiver(receiver, scope):
             return None, DATA if function.attr in PYTHON_RESOURCE_VALUE_METHODS else SDK, True
         receiver_kind = self.value_kind(receiver, scope)
+        if receiver_kind == CYCLE:
+            # The outer evaluation of this receiver decides the call.
+            return None, CYCLE, False
         if receiver_kind in (SDK, CONTEXT):
             return None, SDK if receiver_kind == SDK else DATA, True
         if receiver_kind == DATA:
@@ -236,17 +271,67 @@ class ExternalCallAnalyzer:
                 return external, OPAQUE, is_exact
         return None, DATA, is_exact
 
+    # Construction runs the metaclass __call__, then __new__, __init__, and __post_init__ found along the bases.
     def construction_call(self, callee, declaration, arguments, keywords, scope):
-        is_exact = True
-        for name in ("__init__", "__post_init__"):
-            method = self.method(declaration, name)
-            if method is None:
+        classes = self.same_file_class_chain(declaration)
+        if classes is None:
+            return f"{callee} (a constructor dexcli cannot read)", OPAQUE, True
+        constructors = []
+        for metaclass in (keyword.value for chained in classes for keyword in chained.keywords if keyword.arg == "metaclass"):
+            metaclass_declaration = self.static_binding(self.tree, metaclass.id) if isinstance(metaclass, ast.Name) else None
+            if not isinstance(metaclass_declaration, ast.ClassDef):
+                qualified = self.qualified_import_name(metaclass)
+                if qualified is None or not self.is_pure_standard_library_call(qualified):
+                    return f"{callee} (a constructor dexcli cannot read)", OPAQUE, True
                 continue
-            external, _, method_is_exact = self.helper_call(callee, method, ("class", declaration.name), arguments if name == "__init__" else [], keywords if name == "__init__" else [], scope, DATA)
+            metaclass_chain = self.same_file_class_chain(metaclass_declaration)
+            if metaclass_chain is None:
+                return f"{callee} (a constructor dexcli cannot read)", OPAQUE, True
+            constructors.extend(self.first_class_method(metaclass_chain, "__call__"))
+        for name in ("__new__", "__init__", "__post_init__"):
+            constructors.extend(self.first_class_method(classes, name))
+        is_exact = True
+        for owner, method in constructors:
+            passes_arguments = method.name != "__post_init__"
+            external, _, method_is_exact = self.helper_call(
+                callee, method, ("class", owner.name), arguments if passes_arguments else [], keywords if passes_arguments else [], scope, DATA,
+            )
             is_exact = is_exact and method_is_exact
             if external is not None:
                 return external, OPAQUE, is_exact
         return None, ("class", declaration.name), is_exact
+
+    def first_class_method(self, classes, name):
+        for declaration in classes:
+            method = self.method(declaration, name)
+            if method is not None:
+                return [(declaration, method)]
+        return []
+
+    # Returns the class and its same-file bases in lookup order, or None when a base may define a constructor.
+    def same_file_class_chain(self, declaration):
+        chain = []
+        pending = [declaration]
+        while pending:
+            current = pending.pop(0)
+            if current in chain:
+                continue
+            chain.append(current)
+            for base in current.bases:
+                base = base.value if isinstance(base, ast.Subscript) else base
+                binding = self.static_binding(self.tree, base.id) if isinstance(base, ast.Name) else None
+                if isinstance(binding, ast.ClassDef):
+                    pending.append(binding)
+                elif not self.is_constructor_free_base(base):
+                    return None
+        return chain
+
+    # Built-in, pure standard-library, and Dex SDK bases construct without I/O.
+    def is_constructor_free_base(self, base):
+        if self.is_builtin_name(base):
+            return True
+        qualified = self.qualified_import_name(base)
+        return qualified is not None and self.is_allowed_qualified_value(qualified)
 
     def helper_call(self, callee, function, self_kind, arguments, keywords, scope, result_kind):
         parameter_kinds = self.helper_parameter_kinds(function, self_kind, arguments, keywords, scope)
@@ -278,13 +363,13 @@ class ExternalCallAnalyzer:
             kinds[parameter.arg] = DATA
         extra_kinds = []
         for index, argument in enumerate(arguments):
-            kind = self.value_kind(argument.value if isinstance(argument, ast.Starred) else argument, scope)
+            kind = self.argument_kind(argument.value if isinstance(argument, ast.Starred) else argument, scope)
             if index < len(positional) and not isinstance(argument, ast.Starred):
                 kinds[positional[index].arg] = kind
             else:
                 extra_kinds.append(kind)
         for keyword in keywords:
-            kind = self.value_kind(keyword.value, scope)
+            kind = self.argument_kind(keyword.value, scope)
             if keyword.arg in kinds:
                 kinds[keyword.arg] = kind
             else:
@@ -298,6 +383,11 @@ class ExternalCallAnalyzer:
                 kinds[parameter.arg] = OPAQUE if any(kind != DATA for kind in extra_kinds) else DATA
         return kinds
 
+    # A helper argument still being resolved is checked as opaque, never as data.
+    def argument_kind(self, argument, scope):
+        kind = self.value_kind(argument, scope)
+        return OPAQUE if kind == CYCLE else kind
+
     def is_resource_receiver(self, receiver, scope):
         if isinstance(receiver, ast.Name) and receiver.id == "self" and scope.self_kind is not None:
             return False
@@ -310,33 +400,42 @@ class ExternalCallAnalyzer:
         return self.resource_for(receiver, self.external_call_owner_id) is not None
 
     # Kinds: DATA, SDK, CONTEXT, OPAQUE, LOCAL_FUNCTION, or ("class", name) for self or an instance of a module class.
-    def value_kind(self, expression, scope, seen=None):
-        seen = seen if seen is not None else set()
-        if expression in seen:
-            return OPAQUE
-        seen.add(expression)
+    def value_kind(self, expression, scope):
+        key = (expression, scope.function, scope.self_kind, tuple(sorted(scope.parameter_kinds.items())))
+        if key in self.kinds_in_progress:
+            return CYCLE
+        self.kinds_in_progress.add(key)
+        try:
+            return self.expression_kind(expression, scope)
+        finally:
+            self.kinds_in_progress.discard(key)
+
+    def expression_kind(self, expression, scope):
         if isinstance(expression, (ast.Constant, ast.JoinedStr, ast.List, ast.Tuple, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.BinOp, ast.UnaryOp, ast.Compare)):
             return DATA
         if isinstance(expression, ast.BoolOp):
-            return self.combined_kind([self.value_kind(value, scope, seen) for value in expression.values])
+            return self.combined_kind([self.value_kind(value, scope) for value in expression.values])
         if isinstance(expression, ast.Lambda):
             return LOCAL_FUNCTION
         if isinstance(expression, (ast.Await, ast.NamedExpr, ast.Starred)):
-            return self.value_kind(expression.value, scope, seen)
+            return self.value_kind(expression.value, scope)
         if isinstance(expression, ast.IfExp):
-            return self.combined_kind([self.value_kind(expression.body, scope, seen), self.value_kind(expression.orelse, scope, seen)])
+            return self.combined_kind([self.value_kind(expression.body, scope), self.value_kind(expression.orelse, scope)])
         if isinstance(expression, ast.Subscript):
-            return DATA if self.value_kind(expression.value, scope, seen) in (DATA, SDK, CONTEXT) else OPAQUE
+            owner_kind = self.value_kind(expression.value, scope)
+            if owner_kind == CYCLE:
+                return CYCLE
+            return DATA if owner_kind in (DATA, SDK, CONTEXT) else OPAQUE
         if isinstance(expression, ast.Call):
             callee, kind, _ = self.classify_call(expression.func, expression.args, expression.keywords, scope)
             return OPAQUE if callee is not None else kind
         if isinstance(expression, ast.Name):
-            return self.name_kind(expression, scope, seen)
+            return self.name_kind(expression, scope)
         if isinstance(expression, ast.Attribute):
-            return self.attribute_kind(expression, scope, seen)
+            return self.attribute_kind(expression, scope)
         return OPAQUE
 
-    def name_kind(self, name, scope, seen):
+    def name_kind(self, name, scope):
         if name.id == "self" and scope.self_kind is not None and self.binding_scope(name) is scope.function:
             return scope.self_kind
         if self.is_builtin_name(name):
@@ -354,21 +453,21 @@ class ExternalCallAnalyzer:
             statement = self.assignment_statement(self.tree, binding) if binding is not None else None
             if statement is None:
                 return OPAQUE
-            return self.module_value_kind(statement.value, seen)
+            return self.module_value_kind(statement.value)
         if isinstance(binding_scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             bindings = self.scope_bindings.get(binding_scope, {}).get(name.id, [])
-            return self.combined_kind([self.binding_kind(binding, binding_scope, scope, seen) for binding in bindings])
+            return self.combined_kind([self.binding_kind(binding, binding_scope, scope) for binding in bindings])
         return OPAQUE
 
     # A module-level value is SDK or data only when every call that builds it is allowed.
-    def module_value_kind(self, expression, seen):
+    def module_value_kind(self, expression):
         module_scope = ExternalCallScope(self.tree, None, {}, PYTHON_MAXIMUM_HELPER_DEPTH)
         for node in ast.walk(expression):
             if isinstance(node, ast.Call) and self.classify_call(node.func, node.args, node.keywords, module_scope)[0] is not None:
                 return OPAQUE
-        return self.value_kind(expression, module_scope, seen)
+        return self.value_kind(expression, module_scope)
 
-    def binding_kind(self, binding, binding_scope, scope, seen):
+    def binding_kind(self, binding, binding_scope, scope):
         if isinstance(binding, ast.arg):
             if binding_scope is scope.function:
                 return scope.parameter_kinds.get(binding.arg, OPAQUE)
@@ -385,25 +484,29 @@ class ExternalCallAnalyzer:
             target, parent = parent, self.parents.get(parent)
         is_unpacked = target is not binding
         if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)) and parent.value is not None:
-            kind = self.value_kind(parent.value, scope, seen)
+            kind = self.value_kind(parent.value, scope)
         elif isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension)) and parent.target is target:
-            kind = self.value_kind(parent.iter, scope, seen)
+            kind = self.value_kind(parent.iter, scope)
             is_unpacked = True
         elif isinstance(parent, ast.withitem) and parent.optional_vars is target:
-            kind = self.value_kind(parent.context_expr, scope, seen)
+            kind = self.value_kind(parent.context_expr, scope)
         else:
             return OPAQUE
+        if kind == CYCLE:
+            return CYCLE
         if isinstance(parent, ast.AugAssign) and kind != OPAQUE:
             return DATA
         if is_unpacked:
             return DATA if kind in (DATA, SDK, CONTEXT) else OPAQUE
         return kind
 
-    def attribute_kind(self, attribute, scope, seen):
+    def attribute_kind(self, attribute, scope):
         qualified = self.qualified_import_name(attribute)
         if qualified is not None:
             return SDK if self.is_allowed_qualified_value(qualified) else OPAQUE
-        owner_kind = self.value_kind(attribute.value, scope, seen)
+        owner_kind = self.value_kind(attribute.value, scope)
+        if owner_kind == CYCLE:
+            return CYCLE
         if owner_kind in (DATA, CONTEXT):
             return DATA
         if owner_kind == SDK:
@@ -416,33 +519,33 @@ class ExternalCallAnalyzer:
         if declaration is None:
             return OPAQUE
         if declaration in self.step_classes.values() or declaration is self.flow_class:
-            return self.dex_field_kind(attribute, seen)
+            return self.dex_field_kind(attribute)
         if isinstance(attribute.value, ast.Name) and self.static_binding(self.tree, attribute.value.id) is declaration:
             # A class attribute, such as an Enum member or a constant.
             return DATA
-        return self.instance_field_kind(declaration, attribute.attr, seen)
+        return self.instance_field_kind(declaration, attribute.attr)
 
     # A Step or Flow field is data only when its stored value resolves; a Flow reference keeps its methods.
-    def dex_field_kind(self, attribute, seen):
+    def dex_field_kind(self, attribute):
         value, _ = self.resolved_value(attribute, self.current_frame)
         if self.flow_class is not None and self.self_reference_class(value) is self.flow_class:
             return ("class", self.flow_class.name)
         if value is attribute or isinstance(value, (ast.Name, ast.Attribute, ast.alias, ast.ClassDef)):
             return OPAQUE
-        return self.module_value_kind(value, seen)
+        return self.module_value_kind(value)
 
     # An instance field is data when the class body assigns it or annotates it with value types.
-    def instance_field_kind(self, declaration, name, seen):
+    def instance_field_kind(self, declaration, name):
         for statement in declaration.body:
             if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name) and statement.target.id == name:
                 if statement.value is not None:
-                    return self.module_value_kind(statement.value, seen)
+                    return self.module_value_kind(statement.value)
                 annotation = statement.annotation
                 if isinstance(annotation, ast.Name) and isinstance(self.static_binding(self.tree, annotation.id), ast.ClassDef):
                     return ("class", annotation.id)
                 return DATA if self.is_value_annotation(annotation) else OPAQUE
             if isinstance(statement, ast.Assign) and any(isinstance(target, ast.Name) and target.id == name for target in statement.targets):
-                return self.module_value_kind(statement.value, seen)
+                return self.module_value_kind(statement.value)
         return OPAQUE
 
     def is_value_annotation(self, annotation):
@@ -456,6 +559,10 @@ class ExternalCallAnalyzer:
         return True
 
     def combined_kind(self, kinds):
+        resolved_kinds = [kind for kind in kinds if kind != CYCLE]
+        if kinds and not resolved_kinds:
+            return CYCLE
+        kinds = resolved_kinds
         if not kinds or OPAQUE in kinds:
             return OPAQUE
         if all(kind == kinds[0] for kind in kinds):

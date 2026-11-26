@@ -94,6 +94,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
         self.analyze_flow_handlers(flow_class)
+        self.record_deferred_method_external_calls()
         self.check_declared_locks()
         if len(self.flow_classes) > 1:
             self.persistence_resource_ids = self.persistence_resources(flow_class)
@@ -561,8 +562,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         self.analyze_resources(node_id, execute, "execute")
         step_locks = self.registration_step_locks(step_class, node_id)
         self.record_lock_handler(node_id, execute, "execute", f"Step {step_name} execute", step_locks["execute_lock_attributes"])
-        self.record_method_external_calls(node_id, step_class, "execute")
-        self.record_method_external_calls(node_id, step_class, "wait_for")
+        self.defer_method_external_calls(node_id, step_class, "execute")
+        self.defer_method_external_calls(node_id, step_class, "wait_for")
         wait_for = self.method(step_class, "wait_for")
         if wait_for is not None:
             self.analyze_wait(node_id, step_name, wait_for)
