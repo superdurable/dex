@@ -33,6 +33,8 @@ type scriptAnalysis struct {
 	DiagnosticResourceIDs  map[int]string       `json:"diagnosticResourceIds"`
 	// MethodExternalCalls feeds locked_method_external_call; see methodExternalCalls.
 	MethodExternalCalls []methodExternalCalls `json:"methodExternalCalls,omitempty"`
+	// UndrawnLockEdges are Step resource_lock edges a single-Flow graph leaves out; see Graph.undrawnLockEdges.
+	UndrawnLockEdges []Edge `json:"undrawnLockEdges,omitempty"`
 }
 
 type scriptStepAnnotations struct {
@@ -132,6 +134,7 @@ func (analysis *scriptAnalysis) definition() *Graph {
 	analysis.applyV2Metadata()
 	analysis.applyActions()
 	graph.methodExternalCalls = analysis.MethodExternalCalls
+	graph.undrawnLockEdges = analysis.UndrawnLockEdges
 	return graph
 }
 
