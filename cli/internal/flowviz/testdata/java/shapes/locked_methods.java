@@ -297,6 +297,68 @@ class JdkInputOutputFlow implements Flow<String> {
     }
 }
 
+class Job implements Runnable { public void run() { } }
+
+enum Remote {
+    VALUE;
+
+    Remote() { new java.io.File("/tmp/work").exists(); }
+}
+
+class SideEffectFlow implements Flow<String> {
+    static final Attribute<String> status = Attribute.define("status", String.class);
+    private final Mailer mailer;
+
+    SideEffectFlow(Mailer mailer) { this.mailer = mailer; }
+
+    public StepList<String> getSteps() { return StepList.startStep(new RunJob()).otherSteps(new ReadEnum(), new CloseStream()); }
+    public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(status); }
+
+    @RPC(lockAttributes = {"status"})
+    public void stop(Context context, String reason) { status.set(context, reason); }
+
+    static StepOptions lockStatus() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+    void dispatch(Object value) { }
+    void dispatch(Runnable value) { mailer.send("job"); }
+
+    // dex:group group-id:effects group-label:"Effects"
+    // dex:explanation text:"Dispatch a local Runnable through its overload."
+    class RunJob implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) {
+            dispatch(new Job());
+            return StepDecision.goTo(ReadEnum.class, input);
+        }
+    }
+
+    // dex:group group-id:effects group-label:"Effects"
+    // dex:explanation text:"Initialize an enum whose constructor does I/O."
+    class ReadEnum implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) {
+            status.set(context, Remote.class.getSimpleName() + Remote.class.getEnumConstants().length + Remote.values().length);
+            return StepDecision.goTo(CloseStream.class, input);
+        }
+    }
+
+    // dex:group group-id:effects group-label:"Effects"
+    // dex:explanation text:"Close streams that may hold close handlers."
+    class CloseStream implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) {
+            List.of(input).stream().onClose(() -> { }).close();
+            try (var lines = input.lines()) {
+                status.set(context, lines.findFirst().orElse(""));
+            }
+            return StepDecision.gracefulComplete(input);
+        }
+    }
+}
+
 class HttpHelperFlow implements Flow<String> {
     static final Attribute<String> status = Attribute.define("status", String.class);
 
