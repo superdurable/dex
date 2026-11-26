@@ -11,6 +11,7 @@
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.AttributeMap;
+import io.superdurable.dex.Channel;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ResourceBundle;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -196,6 +198,100 @@ class SiblingMethodFlow implements Flow<String> {
 
         public StepDecision execute(Context context, String input) {
             status.set(context, new Ticket(input, List.of()).render());
+            return StepDecision.gracefulComplete(input);
+        }
+    }
+}
+
+class OverloadFlow implements Flow<String> {
+    static final Attribute<String> status = Attribute.define("status", String.class);
+    private final Mailer mailer;
+
+    OverloadFlow(Mailer mailer) { this.mailer = mailer; }
+
+    public StepList<String> getSteps() { return StepList.startStep(new Dispatch()); }
+    public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(status); }
+
+    @RPC(lockAttributes = {"status"})
+    public void stop(Context context, String reason) { status.set(context, reason); }
+
+    void dispatch(int count) { }
+    void dispatch(String to) { mailer.send(to); }
+
+    // dex:group group-id:dispatch group-label:"Dispatch"
+    // dex:explanation text:"Dispatch through the String overload."
+    class Dispatch implements Step<String> {
+        public StepOptions getStepOptions() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+        public StepDecision execute(Context context, String input) {
+            dispatch(input);
+            return StepDecision.gracefulComplete(input);
+        }
+    }
+}
+
+class SDKValueFlow implements Flow<String> {
+    static final Attribute<String> status = Attribute.define("status", String.class);
+    static final Channel<Mailer> services = Channel.define("services", Mailer.class);
+
+    public StepList<String> getSteps() { return StepList.startStep(new UseService()); }
+    public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(status, services); }
+
+    @RPC(lockAttributes = {"status"})
+    public void stop(Context context, String reason) { status.set(context, reason); }
+
+    // dex:group group-id:use group-label:"Use"
+    // dex:explanation text:"Call a value read from a Channel."
+    class UseService implements Step<String> {
+        public StepOptions getStepOptions() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+        public StepDecision execute(Context context, String input) {
+            context.pendingChannelMessages(services).get(0).getValue().send(input);
+            return StepDecision.gracefulComplete(input);
+        }
+    }
+}
+
+class JdkInputOutputFlow implements Flow<String> {
+    static final Attribute<String> status = Attribute.define("status", String.class);
+
+    public StepList<String> getSteps() { return StepList.startStep(new FormatStep()).otherSteps(new BundleStep(), new FileStep()); }
+    public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(status); }
+
+    @RPC(lockAttributes = {"status"})
+    public void stop(Context context, String reason) { status.set(context, reason); }
+
+    static StepOptions lockStatus() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+    // dex:group group-id:io group-label:"I/O"
+    // dex:explanation text:"Open a Formatter on a file."
+    class FormatStep implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) throws Exception {
+            new java.util.Formatter(input).close();
+            return StepDecision.goTo(BundleStep.class, input);
+        }
+    }
+
+    // dex:group group-id:io group-label:"I/O"
+    // dex:explanation text:"Load a resource bundle."
+    class BundleStep implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) {
+            status.set(context, ResourceBundle.getBundle(input).getString("title"));
+            return StepDecision.goTo(FileStep.class, input);
+        }
+    }
+
+    // dex:group group-id:io group-label:"I/O"
+    // dex:explanation text:"Delete a file."
+    class FileStep implements Step<String> {
+        public StepOptions getStepOptions() { return lockStatus(); }
+
+        public StepDecision execute(Context context, String input) throws Exception {
+            new java.io.File(input).getCanonicalFile().delete();
             return StepDecision.gracefulComplete(input);
         }
     }
