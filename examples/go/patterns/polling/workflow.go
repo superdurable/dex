@@ -28,7 +28,7 @@ import (
 )
 
 // Keep pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s.
-// maxJobWait bounds one attempt and all retries; Dex enforces it.
+// maxJobWait bounds each attempt and whether another attempt starts; Dex enforces it.
 const (
 	pollInterval   = 2 * time.Second
 	jobCallTimeout = 10 * time.Second

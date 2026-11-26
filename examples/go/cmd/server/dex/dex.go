@@ -47,6 +47,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
+	patternspollingwithtimer "github.com/superdurable/dex/examples/go/patterns/polling-with-timer"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
 	sequentiallychunkedattributemap "github.com/superdurable/dex/examples/go/patterns/sequentially-chunked-attribute-map"
@@ -177,6 +178,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	customerrefund.RegisterRoutes(router, client, registry.CustomerRefund, registry.AgenticRefund)
 	managerapproval.RegisterRoutes(router, client, registry.ManagerApprovalRefund)
 	patternspolling.RegisterRoutes(router, client, registry.Polling, registry.PollingJobs)
+	patternspollingwithtimer.RegisterRoutes(router, client, registry.PollingWithTimer, registry.PollingJobs)
 	failfast.RegisterRoutes(router, client, registry.ExpenseReimbursement)
 	controllongrunningwork.RegisterRoutes(router, client, registry.RecordBackfill)
 	reminders.RegisterRoutes(router, client, registry.Reminder)

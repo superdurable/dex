@@ -520,7 +520,8 @@ building blocks:
 | Partial join: first k of n | the join Step waits `JOIN.for_branches(&round, k)`, or `JOIN.for_first_branch(&round)`; `JOIN.for_remaining_branches(&round, received)` waits for the rest | `patterns/parallel` |
 | First win | winner returns `.cancel_sibling_step(&Same)` | `patterns/parallel` |
 | Parallel SubFlows | `Wait::all_of(conditions)` built from `SubFlow::run` | `patterns/parallel_subflows` |
-| Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
+| Polling with WaitFor Timer | `wait_for` returns a Timer; `execute` checks once and returns `go_to` to the same Step with the next round | `patterns/polling/timer` |
+| Polling with long-running Step heartbeat | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, Idle Timer (Inactivity tracker) | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
 | Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#idle-timer-with-resolution)) | [`control_patterns/inbound_event_loop`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/inbound_event_loop) |
 | Execute recovery | `on_execute_failure_proceed_to(&Recovery)` | `patterns/recovery` |

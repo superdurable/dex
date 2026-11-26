@@ -8,7 +8,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/cont
 
 Control Long-Running Work, formerly Stop Long-Running Work and Interruptible execution, changes or stops a loop while it runs.
 
-Use this pattern for work that loops for a long time, such as a backfill or batch processing. A caller can change how the loop works, such as how many items each iteration loads. A caller can also ask the loop to stop. To wait for an external system, use [Polling](/design-patterns/durable-timer/polling) instead.
+Use this pattern for work that loops for a long time, such as a backfill or batch processing. A caller can change how the loop works, such as how many items each iteration loads. A caller can also ask the loop to stop. To wait for an external system, use [Polling with WaitFor Timer](/design-patterns/durable-timer/polling-with-wait-for-timer) or [Polling with Long-Running Step Heartbeat](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat) instead.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 

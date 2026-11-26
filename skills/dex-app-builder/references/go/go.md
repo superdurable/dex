@@ -234,7 +234,8 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 - Do not coordinate durable work with goroutines, mutexes, channels, or maps.
   They vanish with the Worker.
 - `time.Sleep` in `Execute` holds the attempt. Durable waits use a Timer in
-  `WaitFor`. Sleep only between rounds of a heartbeating polling loop.
+  `WaitFor`, including the interval of a Timer polling loop. Sleep only
+  between rounds of a heartbeating polling loop.
 - Give every Client call a bounded `context.Context`.
 - Map instance names are non-empty and contain no `/`.
 

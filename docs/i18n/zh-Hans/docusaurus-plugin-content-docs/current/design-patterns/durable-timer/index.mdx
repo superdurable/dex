@@ -12,6 +12,7 @@ Worker 重启后，Timer 仍按原计划触发。这些模式适合定期执行�
 
 - [Cron 定时调度](/design-patterns/durable-timer/cron)：在一个 Flow 中按固定间隔执行工作。
 - [提醒](/design-patterns/durable-timer/reminder)：定期发送提醒，直到接收者退订。
-- [轮询](/design-patterns/durable-timer/polling)：在一个长时间运行的 Step 中等待外部系统。
+- [用 WaitFor Timer 轮询](/design-patterns/durable-timer/polling-with-wait-for-timer)：每一轮用一次 Step execution 等待外部系统。
+- [用长时间运行 Step 的 heartbeat 轮询](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat)：在一个长时间运行的 Step 中等待外部系统。
 
 活动停止一段时间后才执行的动作，请参见[空闲定时器](/design-patterns/external-interaction/idle-timer)。

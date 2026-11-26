@@ -28,7 +28,7 @@ Use Execute for work and WaitFor for durable waiting. One rule holds in every SD
 - WaitFor may make read-only, idempotent, time-bounded calls, for example to read a due date that sets a Timer. The Timer is durable once WaitFor's result commits.
 - If a WaitFor read gets a permanent error, record the error in a [Step execution local value](#step-execution-local-values), return a Wait that is ready immediately, such as Go's SkipWaitImmediately, and let Execute route on it. Never let a permanent error loop in Step retry.
 - WaitFor may run more than once: a retryable error follows WaitFor's own retry policy, and when that budget runs out, the WaitFor failure policy decides. Keep it cheap and safe to repeat. A retry may read a different value; the Wait that commits is the one that counts.
-- Never poll a provider from WaitFor or with a Timer loop. Waiting for an external system uses the [Polling pattern](patterns.md#polling): one long-running Execute that loops and heartbeats.
+- Never poll a provider from WaitFor. Waiting for an external system uses one of the two [Polling](patterns.md#polling) shapes: a WaitFor Timer with one provider call per Execute and a GoTo to the same Step, or one long-running Execute that loops and heartbeats.
 - Never use the Client from WaitFor to start or mutate another Flow. To wait on a child Flow, return a SubFlow Condition.
 - To pass a value that WaitFor computed to Execute of the same Step execution, use a Step execution local value. See [Step execution local values](#step-execution-local-values).
 

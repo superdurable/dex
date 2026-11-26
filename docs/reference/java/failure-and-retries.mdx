@@ -111,7 +111,9 @@ Use **RetryAfter** to choose the delay before the next attempt. It overrides
 the retry schedule of the **RetryPolicy**.
 
 Retries are for recovering from failures. To wait for an external system, use
-the [Polling](/design-patterns/durable-timer/polling) pattern, not **RetryAfter**.
+[Polling with WaitFor Timer](/design-patterns/durable-timer/polling-with-wait-for-timer)
+or [Polling with Long-Running Step Heartbeat](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat),
+not **RetryAfter**.
 
 A retry of an **Execute** call also cannot see new state. It reuses the
 [state snapshot](./step-options.mdx#selective-state-loading) of the first attempt, so it does

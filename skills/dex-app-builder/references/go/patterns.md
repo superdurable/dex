@@ -12,7 +12,8 @@ idiom matters. Examples live under
 | Await all | [parallel/await_parallel.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/await_parallel.go) | `dex.DefineJoin`; skeleton below |
 | First win | [parallel/first_win.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/first_win.go) | Winner returns a decision with `.CancelSiblingSteps(...)` |
 | Parallel SubFlows | [parallel-subflows/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/parallel-subflows) | `dex.AllOf` over `dex.SubFlow` conditions |
-| Polling | [polling/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling/workflow.go) | Skeleton below |
+| Polling with WaitFor Timer | [polling-with-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling-with-timer/workflow.go) | `dex.Until(dex.Timer(...))`, then `dex.GoTo` to the same Step with the next round |
+| Polling with long-running Step heartbeat | [polling/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling/workflow.go) | Skeleton below |
 | Cron | [cron/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/cron/workflow.go) | Timer raced with trigger and skip Channels |
 | Reminder | [reminders/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/reminders/workflow.go) | Timer raced with an opt-out Channel |
 | Idle Timer (Inactivity tracker) | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
@@ -106,8 +107,10 @@ func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecisio
 
 ## Polling
 
-One long-running Step polls the external system. Its StepOptions alone bound
-the wait.
+This skeleton is the long-running Step heartbeat shape. One long-running Step
+polls the external system. Its StepOptions alone bound the wait. For the
+WaitFor Timer shape, follow
+[polling-with-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling-with-timer/workflow.go).
 
 ```go
 const (

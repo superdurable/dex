@@ -151,6 +151,19 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "patterns/polling-with-timer",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling-with-timer")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/polling-with-timer/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
 			name: "patterns/fail-fast",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{

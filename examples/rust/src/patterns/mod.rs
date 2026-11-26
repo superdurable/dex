@@ -76,7 +76,8 @@ fn register_with_client(
         .register(parallel_subflows::AdvancedLongLiveParentFlow::default())?
         .register(parallel_subflows::AdvancedShortLiveParentFlow::default())?
         .register(submit_request)?
-        .register(polling::PollingFlow::new(polling_jobs))?
+        .register(polling::PollingFlow::new(Arc::clone(&polling_jobs)))?
+        .register(polling::timer::PollingWithTimerFlow::new(polling_jobs))?
         .register(recovery::FailureRecoveryFlow::default())?
         .register(reminders::ReminderFlow::default())?
         .register(inactiveness_tracker::InactivenessTrackerFlow::default())?

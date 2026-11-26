@@ -40,6 +40,7 @@ import io.superdurable.dex.patterns.failfast.ExpenseReimbursementFlow;
 import io.superdurable.dex.patterns.failfast.FakePaymentProvider;
 import io.superdurable.dex.patterns.polling.FakeJobService;
 import io.superdurable.dex.patterns.polling.PollingFlow;
+import io.superdurable.dex.patterns.pollingwithtimer.PollingWithTimerFlow;
 import io.superdurable.dex.primitives.channel.ChannelFlow;
 import io.superdurable.dex.primitives.rpccancelingsteps.ReportGenerationFlow;
 import io.superdurable.dex.products.customerrefund.CustomerRefundConfig;
@@ -88,6 +89,7 @@ final class IntegEnvironment implements AutoCloseable {
     private final UserOnboardingFlow userOnboardingFlow;
     private final FakeJobService fakeJobService;
     private final PollingFlow pollingFlow;
+    private final PollingWithTimerFlow pollingWithTimerFlow;
     private final FakePaymentProvider fakePaymentProvider;
     private final ExpenseReimbursementFlow expenseReimbursementFlow;
     private final ReportGenerationFlow reportGenerationFlow;
@@ -117,6 +119,7 @@ final class IntegEnvironment implements AutoCloseable {
             final UserOnboardingFlow userOnboardingFlow,
             final FakeJobService fakeJobService,
             final PollingFlow pollingFlow,
+            final PollingWithTimerFlow pollingWithTimerFlow,
             final FakePaymentProvider fakePaymentProvider,
             final ExpenseReimbursementFlow expenseReimbursementFlow,
             final ReportGenerationFlow reportGenerationFlow,
@@ -144,6 +147,7 @@ final class IntegEnvironment implements AutoCloseable {
         this.userOnboardingFlow = userOnboardingFlow;
         this.fakeJobService = fakeJobService;
         this.pollingFlow = pollingFlow;
+        this.pollingWithTimerFlow = pollingWithTimerFlow;
         this.fakePaymentProvider = fakePaymentProvider;
         this.expenseReimbursementFlow = expenseReimbursementFlow;
         this.reportGenerationFlow = reportGenerationFlow;
@@ -172,6 +176,7 @@ final class IntegEnvironment implements AutoCloseable {
         final UserOnboardingFlow userOnboardingFlow = new UserOnboardingFlow(service);
         final FakeJobService fakeJobService = new FakeJobService();
         final PollingFlow pollingFlow = new PollingFlow(fakeJobService);
+        final PollingWithTimerFlow pollingWithTimerFlow = new PollingWithTimerFlow(fakeJobService);
         final FakePaymentProvider fakePaymentProvider = new FakePaymentProvider();
         final ExpenseReimbursementFlow expenseReimbursementFlow =
                 new ExpenseReimbursementFlow(fakePaymentProvider);
@@ -208,6 +213,7 @@ final class IntegEnvironment implements AutoCloseable {
                 subscriptionFlow,
                 userOnboardingFlow,
                 pollingFlow,
+                pollingWithTimerFlow,
                 expenseReimbursementFlow,
                 reportGenerationFlow,
                 customerRefundFlow,
@@ -264,6 +270,7 @@ final class IntegEnvironment implements AutoCloseable {
                 userOnboardingFlow,
                 fakeJobService,
                 pollingFlow,
+                pollingWithTimerFlow,
                 fakePaymentProvider,
                 expenseReimbursementFlow,
                 reportGenerationFlow,
@@ -328,6 +335,10 @@ final class IntegEnvironment implements AutoCloseable {
 
     PollingFlow pollingFlow() {
         return pollingFlow;
+    }
+
+    PollingWithTimerFlow pollingWithTimerFlow() {
+        return pollingWithTimerFlow;
     }
 
     FakePaymentProvider fakePaymentProvider() {

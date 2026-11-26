@@ -17,9 +17,15 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "ansi"] }
 
+[features]
+# Fake-service controls that only integration tests use.
+test-util = []
+
 [dev-dependencies]
 tempfile = "3.23"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+# Enables test-util for this crate's own integration tests.
+dex-examples-rust = { path = ".", features = ["test-util"] }
 
 [lints.rust]
 unsafe_code = "forbid"

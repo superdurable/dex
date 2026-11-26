@@ -11,8 +11,8 @@ then `RUNNING`, and succeeds six seconds after it starts or as soon as
 `complete-job` is called.
 
 **AwaitJob** keeps `POLL_INTERVAL_MS + JOB_CALL_TIMEOUT_MS <= heartbeatTimeoutMs - 10s`.
-Each status call has its own `AbortSignal.timeout`. `MAX_JOB_WAIT_MS` sets both
-`executeMethodTimeoutMs` and the retry policy's `totalDurationMs`. Dex enforces
+Each status call combines `context.cancellationSignal` with its own
+`AbortSignal.timeout`. `MAX_JOB_WAIT_MS` sets both `executeMethodTimeoutMs` and the retry policy's `totalDurationMs`. Dex enforces
 the maximum wait, so the Step code has no deadline. A retry resumes from the
 last reported status through `getLastHeartbeatValue`.
 
@@ -25,5 +25,6 @@ fails the Flow with the error type and detail.
 - `GET /patterns/polling/start?workflowId={workflowId}`
 - `GET /patterns/polling/complete-job?workflowId={workflowId}`
 
-See [Polling](https://docs.superdurable.io/design-patterns/polling) for the
-pattern rules.
+See [Polling with Long-Running Step Heartbeat](https://docs.superdurable.io/design-patterns/durable-timer/polling-with-long-running-step-heartbeat)
+for the pattern rules. [Polling with WaitFor Timer](../polling-with-timer)
+waits for the same job with one Step execution per round.

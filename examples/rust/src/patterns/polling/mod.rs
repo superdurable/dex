@@ -15,5 +15,6 @@
 pub mod controller;
 pub mod flow;
 pub mod job_service;
+pub mod timer;
 pub use flow::*;
 pub use job_service::*;

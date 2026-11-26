@@ -39,6 +39,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
+	patternspollingwithtimer "github.com/superdurable/dex/examples/go/patterns/polling-with-timer"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
 	sequentiallychunkedattributemap "github.com/superdurable/dex/examples/go/patterns/sequentially-chunked-attribute-map"
@@ -101,6 +102,7 @@ var (
 	CronSchedule          *cron.CronScheduleFlow
 	Polling               *patternspolling.PollingFlow
 	PollingJobs           *patternspolling.FakeJobService
+	PollingWithTimer      *patternspollingwithtimer.PollingWithTimerFlow
 	RefundService         *refundmodel.FakeService
 	ExpenseReimbursement  *failfast.ExpenseReimbursementFlow
 	PaymentProvider       *failfast.FakePaymentProvider
@@ -194,6 +196,7 @@ func NewWithRefundLedgerDirectory(applicationSvc service.MyService, getClient Cl
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingJobs = patternspolling.NewFakeJobService()
 	Polling = patternspolling.NewPollingFlow(PollingJobs)
+	PollingWithTimer = patternspollingwithtimer.NewPollingWithTimerFlow(PollingJobs)
 	PaymentProvider = failfast.NewFakePaymentProvider()
 	ExpenseReimbursement = failfast.NewExpenseReimbursementFlow(PaymentProvider)
 	RecordBackfill = controllongrunningwork.NewRecordBackfillFlow()
@@ -268,6 +271,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ManagerApprovalRefund,
 		CronSchedule,
 		Polling,
+		PollingWithTimer,
 		ExpenseReimbursement,
 		RecordBackfill,
 		Reminder,

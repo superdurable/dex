@@ -97,7 +97,8 @@ mappings:
       - docs/content/design-patterns/draining-channel-for-external-publishing.mdx
       - docs/content/design-patterns/durable-timer/cron.mdx
       - docs/content/design-patterns/durable-timer/index.mdx
-      - docs/content/design-patterns/durable-timer/polling.mdx
+      - docs/content/design-patterns/durable-timer/polling-with-long-running-step-heartbeat.mdx
+      - docs/content/design-patterns/durable-timer/polling-with-wait-for-timer.mdx
       - docs/content/design-patterns/durable-timer/reminder.mdx
       - docs/content/design-patterns/external-interaction.mdx
       - docs/content/design-patterns/external-interaction/decision-with-deadline.mdx

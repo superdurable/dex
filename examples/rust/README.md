@@ -113,7 +113,8 @@ remain split so their orchestration boundaries are visible.
 | Long-lived SubFlow parent | [`AdvancedLongLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Bounded workers, request Channel, stop Attribute, and SubFlow loop |
 | Short-lived SubFlow parent | [`AdvancedShortLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Locked active count and atomic completion when the Channel is empty |
 | Partitioning and back pressure | [`SubmitRequestFlow`](src/patterns/parallel_subflows/flow.rs) | Stable parent partitioning and durable retries after admission rejection |
-| Polling | [`PollingFlow`](src/patterns/polling/flow.rs) | One long-running Execute loop with heartbeats, a progress Stream, and an engine-enforced maximum wait |
+| Polling with Long-Running Step Heartbeat | [`PollingFlow`](src/patterns/polling/flow.rs) | One long-running Execute loop with heartbeats, a progress Stream, and an engine-enforced maximum wait |
+| Polling with WaitFor Timer | [`PollingWithTimerFlow`](src/patterns/polling/timer/flow.rs) | The same job checked once per round after a WaitFor Timer; GoTo the same Step until done |
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
 | Fail fast on permanent errors | [`ExpenseReimbursementFlow`](src/control_patterns/fail_fast/flow.rs) | Retry a provider timeout; route a confirmed rejection to a failure Step at once |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |

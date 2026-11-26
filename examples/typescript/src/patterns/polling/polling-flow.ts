@@ -37,7 +37,7 @@ import {
 import type { FakeJobService, JobState, JobStatus } from "./fake-job-service.js";
 
 // Keep POLL_INTERVAL_MS + JOB_CALL_TIMEOUT_MS <= heartbeatTimeoutMs - 10s.
-// MAX_JOB_WAIT_MS bounds one attempt and all retries; Dex enforces it.
+// MAX_JOB_WAIT_MS bounds each attempt and whether another attempt starts; Dex enforces it.
 const POLL_INTERVAL_MS = 2_000;
 const JOB_CALL_TIMEOUT_MS = 10_000;
 const MAX_JOB_WAIT_MS = 10 * 60_000;
@@ -83,7 +83,10 @@ class AwaitJob implements Step<string> {
   public async execute(context: AsyncContext, jobId: string): Promise<StepDecision> {
     let reportedState = context.getLastHeartbeatValue<JobState>();
     while (true) {
-      const status = await this.jobs.getJobStatus(jobId, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS));
+      const status = await this.jobs.getJobStatus(
+        jobId,
+        AbortSignal.any([context.cancellationSignal, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS)]),
+      );
       switch (status.state) {
         case "SUCCEEDED":
           return gracefulComplete(status.result);
@@ -110,7 +113,10 @@ class StartJob implements Step<void> {
 
   public async execute(context: Context, _input: void): Promise<StepDecision> {
     const jobId = context.flowId;
-    await this.jobs.startJob(jobId, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS));
+    await this.jobs.startJob(
+      jobId,
+      AbortSignal.any([context.cancellationSignal, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS)]),
+    );
     return goTo(AwaitJob, jobId);
   }
 }

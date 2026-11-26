@@ -24,7 +24,7 @@ use dex_sdk::{
 use crate::patterns::polling::job_service::{FakeJobService, JobState, JobStatus};
 
 // Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10s.
-// MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
+// MAX_JOB_WAIT bounds each attempt and whether another attempt starts; Dex enforces it.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const JOB_CALL_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_JOB_WAIT: Duration = Duration::from_secs(10 * 60);

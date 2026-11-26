@@ -474,11 +474,21 @@ window.PLAYGROUND_CATALOG = [
   {
     group: "patterns",
     id: "polling",
-    title: "Polling",
+    title: "Polling with Long-Running Step Heartbeat",
     flowIdPrefix: "pattern-polling",
     endpoints: [
       endpoint("GET", "/patterns/polling/start", "Start", [flowId()]),
       endpoint("GET", "/patterns/polling/complete-job", "Complete job", [flowId()]),
+    ],
+  },
+  {
+    group: "patterns",
+    id: "polling-with-timer",
+    title: "Polling with WaitFor Timer",
+    flowIdPrefix: "pattern-polling-with-timer",
+    endpoints: [
+      endpoint("GET", "/patterns/polling-with-timer/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/polling-with-timer/complete-job", "Complete job", [flowId()]),
     ],
   },
   {

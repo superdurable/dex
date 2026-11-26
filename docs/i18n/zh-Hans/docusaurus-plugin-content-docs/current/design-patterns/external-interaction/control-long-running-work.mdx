@@ -9,7 +9,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/cont
 
 控制长时间运行的工作（Control Long-Running Work，原名“停止长时间运行的工作”（Stop Long-Running Work）和“可中断执行”（Interruptible execution））用来调整或停止正在运行的循环。
 
-这个模式适合长时间循环运行的工作，例如数据回填或批处理。调用方可以调整循环的工作方式，例如每一轮加载多少条数据。调用方也可以要求循环停止。如果要等待外部系统，请改用 [轮询](/design-patterns/durable-timer/polling)。
+这个模式适合长时间循环运行的工作，例如数据回填或批处理。调用方可以调整循环的工作方式，例如每一轮加载多少条数据。调用方也可以要求循环停止。如果要等待外部系统，请改用 [用 WaitFor Timer 轮询](/design-patterns/durable-timer/polling-with-wait-for-timer) 或 [用长时间运行 Step 的 heartbeat 轮询](/design-patterns/durable-timer/polling-with-long-running-step-heartbeat)。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 

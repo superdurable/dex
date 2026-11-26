@@ -33,6 +33,9 @@ public class FakeJobService {
 
     private final Map<String, Instant> startedAt = new HashMap<>();
     private final Set<String> completedJobIds = new HashSet<>();
+    private final Set<String> keptRunningJobIds = new HashSet<>();
+    private final Map<String, Integer> pendingCheckFailures = new HashMap<>();
+    private final Map<String, Integer> statusChecks = new HashMap<>();
 
     /** Starts a job idempotently per job ID, so a retried Step does not start a second job. */
     public synchronized void startJob(final String jobId, final Duration requestTimeout) {
@@ -40,8 +43,15 @@ public class FakeJobService {
     }
 
     public synchronized JobStatus getJobStatus(final String jobId, final Duration requestTimeout) {
+        statusChecks.merge(jobId, 1, Integer::sum);
+        if (pendingCheckFailures.getOrDefault(jobId, 0) > 0) {
+            pendingCheckFailures.merge(jobId, -1, Integer::sum);
+            throw new IllegalStateException("job service is unavailable for job " + jobId);
+        }
         final Duration elapsed = Duration.between(requireStartedAt(jobId), Instant.now());
-        if (completedJobIds.contains(jobId) || elapsed.compareTo(FAKE_JOB_DURATION) >= 0) {
+        final boolean finishedOnItsOwn = !keptRunningJobIds.contains(jobId)
+                && elapsed.compareTo(FAKE_JOB_DURATION) >= 0;
+        if (completedJobIds.contains(jobId) || finishedOnItsOwn) {
             return new JobStatus(jobId, JobState.SUCCEEDED, "artifact for " + jobId);
         }
         if (elapsed.compareTo(FAKE_JOB_DURATION.dividedBy(3)) >= 0) {
@@ -54,6 +64,21 @@ public class FakeJobService {
     public synchronized void completeJob(final String jobId) {
         requireStartedAt(jobId);
         completedJobIds.add(jobId);
+    }
+
+    /** Keeps a job unfinished until {@link #completeJob}. Call it before the job starts. */
+    public synchronized void keepJobRunning(final String jobId) {
+        keptRunningJobIds.add(jobId);
+    }
+
+    /** Makes the next {@code count} status checks of a job fail with a transient error. */
+    public synchronized void failNextStatusChecks(final String jobId, final int count) {
+        pendingCheckFailures.merge(jobId, count, Integer::sum);
+    }
+
+    /** Returns how many status checks of a job ran, including failed ones. */
+    public synchronized int countStatusChecks(final String jobId) {
+        return statusChecks.getOrDefault(jobId, 0);
     }
 
     private Instant requireStartedAt(final String jobId) {

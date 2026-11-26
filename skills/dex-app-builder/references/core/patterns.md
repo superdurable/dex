@@ -289,9 +289,61 @@ Separate admission from processing and make admission durable.
 
 ## Polling
 
-Use this one pattern whenever a Flow waits for an external system to become ready or finish: a cloud build, a rollout, a provisioning job, a third-party status. Business signals inside Dex (Channels, RPCs) and business timers (TTL, reminders, inactivity) still use WaitFor; they are not polling. Go folder: `polling`.
+Use Polling whenever a Flow waits for an external system to become ready or finish: a cloud build, a rollout, a provisioning job, a third-party status. Business signals inside Dex (Channels, RPCs) and business timers (TTL, reminders, inactivity) still use WaitFor; they are not polling. Polling has two shapes. Choose one per wait:
 
-One long-running Execute owns the whole wait:
+| Question | [WaitFor Timer](#polling-with-waitfor-timer) | [Long-running Step heartbeat](#polling-with-long-running-step-heartbeat) |
+| --- | --- | --- |
+| What is one round? | A new Step execution, recorded in the Flow's history | A heartbeat or Stream frame inside one attempt |
+| Cost | Somewhat heavier: records every round in history | Lighter: one Step execution for the whole wait |
+| Between rounds | A durable Timer wait; no Worker task slot is held | The attempt holds a Worker task slot |
+| Choose it for | Long intervals, seeing every round, Time Travel back to a round | Short intervals, the lightest loop |
+
+The Timer shape records every round in the Flow's history, so each round is visible and Time Travel can move the run back to a round inside its recent history window. The heartbeat shape is lighter. What a Dex Server failover does to a waiting or running round is in the [high availability reference](https://docs.superdurable.io/reference/server/high-availability#lease).
+
+### Polling with WaitFor Timer
+
+Each round waits for a Timer in WaitFor, calls the provider once in Execute, and moves to itself while the work is not finished. Go folder: `polling-with-timer`.
+
+```text
+StartJob.execute(request)
+    jobId = provider.startJob(idempotencyKey = flowId, timeout = short)
+    return goTo(CheckJobStatus, {jobId, round = 1})
+
+CheckJobStatus options:
+    execute retry            = a few attempts with backoff
+    execute failure route    = RecordJobWaitFailure
+
+CheckJobStatus.waitFor(context, input)
+    return until(Timer(interval, conditionId = "poll-interval"))
+
+CheckJobStatus.execute(context, input)
+    status = provider.getStatus(input.jobId, timeout = short)   // error -> return error; retry policy re-runs
+    if status is succeeded: return gracefulComplete(result)
+    if status is failed:    return forceFail(reason)
+    if input.round >= maxRounds: return forceFail("did not finish")
+    return goTo(CheckJobStatus, {input.jobId, input.round + 1})
+```
+
+- "Not ready yet" is a normal decision: GoTo the same Step. Never an error.
+- Bound the loop. Carry a round number in the input and stop at a maximum. The round limit bounds the number of checks, not elapsed time: calls, retries, and queueing add time to each round. A hard deadline uses the Flow timeout or a watchdog Timer.
+- Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
+- WaitFor only declares the Timer. The provider call runs in Execute.
+- The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
+- For an interval of a few seconds or less, use the heartbeat shape.
+- Give the Timer a condition ID. Tests skip it with SkipTimer; never shorten the interval for a test.
+
+Never:
+
+- Call the provider in WaitFor.
+- Use retry policy, backoff, or RetryAfter as the polling loop by returning "not ready" as an error.
+- Loop without a maximum round count or deadline.
+- Grow the Step input each round.
+- Call an external system without its own timeout.
+- Start a new Flow for each round or page.
+
+### Polling with long-running Step heartbeat
+
+One long-running Execute owns the whole wait. Go folder: `polling`.
 
 ```text
 StartJob.execute(request)
@@ -324,19 +376,18 @@ RecordJobWaitFailure.execute(context)
 - Keep the default heartbeat timeout when the loop fits it, so a stalled Worker is detected quickly. Raise it only when a healthy call is silent longer.
 - Within that bound, use a few seconds when a user watches something they just started, and tens of seconds for long jobs.
 - A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, is a watchdog: a waiting Step that races its Timer. The watchdog and the Step that records the result declare the same Attribute lock. When the Timer fires, the watchdog reads the status under that lock and declares the work overdue only while it is still unfinished.
-- The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. The total duration bounds the time. Never use a large attempt count as a time bound.
-- Use the language's plain sleep. Do not add cancellation-select machinery around it: the call has its own timeout, and after a canceled attempt the next call fails fast.
+- The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. Each attempt lasts at most the method timeout. After a failure, the total duration only decides whether another attempt starts, so recovery can begin well after it. Never use a large attempt count as a time bound.
+- Use the language's plain sleep. Honor cancellation through the language SDK's mechanism. When the provider call accepts a cancellation argument, pass it, and keep the call's own timeout. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](https://docs.superdurable.io/reference/server/runtime-data#cancel-honour).
 - The wait limits come from the Step options, and Dex enforces each one: the method timeout ends an attempt, and after a failure the total duration decides whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. The Step code never computes a deadline, and neither the checkpoint nor the input carries one. A hard business deadline uses the watchdog below.
-- The checkpoint is only resume state, such as the last reported status.
+- The checkpoint is only resume state, such as the last reported status. Resuming from the last stored checkpoint reduces repeated progress frames; it can be lost, so consumers tolerate duplicates and gaps. See [Heartbeat](https://docs.superdurable.io/reference/go/step-options#heartbeat).
 - A business condition that is not a fixed duration, such as a lease the Flow does not own expiring, is still checked inside the loop.
 - Write Stream frames only on status changes. Consumers recover from Attributes or a read-only RPC.
 - Do not hold Execute locks for the whole wait. Commit locked results in a short following Step.
 - The recovery error does not carry the last status. The Stream and logs do. To branch on which limit ended the wait, follow [recovery error types](error-handling.md#recovery-error-types).
-- Either durability works; the checkpoint makes ASYNC replays cheap.
+- Either durability works. With ASYNC, work whose result was not yet saved can run again; the checkpoint is only a resume hint.
 
 Never:
 
-- WaitFor a Timer and GoTo the same Step to poll again.
 - Use retry policy, backoff, or RetryAfter as the polling loop by returning "not ready" as an error.
 - Run a long loop that never heartbeats or writes progress.
 - Call an external system without its own timeout.
@@ -590,7 +641,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Critical section across Steps | A Channel that holds one token message | A handoff Step takes the token with ForOne and does no protected work. The last Step of the section publishes the token back, and so does every other exit: the ExecuteFailure route, an early exit, and a WaitForFailure policy. Never cancel a Step that does protected work. |
 | Cancel one task | An RPC result or a decision cancels Steps by Step type and starts the replacement Step | A canceled Step is not retried, its failure route does not run, and Dex discards its later writes. Dex picks the Steps to cancel at commit time. |
 | Cancel the case and its child Flows | The Step that starts the SubFlow waits AnyOf(cancel Channel, SubFlow) and, on cancel, stops the child with Client StopFlow before ForceFail | List the cancel condition first in every wait. Every later waiting Step also waits for the cancel Channel. A closing parent never stops its children, so give every child its own Flow timeout. |
-| Loop | Execute returns GoTo to the same or an earlier Step with the next input | Each iteration is a new Step execution and a new commit. Bound the loop. Keep accumulated results in Attributes, not in a growing Step input. Wait between iterations with a Timer in WaitFor. Poll an external system inside one Execute instead. |
+| Loop | Execute returns GoTo to the same or an earlier Step with the next input | Each iteration is a new Step execution and a new commit. Bound the loop. Keep accumulated results in Attributes, not in a growing Step input. Wait between iterations with a Timer in WaitFor. To poll an external system, follow [Polling](#polling). |
 | Repeat on a schedule | A scheduler Step waits for a Timer to the next occurrence, then GoToMany starts the run Step and the next scheduler wait together | Starting the next wait with the run keeps a slow run from drifting the schedule. Make each run's external effect idempotent per occurrence. Stop the schedule with a Channel message or a closing decision. |
 | Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. When the Flow needs the results, fork a Join with one branch per item. A Join needs the instance count when it forks; instances added while others run need an explicit count and a loop. Use child Flows only for instances with their own lifecycle. |
 
@@ -942,4 +993,4 @@ Context rebuild after Worker replacement, compaction before deletion, approval a
 - Are side effects idempotent or compensated?
 - Is progress classified as durable or best effort?
 - Can a replacement Worker resume from durable state alone?
-- Is every external wait a Polling Step, never a Timer loop or a retry loop?
+- Is every external wait one of the two Polling shapes, bounded, and never a retry loop?

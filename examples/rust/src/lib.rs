@@ -44,7 +44,7 @@ pub const PRODUCT_FLOW_TYPES: [&str; 9] = [
     "CustomerRefundFlow",
 ];
 
-pub const PATTERN_FLOW_TYPES: [&str; 23] = [
+pub const PATTERN_FLOW_TYPES: [&str; 24] = [
     "CronScheduleFlow",
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
@@ -60,6 +60,7 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "AdvancedShortLiveParentFlow",
     "SubmitRequestFlow",
     "PollingFlow",
+    "PollingWithTimerFlow",
     "FailureRecoveryFlow",
     "ReminderFlow",
     "InactivenessTrackerFlow",

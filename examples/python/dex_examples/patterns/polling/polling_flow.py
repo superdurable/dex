@@ -36,7 +36,7 @@ from dex import (
 from dex_examples.patterns.polling.job_service import FakeJobService, JobState, JobStatus
 
 # Keep POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10s.
-# MAX_JOB_WAIT bounds one attempt and all retries; Dex enforces it.
+# MAX_JOB_WAIT bounds each attempt and whether another attempt starts; Dex enforces it.
 POLL_INTERVAL = timedelta(seconds=2)
 JOB_CALL_TIMEOUT = timedelta(seconds=10)
 MAX_JOB_WAIT = timedelta(minutes=10)
