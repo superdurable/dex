@@ -204,7 +204,9 @@ impl Step for ExecuteDealAction {
                 format!("invalid action index {}", input.action_index),
             )
         })?;
-        run_action(context, action)?;
+        // The execution ID stays stable on retries and changes when the same action runs again.
+        let idempotency_key = format!("{}/{}", context.flow_id(), context.step_execution_id());
+        run_action(context, action, &idempotency_key)?;
         let next_index = input.action_index + 1;
         if next_index < state.actions.len() {
             return Ok(StepDecision::go_to(
@@ -299,7 +301,11 @@ fn merge_condition(context: &mut Context, condition_name: &str) -> HandlerResult
     DEAL_STATE_DATA.set(context, state_data)
 }
 
-fn run_action(context: &mut Context, action_name: &str) -> HandlerResult<()> {
+fn run_action(
+    context: &mut Context,
+    action_name: &str,
+    idempotency_key: &str,
+) -> HandlerResult<()> {
     let mut state_data = DEAL_STATE_DATA.get_required(context)?;
     match action_name {
         "chargeBuyer" => {}
@@ -314,7 +320,9 @@ fn run_action(context: &mut Context, action_name: &str) -> HandlerResult<()> {
         }
     }
     state_data.insert("lastAction".to_string(), action_name.to_string());
-    DEAL_STATE_DATA.set(context, state_data)
+    DEAL_STATE_DATA.set(context, state_data)?;
+    println!("Deal action {action_name} completed with idempotency key {idempotency_key}");
+    Ok(())
 }
 
 pub fn example_deal_start(buyer_id: &str) -> DealStart {

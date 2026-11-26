@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0",
-  "generatedAt": "2026-11-10T21:14:31Z",
+  "generatedAt": "2026-11-26T04:54:56Z",
   "valid": true,
   "source": {
     "language": "python",
@@ -10,10 +10,10 @@
     "name": "DealDSLFlow",
     "startStepId": "step:InitializeDeal",
     "span": {
-      "startLine": 239,
+      "startLine": 244,
       "startColumn": 1,
-      "endLine": 297,
-      "endColumn": 49
+      "endLine": 307,
+      "endColumn": 10
     }
   },
   "nodes": [
@@ -24,9 +24,9 @@
       "parentId": "step:EvaluateDealTransition",
       "phase": "execute",
       "span": {
-        "startLine": 223,
+        "startLine": 228,
         "startColumn": 5,
-        "endLine": 236,
+        "endLine": 241,
         "endColumn": 71
       }
     },
@@ -37,9 +37,9 @@
       "parentId": "step:ExecuteDealAction",
       "phase": "execute",
       "span": {
-        "startLine": 199,
+        "startLine": 200,
         "startColumn": 5,
-        "endLine": 207,
+        "endLine": 212,
         "endColumn": 73
       }
     },
@@ -50,23 +50,23 @@
       "parentId": "step:WaitForDealCondition",
       "phase": "execute",
       "span": {
-        "startLine": 182,
+        "startLine": 183,
         "startColumn": 5,
-        "endLine": 190,
+        "endLine": 191,
         "endColumn": 52
       }
     },
     {
-      "id": "decision:step:EvaluateDealTransition:226:20",
+      "id": "decision:step:EvaluateDealTransition:231:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:EvaluateDealTransition",
       "condition": "transition is None",
       "phase": "execute",
       "span": {
-        "startLine": 226,
+        "startLine": 231,
         "startColumn": 20,
-        "endLine": 226,
+        "endLine": 231,
         "endColumn": 72
       },
       "decision": {
@@ -74,16 +74,16 @@
       }
     },
     {
-      "id": "decision:step:EvaluateDealTransition:236:16",
+      "id": "decision:step:EvaluateDealTransition:241:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:EvaluateDealTransition",
       "condition": "not (transition is None)",
       "phase": "execute",
       "span": {
-        "startLine": 236,
+        "startLine": 241,
         "startColumn": 16,
-        "endLine": 236,
+        "endLine": 241,
         "endColumn": 71
       },
       "decision": {
@@ -91,16 +91,16 @@
       }
     },
     {
-      "id": "decision:step:ExecuteDealAction:206:20",
+      "id": "decision:step:ExecuteDealAction:211:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:ExecuteDealAction",
       "condition": "next_index \u003c len(state.actions)",
       "phase": "execute",
       "span": {
-        "startLine": 206,
+        "startLine": 211,
         "startColumn": 20,
-        "endLine": 206,
+        "endLine": 211,
         "endColumn": 85
       },
       "decision": {
@@ -108,16 +108,16 @@
       }
     },
     {
-      "id": "decision:step:ExecuteDealAction:207:16",
+      "id": "decision:step:ExecuteDealAction:212:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:ExecuteDealAction",
       "condition": "not (next_index \u003c len(state.actions))",
       "phase": "execute",
       "span": {
-        "startLine": 207,
+        "startLine": 212,
         "startColumn": 16,
-        "endLine": 207,
+        "endLine": 212,
         "endColumn": 73
       },
       "decision": {
@@ -125,15 +125,15 @@
       }
     },
     {
-      "id": "decision:step:InitializeDeal:166:16",
+      "id": "decision:step:InitializeDeal:167:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:InitializeDeal",
       "phase": "execute",
       "span": {
-        "startLine": 166,
+        "startLine": 167,
         "startColumn": 16,
-        "endLine": 166,
+        "endLine": 167,
         "endColumn": 85
       },
       "decision": {
@@ -141,16 +141,16 @@
       }
     },
     {
-      "id": "decision:step:WaitForDealCondition:189:20",
+      "id": "decision:step:WaitForDealCondition:190:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:WaitForDealCondition",
       "condition": "state.actions",
       "phase": "execute",
       "span": {
-        "startLine": 189,
+        "startLine": 190,
         "startColumn": 20,
-        "endLine": 189,
+        "endLine": 190,
         "endColumn": 76
       },
       "decision": {
@@ -158,16 +158,16 @@
       }
     },
     {
-      "id": "decision:step:WaitForDealCondition:190:16",
+      "id": "decision:step:WaitForDealCondition:191:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:WaitForDealCondition",
       "condition": "not (state.actions)",
       "phase": "execute",
       "span": {
-        "startLine": 190,
+        "startLine": 191,
         "startColumn": 16,
-        "endLine": 190,
+        "endLine": 191,
         "endColumn": 52
       },
       "decision": {
@@ -179,9 +179,9 @@
       "kind": "attribute",
       "name": "DealBuyerID",
       "span": {
-        "startLine": 244,
+        "startLine": 249,
         "startColumn": 5,
-        "endLine": 244,
+        "endLine": 249,
         "endColumn": 45
       },
       "resource": {
@@ -193,9 +193,9 @@
       "kind": "attribute",
       "name": "DealCurrentState",
       "span": {
-        "startLine": 245,
+        "startLine": 250,
         "startColumn": 5,
-        "endLine": 245,
+        "endLine": 250,
         "endColumn": 55
       },
       "resource": {
@@ -207,9 +207,9 @@
       "kind": "attribute",
       "name": "DealDefinition",
       "span": {
-        "startLine": 240,
+        "startLine": 245,
         "startColumn": 5,
-        "endLine": 240,
+        "endLine": 245,
         "endColumn": 61
       },
       "resource": {
@@ -221,9 +221,9 @@
       "kind": "attribute",
       "name": "DealItemID",
       "span": {
-        "startLine": 243,
+        "startLine": 248,
         "startColumn": 5,
-        "endLine": 243,
+        "endLine": 248,
         "endColumn": 43
       },
       "resource": {
@@ -235,9 +235,9 @@
       "kind": "attribute",
       "name": "DealPendingCondition",
       "span": {
-        "startLine": 246,
+        "startLine": 251,
         "startColumn": 5,
-        "endLine": 246,
+        "endLine": 251,
         "endColumn": 63
       },
       "resource": {
@@ -249,9 +249,9 @@
       "kind": "attribute",
       "name": "DealProcessID",
       "span": {
-        "startLine": 242,
+        "startLine": 247,
         "startColumn": 5,
-        "endLine": 242,
+        "endLine": 247,
         "endColumn": 49
       },
       "resource": {
@@ -263,9 +263,9 @@
       "kind": "attribute",
       "name": "DealStateData",
       "span": {
-        "startLine": 241,
+        "startLine": 246,
         "startColumn": 5,
-        "endLine": 241,
+        "endLine": 246,
         "endColumn": 60
       },
       "resource": {
@@ -277,9 +277,9 @@
       "kind": "channel",
       "name": "DealConditionMessages",
       "span": {
-        "startLine": 247,
+        "startLine": 252,
         "startColumn": 5,
-        "endLine": 247,
+        "endLine": 252,
         "endColumn": 77
       },
       "resource": {
@@ -292,9 +292,9 @@
       "kind": "rpc",
       "name": "send_condition_message",
       "span": {
-        "startLine": 275,
+        "startLine": 280,
         "startColumn": 5,
-        "endLine": 280,
+        "endLine": 285,
         "endColumn": 85
       }
     },
@@ -304,9 +304,9 @@
       "name": "EvaluateDealTransition",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 259,
+        "startLine": 264,
         "startColumn": 13,
-        "endLine": 259,
+        "endLine": 264,
         "endColumn": 37
       },
       "metadata": {
@@ -319,9 +319,9 @@
       "name": "ExecuteDealAction",
       "phase": "execute",
       "span": {
-        "startLine": 258,
+        "startLine": 263,
         "startColumn": 13,
-        "endLine": 258,
+        "endLine": 263,
         "endColumn": 37
       },
       "metadata": {
@@ -335,9 +335,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 256,
+        "startLine": 261,
         "startColumn": 36,
-        "endLine": 256,
+        "endLine": 261,
         "endColumn": 51
       },
       "metadata": {
@@ -350,9 +350,9 @@
       "name": "WaitForDealCondition",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 257,
+        "startLine": 262,
         "startColumn": 13,
-        "endLine": 257,
+        "endLine": 262,
         "endColumn": 36
       },
       "metadata": {
@@ -366,9 +366,9 @@
       "parentId": "step:EvaluateDealTransition",
       "phase": "wait_for",
       "span": {
-        "startLine": 216,
+        "startLine": 221,
         "startColumn": 5,
-        "endLine": 221,
+        "endLine": 226,
         "endColumn": 90
       }
     },
@@ -379,23 +379,23 @@
       "parentId": "step:WaitForDealCondition",
       "phase": "wait_for",
       "span": {
-        "startLine": 175,
+        "startLine": 176,
         "startColumn": 5,
-        "endLine": 180,
+        "endLine": 181,
         "endColumn": 90
       }
     },
     {
-      "id": "wait:EvaluateDealTransition:219:20:0",
+      "id": "wait:EvaluateDealTransition:224:20:0",
       "kind": "wait",
       "name": "skipWaitImmediately",
       "parentId": "step:EvaluateDealTransition",
       "condition": "transition is None or transition.wait_for is None",
       "phase": "wait_for",
       "span": {
-        "startLine": 219,
+        "startLine": 224,
         "startColumn": 20,
-        "endLine": 219,
+        "endLine": 224,
         "endColumn": 43
       },
       "wait": {
@@ -404,16 +404,16 @@
       }
     },
     {
-      "id": "wait:EvaluateDealTransition:221:16:1",
+      "id": "wait:EvaluateDealTransition:226:16:1",
       "kind": "wait",
       "name": "until",
       "parentId": "step:EvaluateDealTransition",
       "condition": "not (transition is None or transition.wait_for is None)",
       "phase": "wait_for",
       "span": {
-        "startLine": 221,
+        "startLine": 226,
         "startColumn": 16,
-        "endLine": 221,
+        "endLine": 226,
         "endColumn": 90
       },
       "wait": {
@@ -425,9 +425,9 @@
             "resourceId": "resource:channel:DealDSLFlow.condition_messages",
             "expression": "transition.wait_for.name",
             "span": {
-              "startLine": 221,
+              "startLine": 226,
               "startColumn": 27,
-              "endLine": 221,
+              "endLine": 226,
               "endColumn": 89
             }
           }
@@ -435,16 +435,16 @@
       }
     },
     {
-      "id": "wait:WaitForDealCondition:178:20:0",
+      "id": "wait:WaitForDealCondition:179:20:0",
       "kind": "wait",
       "name": "skipWaitImmediately",
       "parentId": "step:WaitForDealCondition",
       "condition": "state.pre_condition is None",
       "phase": "wait_for",
       "span": {
-        "startLine": 178,
+        "startLine": 179,
         "startColumn": 20,
-        "endLine": 178,
+        "endLine": 179,
         "endColumn": 43
       },
       "wait": {
@@ -453,16 +453,16 @@
       }
     },
     {
-      "id": "wait:WaitForDealCondition:180:16:1",
+      "id": "wait:WaitForDealCondition:181:16:1",
       "kind": "wait",
       "name": "until",
       "parentId": "step:WaitForDealCondition",
       "condition": "not (state.pre_condition is None)",
       "phase": "wait_for",
       "span": {
-        "startLine": 180,
+        "startLine": 181,
         "startColumn": 16,
-        "endLine": 180,
+        "endLine": 181,
         "endColumn": 90
       },
       "wait": {
@@ -474,9 +474,9 @@
             "resourceId": "resource:channel:DealDSLFlow.condition_messages",
             "expression": "state.pre_condition.name",
             "span": {
-              "startLine": 180,
+              "startLine": 181,
               "startColumn": 27,
-              "endLine": 180,
+              "endLine": 181,
               "endColumn": 89
             }
           }
@@ -488,78 +488,78 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:EvaluateDealTransition:236:16",
+      "from": "decision:step:EvaluateDealTransition:241:16",
       "to": "step:WaitForDealCondition",
       "label": "go_to",
       "span": {
-        "startLine": 236,
+        "startLine": 241,
         "startColumn": 16,
-        "endLine": 236,
+        "endLine": 241,
         "endColumn": 71
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:ExecuteDealAction:206:20",
+      "from": "decision:step:ExecuteDealAction:211:20",
       "to": "step:ExecuteDealAction",
       "label": "go_to",
       "span": {
-        "startLine": 206,
+        "startLine": 211,
         "startColumn": 20,
-        "endLine": 206,
+        "endLine": 211,
         "endColumn": 85
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:ExecuteDealAction:207:16",
+      "from": "decision:step:ExecuteDealAction:212:16",
       "to": "step:EvaluateDealTransition",
       "label": "go_to",
       "span": {
-        "startLine": 207,
+        "startLine": 212,
         "startColumn": 16,
-        "endLine": 207,
+        "endLine": 212,
         "endColumn": 73
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:InitializeDeal:166:16",
+      "from": "decision:step:InitializeDeal:167:16",
       "to": "step:WaitForDealCondition",
       "label": "go_to",
       "span": {
-        "startLine": 166,
+        "startLine": 167,
         "startColumn": 16,
-        "endLine": 166,
+        "endLine": 167,
         "endColumn": 85
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:WaitForDealCondition:189:20",
+      "from": "decision:step:WaitForDealCondition:190:20",
       "to": "step:ExecuteDealAction",
       "label": "go_to",
       "span": {
-        "startLine": 189,
+        "startLine": 190,
         "startColumn": 20,
-        "endLine": 189,
+        "endLine": 190,
         "endColumn": 76
       }
     },
     {
       "id": "edge:0006",
       "kind": "transition",
-      "from": "decision:step:WaitForDealCondition:190:16",
+      "from": "decision:step:WaitForDealCondition:191:16",
       "to": "step:EvaluateDealTransition",
       "label": "go_to",
       "span": {
-        "startLine": 190,
+        "startLine": 191,
         "startColumn": 16,
-        "endLine": 190,
+        "endLine": 191,
         "endColumn": 52
       }
     },
@@ -570,9 +570,9 @@
       "to": "step:EvaluateDealTransition",
       "label": "get",
       "span": {
-        "startLine": 224,
+        "startLine": 229,
         "startColumn": 22,
-        "endLine": 224,
+        "endLine": 229,
         "endColumn": 55
       },
       "metadata": {
@@ -586,9 +586,9 @@
       "to": "step:EvaluateDealTransition",
       "label": "get",
       "span": {
-        "startLine": 217,
+        "startLine": 222,
         "startColumn": 22,
-        "endLine": 217,
+        "endLine": 222,
         "endColumn": 55
       },
       "metadata": {
@@ -602,9 +602,9 @@
       "to": "step:ExecuteDealAction",
       "label": "get",
       "span": {
-        "startLine": 200,
+        "startLine": 201,
         "startColumn": 17,
-        "endLine": 200,
+        "endLine": 201,
         "endColumn": 50
       },
       "metadata": {
@@ -618,9 +618,9 @@
       "to": "step:WaitForDealCondition",
       "label": "get",
       "span": {
-        "startLine": 183,
+        "startLine": 184,
         "startColumn": 17,
-        "endLine": 183,
+        "endLine": 184,
         "endColumn": 50
       },
       "metadata": {
@@ -634,9 +634,9 @@
       "to": "step:WaitForDealCondition",
       "label": "get",
       "span": {
-        "startLine": 176,
+        "startLine": 177,
         "startColumn": 17,
-        "endLine": 176,
+        "endLine": 177,
         "endColumn": 50
       },
       "metadata": {
@@ -650,9 +650,9 @@
       "to": "step:EvaluateDealTransition",
       "label": "get",
       "span": {
-        "startLine": 230,
+        "startLine": 235,
         "startColumn": 22,
-        "endLine": 230,
+        "endLine": 235,
         "endColumn": 55
       },
       "metadata": {
@@ -663,12 +663,12 @@
       "id": "edge:0013",
       "kind": "wait_condition",
       "from": "resource:channel:DealDSLFlow.condition_messages",
-      "to": "wait:EvaluateDealTransition:221:16:1",
+      "to": "wait:EvaluateDealTransition:226:16:1",
       "label": "DealConditionMessages[transition.wait_for.name].for 1",
       "span": {
-        "startLine": 221,
+        "startLine": 226,
         "startColumn": 27,
-        "endLine": 221,
+        "endLine": 226,
         "endColumn": 89
       }
     },
@@ -676,12 +676,12 @@
       "id": "edge:0014",
       "kind": "wait_condition",
       "from": "resource:channel:DealDSLFlow.condition_messages",
-      "to": "wait:WaitForDealCondition:180:16:1",
+      "to": "wait:WaitForDealCondition:181:16:1",
       "label": "DealConditionMessages[state.pre_condition.name].for 1",
       "span": {
-        "startLine": 180,
+        "startLine": 181,
         "startColumn": 27,
-        "endLine": 180,
+        "endLine": 181,
         "endColumn": 89
       }
     },
@@ -692,9 +692,9 @@
       "to": "resource:channel:DealDSLFlow.condition_messages",
       "label": "publish",
       "span": {
-        "startLine": 280,
+        "startLine": 285,
         "startColumn": 9,
-        "endLine": 280,
+        "endLine": 285,
         "endColumn": 85
       },
       "metadata": {
@@ -708,9 +708,9 @@
       "to": "resource:attribute:DealDSLFlow.pending_condition",
       "label": "delete",
       "span": {
-        "startLine": 229,
+        "startLine": 234,
         "startColumn": 13,
-        "endLine": 229,
+        "endLine": 234,
         "endColumn": 56
       },
       "metadata": {
@@ -724,9 +724,9 @@
       "to": "resource:attribute:DealDSLFlow.pending_condition",
       "label": "set",
       "span": {
-        "startLine": 220,
+        "startLine": 225,
         "startColumn": 9,
-        "endLine": 220,
+        "endLine": 225,
         "endColumn": 75
       },
       "metadata": {
@@ -740,9 +740,9 @@
       "to": "resource:attribute:DealDSLFlow.buyer_id",
       "label": "set",
       "span": {
-        "startLine": 164,
+        "startLine": 165,
         "startColumn": 9,
-        "endLine": 164,
+        "endLine": 165,
         "endColumn": 56
       },
       "metadata": {
@@ -756,9 +756,9 @@
       "to": "resource:attribute:DealDSLFlow.definition",
       "label": "set",
       "span": {
-        "startLine": 161,
+        "startLine": 162,
         "startColumn": 9,
-        "endLine": 161,
+        "endLine": 162,
         "endColumn": 54
       },
       "metadata": {
@@ -772,9 +772,9 @@
       "to": "resource:attribute:DealDSLFlow.item_id",
       "label": "set",
       "span": {
-        "startLine": 163,
+        "startLine": 164,
         "startColumn": 9,
-        "endLine": 163,
+        "endLine": 164,
         "endColumn": 59
       },
       "metadata": {
@@ -788,9 +788,9 @@
       "to": "resource:attribute:DealDSLFlow.process_id",
       "label": "set",
       "span": {
-        "startLine": 162,
+        "startLine": 163,
         "startColumn": 9,
-        "endLine": 162,
+        "endLine": 163,
         "endColumn": 65
       },
       "metadata": {
@@ -804,9 +804,9 @@
       "to": "resource:attribute:DealDSLFlow.state_data",
       "label": "set",
       "span": {
-        "startLine": 165,
+        "startLine": 166,
         "startColumn": 9,
-        "endLine": 165,
+        "endLine": 166,
         "endColumn": 79
       },
       "metadata": {
@@ -820,9 +820,9 @@
       "to": "resource:attribute:DealDSLFlow.current_state",
       "label": "set",
       "span": {
-        "startLine": 187,
+        "startLine": 188,
         "startColumn": 9,
-        "endLine": 187,
+        "endLine": 188,
         "endColumn": 57
       },
       "metadata": {
@@ -836,9 +836,9 @@
       "to": "resource:attribute:DealDSLFlow.pending_condition",
       "label": "delete",
       "span": {
-        "startLine": 186,
+        "startLine": 187,
         "startColumn": 13,
-        "endLine": 186,
+        "endLine": 187,
         "endColumn": 56
       },
       "metadata": {
@@ -852,9 +852,9 @@
       "to": "resource:attribute:DealDSLFlow.pending_condition",
       "label": "set",
       "span": {
-        "startLine": 179,
+        "startLine": 180,
         "startColumn": 9,
-        "endLine": 179,
+        "endLine": 180,
         "endColumn": 75
       },
       "metadata": {

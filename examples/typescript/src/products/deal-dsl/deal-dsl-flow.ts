@@ -152,7 +152,7 @@ export class DealDSLFlow implements Flow<DealStart> {
     });
   }
 
-  public executeAction(context: Context, actionName: string): void {
+  public executeAction(context: Context, actionName: string, idempotencyKey: string): void {
     const stateData = { ...this.stateData.get(context) };
     if (actionName === "deliverItemToBuyer") {
       stateData.itemDeliveryStatus = "delivered";
@@ -161,6 +161,7 @@ export class DealDSLFlow implements Flow<DealStart> {
     }
     stateData.lastAction = actionName;
     this.stateData.set(context, stateData);
+    console.info("Deal action completed", { actionName, idempotencyKey });
   }
 }
 
@@ -227,7 +228,9 @@ class ExecuteDealAction implements Step<ActionStepInput> {
     const state = this.flow.state(context, input.stateName);
     const action = state.actions?.[input.actionIndex];
     if (action === undefined) throw new Error(`invalid action index ${input.actionIndex}`);
-    this.flow.executeAction(context, action);
+    // The execution ID stays stable on retries and changes when the same action runs again.
+    const idempotencyKey = `${context.flowId}/${context.stepExecutionId}`;
+    this.flow.executeAction(context, action, idempotencyKey);
     const nextIndex = input.actionIndex + 1;
     if (nextIndex < (state.actions?.length ?? 0)) {
       return goTo(ExecuteDealAction, { stateName: state.name, actionIndex: nextIndex });

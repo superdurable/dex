@@ -109,7 +109,7 @@ public class DealDSLFlow implements Flow<DealStart> {
         stateData.set(context, merged);
     }
 
-    private void runAction(final Context context, final String actionName) {
+    private void runAction(final Context context, final String actionName, final String idempotencyKey) {
         final Map<String, String> updated = readStateData(context);
         if ("deliverItemToBuyer".equals(actionName)) {
             updated.put("itemDeliveryStatus", "delivered");
@@ -118,6 +118,9 @@ public class DealDSLFlow implements Flow<DealStart> {
         }
         updated.put("lastAction", actionName);
         stateData.set(context, updated);
+        System.getLogger(DealDSLFlow.class.getName()).log(
+                System.Logger.Level.INFO,
+                "Deal action {0} completed with idempotency key {1}", actionName, idempotencyKey);
     }
 
     final class InitializeDeal implements Step<DealStart> {
@@ -185,7 +188,9 @@ public class DealDSLFlow implements Flow<DealStart> {
             if (input.actionIndex < 0 || input.actionIndex >= state.actions.size()) {
                 throw new IllegalArgumentException("invalid action index " + input.actionIndex);
             }
-            runAction(context, state.actions.get(input.actionIndex));
+            // The execution ID stays stable on retries and changes when the same action runs again.
+            final String idempotencyKey = context.getFlowId() + "/" + context.getStepExecutionId();
+            runAction(context, state.actions.get(input.actionIndex), idempotencyKey);
             final int nextIndex = input.actionIndex + 1;
             if (nextIndex < state.actions.size()) {
                 return StepDecision.goTo(

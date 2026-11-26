@@ -53,6 +53,7 @@ Flow 只会等待前置条件消息、状态转换消息，以及 Step 重试前
 Go 示例按声明顺序把六个 Keyword Attribute 映射到 `keyword1` 至 `keyword6`。namespace 中的所有 Flow 类型共用这些槽位，所以它的 raw search 总是先按 `FlowType` 过滤。
 
 给每个外部调用传入[幂等键](/concepts/step#idempotency-keys)，这样重试的 Step 不会重复产生效果。
+同一动作可能随定义中的循环再次执行，因此用 Flow ID 和 `StepExecutionID` 组成幂等键，让每次执行都有自己的键。
 
 ## 核心实现
 
@@ -138,7 +139,11 @@ class ExecuteDealAction(Step[ActionStepInput]):
         state = self.flow.definition.get(context).state(input.state_name)
         if input.action_index < 0 or input.action_index >= len(state.actions):
             raise ValueError(f"invalid action index {input.action_index}")
-        self.flow.execute_action(context, state.actions[input.action_index])
+        # The execution ID stays stable on retries and changes when the same action runs again.
+        idempotency_key = f"{context.flow_id}/{context.step_execution_id}"
+        self.flow.execute_action(
+            context, state.actions[input.action_index], idempotency_key
+        )
         next_index = input.action_index + 1
         if next_index < len(state.actions):
             return go_to(ExecuteDealAction, ActionStepInput(state.name, next_index))
@@ -274,11 +279,14 @@ func (step executeAction) Execute(
 			state.Name,
 		)
 	}
+	// StepExecutionID stays stable on retries and changes when the same action runs again.
+	idempotencyKey := ctx.FlowID() + "/" + ctx.StepExecutionID()
 	actionInput := ActionInput{
-		FlowID:      ctx.FlowID(),
-		ItemID:      process.ItemID,
-		ItemName:    process.ItemName,
-		TargetState: state.Name,
+		FlowID:         ctx.FlowID(),
+		IdempotencyKey: idempotencyKey,
+		ItemID:         process.ItemID,
+		ItemName:       process.ItemName,
+		TargetState:    state.Name,
 	}
 	actionInput.ProcessID, err = ProcessID.Get(ctx)
 	if err != nil {
@@ -442,7 +450,9 @@ public class DealDSLFlow implements Flow<DealStart> {
         @Override
         public StepDecision execute(final Context context, final ActionStepInput input) {
             final DealDefinition.DealState state = definition.get(context).state(input.stateName);
-            runAction(context, state.actions.get(input.actionIndex));
+            // The execution ID stays stable on retries and changes when the same action runs again.
+            final String idempotencyKey = context.getFlowId() + "/" + context.getStepExecutionId();
+            runAction(context, state.actions.get(input.actionIndex), idempotencyKey);
             final int nextIndex = input.actionIndex + 1;
             if (nextIndex < state.actions.size()) {
                 return StepDecision.goTo(
@@ -575,7 +585,9 @@ class ExecuteDealAction implements Step<ActionStepInput> {
     const state = this.flow.state(context, input.stateName);
     const action = state.actions?.[input.actionIndex];
     if (action === undefined) throw new Error(`invalid action index ${input.actionIndex}`);
-    this.flow.executeAction(context, action);
+    // The execution ID stays stable on retries and changes when the same action runs again.
+    const idempotencyKey = `${context.flowId}/${context.stepExecutionId}`;
+    this.flow.executeAction(context, action, idempotencyKey);
     const nextIndex = input.actionIndex + 1;
     if (nextIndex < (state.actions?.length ?? 0)) {
       return goTo(ExecuteDealAction, { stateName: state.name, actionIndex: nextIndex });
@@ -709,7 +721,9 @@ impl Step for ExecuteDealAction {
                 format!("invalid action index {}", input.action_index),
             )
         })?;
-        run_action(context, action)?;
+        // The execution ID stays stable on retries and changes when the same action runs again.
+        let idempotency_key = format!("{}/{}", context.flow_id(), context.step_execution_id());
+        run_action(context, action, &idempotency_key)?;
         let next_index = input.action_index + 1;
         if next_index < state.actions.len() {
             return Ok(StepDecision::go_to(
