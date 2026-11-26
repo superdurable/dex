@@ -24,16 +24,18 @@ SkipTimer instead of shortening it.
 
 | Step | What it does | Lesson |
 | --- | --- | --- |
-| `RequestSupportingDocuments` | Emails the customer for documents; `case-status` becomes `awaiting-documents`. | 2 |
+| `RequestSupportingDocuments` | Sets `case-status` to `awaiting-documents`. | 2 |
+| `SendDocumentsRequest` | Emails the customer for documents. | 2 |
 | `CollectSupportingDocuments` | Waits for a customer message or 3 idle days; on the idle Timer it sets `case-status` to `closing-inactive`. | 2 |
-| `CloseInactiveCase` | Closes the case after 3 idle days. | 2 |
+| `CloseInactiveCase` | Sets `case-status` to `closed-inactive` after 3 idle days. | 2 |
 | `AwaitManagerDecision` | Waits for Approve or Reject; reminds the manager every 24 hours. | 1 |
 | `IssueRefund` | Issues the refund, retrying with backoff and Retry-After. | 3 |
 | `RecordIssuedRefund` | Records `refund-id`, sets `case-status` to `awaiting-settlement`, and picks the polling Step. | 3 |
 | `PollSettlementWithTimer` | Checks settlement once per 6-hour Timer, up to 12 times. The first check runs at once. | 4a |
 | `AwaitSettlementWithHeartbeat` | Checks settlement every 10 seconds in one heartbeating Step, up to 30 times. | 4b |
-| `EscalateUnsettledRefund` | Hands an unsettled refund to the support team. | 4 |
-| `CloseCase` | Tells the customer the outcome and closes the case. | all |
+| `EscalateUnsettledRefund` | Sets `case-status` to `escalated-unsettled` and hands the refund to the support team. | 4 |
+| `CloseCase` | Sets `case-status` to `closed-refunded` or `closed-rejected`. | all |
+| `SendClosingNotification` | Emails the decision of `CloseInactiveCase`, `EscalateUnsettledRefund`, or `CloseCase`, then completes the Flow. | all |
 | `handle_timeout` | Runs when the 7-day deadline passes and the case is still open. | 5 |
 
 The RPCs are `send_customer_message`, `approve_refund`, and `reject_refund`.
@@ -56,6 +58,14 @@ No `wait_for` and not the heartbeat loop holds the lock, so the RPCs stay
 available while the run waits. A Step keeps its locks through its retry
 backoff. So `IssueRefund`, which can back off for minutes, takes no lock,
 and `RecordIssuedRefund` writes the status after it.
+
+For the same reason, no Step that holds the `case-status` lock sends email.
+Each such Step commits its status decision and hands the email to the next
+Step, which takes no lock. `SendDocumentsRequest` sends the documents request.
+`SendClosingNotification` sends the closing email and completes the Flow. A
+slow or retried send never makes an RPC fail with `RpcLockConflictError`.
+Each email's idempotency key names the Flow ID and its decision, so a retry
+sends no duplicate.
 
 At the 7-day deadline, an RPC can still accept a message before the timeout
 handler acquires the `case-status` lock. The message may be processed,

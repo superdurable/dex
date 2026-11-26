@@ -367,6 +367,36 @@ async def test_idle_close_leaves_the_documents_stage_before_the_handoff(
     assert status == "closed-inactive"
 
 
+async def test_closing_email_step_does_not_hold_the_status_lock(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = app.refund_durable_timers
+    flow_id = new_flow_id("refund-timers-unlocked-email")
+    gate = FirstExecutionGate(flow_id, flow.send_closing_notification)
+    monkeypatch.setattr(flow.send_closing_notification, "execute", gate.execute)
+    await start_refund(app, client, flow_id)
+    await wait_for_case_status(client, flow_id, "awaiting-documents")
+    await skip_refund_timer(client, flow_id, "customer-idle")
+    await asyncio.wait_for(gate.entered.wait(), WAIT_TIMEOUT.total_seconds())
+
+    try:
+        # The decision is committed; the RPC fails its stage check, not on the lock.
+        await wait_for_case_status(client, flow_id, "closed-inactive")
+        with pytest.raises(WorkerInvocationError, match="not collecting documents"):
+            await client.invoke_rpc(
+                flow.send_customer_message, flow_id, CustomerMessage("Here it is.")
+            )
+    finally:
+        gate.released.set()
+
+    assert await completed_output(client, flow_id) == "closed-inactive"
+    closed = app.refund_timers_notifications.list_sent(f"closed-inactive-{flow_id}")
+    assert len(closed) == 1
+
+
 async def test_lesson5_timeout_handler_escalates_the_case(
     app: ExampleApp, client: AsyncClient, new_flow_id: Callable[[str], str]
 ) -> None:
