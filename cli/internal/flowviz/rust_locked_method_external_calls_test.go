@@ -9,6 +9,7 @@
 package flowviz
 
 import (
+	"cmp"
 	"maps"
 	"os"
 	"path/filepath"
@@ -32,10 +33,13 @@ use dex_sdk::{
 
 pub trait Mailer: Send + Sync {
     fn send(&self, to: &str) -> Result<(), String>;
+    fn get(&self) -> String;
 }
 
 static ENDING: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("ending"));
 static COUNTER: LazyLock<Attribute<i64>> = LazyLock::new(|| Attribute::new("counter"));
+static LAST_ORDER: LazyLock<Attribute<crate::orders::Order>> =
+    LazyLock::new(|| Attribute::new("last_order"));
 const STOP_REMINDERS: Rpc<String, String> = Rpc::new("StopReminders");
 
 pub struct ReminderFlow {
@@ -83,7 +87,7 @@ impl Step for SendReminderStep {
 
     WAIT_METHOD
 
-    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, input: EXECUTE_INPUT) -> HandlerResult<StepDecision> {
         EXECUTE_BODY
         Ok(StepDecision::go_to(&DeliverStep { mailer: self.mailer.clone() }, input))
     }
@@ -117,12 +121,21 @@ type rustLockedMethodCase struct {
 	executeLock string
 	deliverLock string
 	waitBody    string
-	executeBody string
-	deliverBody string
-	extraSource string
+	// executeInput is the declared type of SendReminderStep.execute's input; empty means String.
+	executeInput string
+	executeBody  string
+	deliverBody  string
+	extraSource  string
 }
 
 const rustEndingLock = ".lock(ENDING.lock())"
+
+// Expected states of a Step method's methodExternalCalls marker.
+const (
+	rustMarkerAbsent = "absent"
+	rustMarkerClean  = "clean"
+	rustMarkerCalls  = "calls"
+)
 
 const rustMailerSend = `self.mailer.send(&input).map_err(|error| HandlerError::new("Reminder", &error))?;`
 
@@ -142,6 +155,15 @@ const rustPureExecuteBody = `let mut names = BTreeMap::new();
         let labels: Vec<String> = names.keys().cloned().chain([self.step_type().to_owned()]).collect();
         let note = describe_note(labels.join(","));`
 
+const rustOrderDataBody = `let number = input.number.as_str().to_owned();
+        let copy = input.clone();
+        let count = input.items.len();
+        for item in &input.items {
+            let name = item.name.trim().to_string();
+        }
+        let saved = LAST_ORDER.get(context)?.unwrap_or_default();
+        let saved_number = saved.number.as_str();`
+
 const rustPureHelperSource = `fn format_reminder(input: &str) -> String {
     let mut text = input.trim().to_owned();
     text.push_str(&format!(" reminder for {input}"));
@@ -158,91 +180,165 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 		source rustLockedMethodCase
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
-		// cleanExecute is whether SendReminderStep.execute has an empty methodExternalCalls marker.
-		cleanExecute bool
+		// executeMarker is SendReminderStep.execute's marker: rustMarkerAbsent, rustMarkerClean, or rustMarkerCalls.
+		executeMarker string
 	}{
 		"execute calls an injected service while holding an RPC lock": {
-			source:   rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: rustMailerSend},
-			messages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls self.mailer.send; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step."},
+			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: rustMailerSend},
+			messages:      []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls self.mailer.send; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step."},
+			executeMarker: rustMarkerCalls,
 		},
 		"call moved to the next unlocked Step": {
-			source:       rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "ENDING.set(context, false)?;", deliverBody: rustMailerSend},
-			cleanExecute: true,
+			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "ENDING.set(context, false)?;", deliverBody: rustMailerSend},
+			executeMarker: rustMarkerClean,
 		},
 		"lock shared only between Steps": {
-			source: rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(COUNTER.lock())", deliverLock: ".execute_lock(COUNTER.lock())", executeBody: rustMailerSend, deliverBody: rustMailerSend},
+			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(COUNTER.lock())", deliverLock: ".execute_lock(COUNTER.lock())", executeBody: rustMailerSend, deliverBody: rustMailerSend},
+			executeMarker: rustMarkerAbsent,
 		},
 		"locked Execute with only SDK, pure standard library, and pure helper calls": {
-			source:       rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: rustPureExecuteBody, extraSource: rustPureHelperSource},
-			cleanExecute: true,
+			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: rustPureExecuteBody, extraSource: rustPureHelperSource},
+			executeMarker: rustMarkerClean,
+		},
+		"same-file helper returns a Dex Client in HandlerResult": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let client = require_client(self.optional_client.as_ref())?;\n        let info = client.describe_flow(&input);",
+				extraSource: "fn require_client(client: Option<&Arc<Client>>) -> HandlerResult<&Client> {\n    client.map(Arc::as_ref).ok_or_else(|| HandlerError::new(\"Reminder\", \"missing client\"))\n}",
+			},
+			messages:      []string{"and calls client.describe_flow;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"Step input and Attribute values of another file's type with pure methods": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
+				executeBody: rustOrderDataBody,
+			},
+			executeMarker: rustMarkerClean,
+		},
+		"injected service called with Step input data": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
+				executeBody: rustOrderDataBody + "\n        let sent = self.mailer.send(input.number.as_str());",
+			},
+			messages:      []string{"and calls self.mailer.send;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"Step input data calling a method that is not standard-like": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
+				executeBody: "let receipt = input.submit();",
+			},
+			messages:      []string{"and calls input.submit;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"injected service taken from a destructured tuple": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let (handle,) = (self.mailer.clone(),);\n        let fetched = handle.get();",
+			},
+			messages:      []string{"and calls handle.get;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"method on a value of unknown type": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let lengths: Vec<usize> = vec![input.clone()].iter().map(|value| value.len()).collect();",
+			},
+			messages:      []string{"and calls value.len;"},
+			executeMarker: rustMarkerCalls,
+		},
+		"derived Default of a same-file type": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let summary = Summary::default();\n        let copy = summary.clone();",
+				extraSource: "#[derive(Clone, Default)]\nstruct Summary {\n    count: u32,\n}",
+			},
+			executeMarker: rustMarkerClean,
+		},
+		"definite Dex Client call listed before an uncertain cross-file call": {
+			source: rustLockedMethodCase{
+				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
+				executeBody: "let label = crate::labels::reminder_label(&input);\n        self.client.stop_flow(&input, None).map_err(HandlerError::from_error)?;",
+			},
+			messages:      []string{"and calls self.client.stop_flow (and 1 more);"},
+			executeMarker: rustMarkerCalls,
 		},
 		"helper calls std::net": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "notify_customer(&input);",
 				extraSource: "fn notify_customer(input: &str) {\n    let stream = TcpStream::connect(input);\n    drop(stream);\n}",
 			},
-			messages: []string{"and calls notify_customer (calls TcpStream::connect); Dex fails that RPC"},
+			messages:      []string{"and calls notify_customer (calls TcpStream::connect); Dex fails that RPC"},
+			executeMarker: rustMarkerCalls,
 		},
 		"helper calls reqwest": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "notify_customer(&input);",
 				extraSource: "fn notify_customer(input: &str) {\n    let response = reqwest::blocking::get(input);\n    drop(response);\n}",
 			},
-			messages: []string{"and calls notify_customer (calls reqwest::blocking::get); Dex fails that RPC"},
+			messages:      []string{"and calls notify_customer (calls reqwest::blocking::get); Dex fails that RPC"},
+			executeMarker: rustMarkerCalls,
 		},
 		"Dex Client call under the RPC lock": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let client = self.client.clone();\n        client.stop_flow(&input, None).map_err(HandlerError::from_error)?;",
 			},
-			messages: []string{"and calls client.stop_flow;"},
+			messages:      []string{"and calls client.stop_flow;"},
+			executeMarker: rustMarkerCalls,
 		},
 		"optional Dex Client unwrapped under the RPC lock": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let client = self.optional_client.as_ref().expect(\"client\");\n        let info = client.describe_flow(&input);",
 			},
-			messages: []string{"and calls client.describe_flow;"},
+			messages:      []string{"and calls client.describe_flow;"},
+			executeMarker: rustMarkerCalls,
 		},
 		"collection methods of another module's data type": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let mut records: Vec<crate::records::Record> = Vec::new();\n        let empty = records.is_empty() && records.len() == 0;\n        records.clear();",
 			},
-			cleanExecute: true,
+			executeMarker: rustMarkerClean,
 		},
 		"element method of another module's data type": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let records: Vec<crate::records::Record> = Vec::new();\n        let sent = records.first().unwrap().send();",
 			},
-			messages: []string{"and calls records.first().unwrap().send;"},
+			messages:      []string{"and calls records.first().unwrap().send;"},
+			executeMarker: rustMarkerCalls,
 		},
 		"injected service call inside format": {
-			source:   rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: `let summary = format!("{:?}", self.mailer.send(&input));`},
-			messages: []string{"and calls self.mailer.send;"},
+			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: `let summary = format!("{:?}", self.mailer.send(&input));`},
+			messages:      []string{"and calls self.mailer.send;"},
+			executeMarker: rustMarkerCalls,
 		},
 		"wait for calls a closure value while holding an RPC lock": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, waitLock: ".wait_for_lock(ENDING.lock())",
 				waitBody: "let notify = |to: &str| to.len();\n        notify(&input);",
 			},
-			messages:     []string{"WaitFor of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls notify;"},
-			cleanExecute: true,
+			messages:      []string{"WaitFor of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls notify;"},
+			executeMarker: rustMarkerAbsent,
 		},
 		"recursive pure helpers": {
 			source: rustLockedMethodCase{
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "let remaining = count_down(3);",
 				extraSource: "fn count_down(n: u32) -> u32 {\n    if n == 0 { 0 } else { count_up(n - 1) }\n}\n\nfn count_up(n: u32) -> u32 {\n    count_down(n)\n}",
 			},
-			cleanExecute: true,
+			executeMarker: rustMarkerClean,
 		},
 		"standard library sleep and println": {
-			source:   rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "std::thread::sleep(Duration::from_secs(1));\n        println!(\"slept\");"},
-			messages: []string{"and calls std::thread::sleep (and 1 more);"},
+			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "std::thread::sleep(Duration::from_secs(1));\n        println!(\"slept\");"},
+			messages:      []string{"and calls std::thread::sleep (and 1 more);"},
+			executeMarker: rustMarkerCalls,
 		},
 		"no RPC lock": {
-			source: rustLockedMethodCase{executeLock: ".execute_lock(ENDING.lock())", executeBody: rustMailerSend},
+			source:        rustLockedMethodCase{executeLock: ".execute_lock(ENDING.lock())", executeBody: rustMailerSend},
+			executeMarker: rustMarkerAbsent,
 		},
 	}
 	for _, name := range slices.Sorted(maps.Keys(testCases)) {
@@ -265,10 +361,14 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 			markerIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
 				return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"
 			})
+			if testCase.executeMarker == rustMarkerAbsent {
+				require.Equal(t, -1, markerIndex, "%+v", graph.methodExternalCalls)
+				return
+			}
 			require.GreaterOrEqual(t, markerIndex, 0, "%+v", graph.methodExternalCalls)
 			calls := graph.methodExternalCalls[markerIndex].Calls
 			require.NotNil(t, calls)
-			require.Equal(t, testCase.cleanExecute, len(calls) == 0, "%+v", calls)
+			require.Equal(t, testCase.executeMarker == rustMarkerClean, len(calls) == 0, "%+v", calls)
 		})
 	}
 }
@@ -289,6 +389,7 @@ func analyzeRustLockedMethodSource(t *testing.T, source rustLockedMethodCase) *G
 		"EXECUTE_BODY", source.executeBody,
 		"DELIVER_BODY", source.deliverBody,
 		"EXTRA_SOURCE", source.extraSource,
+		"EXECUTE_INPUT", cmp.Or(source.executeInput, "String"),
 	)
 	sourcePath := filepath.Join(t.TempDir(), "workflow.rs")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(rustLockedMethodSource)), 0o644))
