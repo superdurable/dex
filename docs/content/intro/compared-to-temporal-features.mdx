@@ -126,7 +126,7 @@ The [terms map](/intro/compared-to-temporal#term-map) lists every pair.
 
 | Feature | Temporal | Dex |
 | --- | --- | --- |
-| [Streaming](/intro/compared-to-temporal/experience#stream) | Workflow Streams publishes through Signals, which are recorded in the Event History. Durable, and it adds to the history. | Stream messages stay in Dex Server memory, outside the run's history. Best effort. |
+| [Streaming](/intro/compared-to-temporal/experience#stream) | Workflow Streams publishes through Signals, which are recorded in the Event History. Durable, and it adds to the history. | Stream messages stay in Dex Server memory, outside the run's history. Best effort. All runs of a Flow type share one capacity per Stream. |
 | [Going back to an earlier point](/intro/compared-to-temporal/experience#time-travel) | Reset terminates the current run and starts a new run at a Workflow Task event. | Time Travel moves the same run back to a Step, with a new run attempt. |
 | [Child processes](/intro/compared-to-temporal/experience#subflow) | A Child Workflow does not carry over when its parent uses Continue-As-New. | A parent Flow keeps its SubFlow waits in one run. |
 | [Synchronous calls](/intro/compared-to-temporal/experience#rpc) | An Update, with 10 in-flight and 2,000 total per Workflow Execution. | An RPC, with no per-Flow in-flight limit and no per-run total. |

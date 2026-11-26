@@ -126,7 +126,7 @@ Dex 把 hard-delete Attribute 的每个值只存在对象存储里，Flow 历史
 
 | 功能 | Temporal | Dex |
 | --- | --- | --- |
-| [流式输出](/intro/compared-to-temporal/experience#stream) | Workflow Streams 通过 Signal 发布，Signal 记录在 Event History 里。持久，但会增加 history。 | Stream 消息保存在 Dex Server 的内存里，不进入运行的 history。尽力而为。 |
+| [流式输出](/intro/compared-to-temporal/experience#stream) | Workflow Streams 通过 Signal 发布，Signal 记录在 Event History 里。持久，但会增加 history。 | Stream 消息保存在 Dex Server 的内存里，不进入运行的 history。尽力而为。同一 Flow 类型的所有运行共用每个 Stream 的容量。 |
 | [回到较早的时间点](/intro/compared-to-temporal/experience#time-travel) | Reset 终止当前运行，从某个 Workflow Task 事件开始一次新的运行。 | Time Travel 让同一次运行回到某个 Step，多一个新的 run attempt。 |
 | [子流程](/intro/compared-to-temporal/experience#subflow) | 父 Workflow 使用 Continue-As-New 时，Child Workflow 不会带过去。 | 父 Flow 的 SubFlow 等待一直留在同一次运行里。 |
 | [同步调用](/intro/compared-to-temporal/experience#rpc) | Update，每个 Workflow Execution 最多 10 个进行中、总共 2,000 个。 | RPC，没有每个 Flow 的进行中上限，也没有单次运行的总数上限。 |

@@ -62,7 +62,7 @@ A Channel is a durable first-in, first-out queue inside one Flow run. A Step con
 | Temporal | Dex |
 | --- | --- |
 | Workflow Streams is in Public Preview for Python and TypeScript, announced 2026-06-17 ([Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | Stream is a built-in primitive in the Go, Python, Java, TypeScript, and Rust SDKs. |
-| It is a library on top of Workflows, Signals, Updates, and Queries. The Workflow keeps the list of stream events ([Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | Dex Server keeps Stream messages outside the run's history, and they do not count against the run's state. |
+| It is a library on top of Workflows, Signals, Updates, and Queries. The Workflow keeps the list of stream events ([Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)). | Dex Server keeps Stream messages in memory, outside the run's history, and they do not count against the run's state. A Stream's capacity is set per Flow type and Stream name, and all runs of that Flow type share it. |
 | Its Signals are recorded in history like any other Signal; see [Channel and Signal](#channel). | A Step or a Client writes messages. A reader reads them in order and resumes where it stopped. Delivery is best effort. |
 
 Use a Stream for live progress, such as generated-text chunks. Use a Channel or an Attribute for data that must not be lost. See [Stream](/concepts/primitives/stream).

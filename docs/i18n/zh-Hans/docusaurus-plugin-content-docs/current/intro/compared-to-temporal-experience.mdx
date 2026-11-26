@@ -62,7 +62,7 @@ Channel 是一次 Flow 运行内部的持久化先进先出队列。Step 在 `Wa
 | Temporal | Dex |
 | --- | --- |
 | Workflow Streams 于 2026-06-17 发布，目前在 Python 和 TypeScript 上处于 Public Preview（[Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | Stream 是 Go、Python、Java、TypeScript 和 Rust SDK 都内置的原语。 |
-| 它是构建在 Workflow、Signal、Update 和 Query 之上的库。stream 事件的列表保存在 Workflow 里（[Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | Dex Server 把 Stream 消息保存在运行的历史之外，它们也不计入运行的状态。 |
+| 它是构建在 Workflow、Signal、Update 和 Query 之上的库。stream 事件的列表保存在 Workflow 里（[Workflow Streams](https://temporal.io/blog/workflow-streams-live-interactivity-agents-other-applications)）。 | Dex Server 把 Stream 消息保存在内存里，在运行的历史之外，它们也不计入运行的状态。Stream 的容量按 Flow 类型和 Stream 名设置，同一 Flow 类型的所有运行共用。 |
 | 它的 Signal 和其他 Signal 一样记录在历史里；见 [Channel 与 Signal](#channel)。 | Step 或 Client 写入消息。读取方按顺序读取，并从上次停下的地方继续。投递是尽力而为的。 |
 
 Stream 适合实时进度，例如生成的文本片段。不能丢失的数据用 Channel 或 Attribute。见 [Stream](/concepts/primitives/stream)。
