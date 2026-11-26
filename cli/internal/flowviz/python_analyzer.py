@@ -19,7 +19,7 @@ JOIN_WAIT_METHODS = {"for_all_branches", "for_first_branch", "for_branches", "fo
 JOIN_FORK_METHODS = {"fork", "fork_with_round_key"}
 
 
-class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
+class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, ExternalCallAnalyzer):
     def __init__(self, path, source, flow_type):
         self.path = path
         self.source = source
@@ -62,6 +62,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         self.view_rpcs = []
         self.start_input = None
         self.initialize_connectors()
+        self.initialize_external_calls()
 
     def analyze(self):
         if sys.version_info < (3, 11):
@@ -560,6 +561,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer):
         self.analyze_resources(node_id, execute, "execute")
         step_locks = self.registration_step_locks(step_class, node_id)
         self.record_lock_handler(node_id, execute, "execute", f"Step {step_name} execute", step_locks["execute_lock_attributes"])
+        self.record_method_external_calls(node_id, step_class, "execute")
+        self.record_method_external_calls(node_id, step_class, "wait_for")
         wait_for = self.method(step_class, "wait_for")
         if wait_for is not None:
             self.analyze_wait(node_id, step_name, wait_for)
@@ -2671,6 +2674,7 @@ def main():
     graph = analyzer.analyze()
     result = analyzer.connector_analysis_result(graph)
     result.update(analyzer.metadata_analysis_result())
+    result["methodExternalCalls"] = analyzer.method_external_calls
     json.dump(result, sys.stdout, ensure_ascii=False, separators=(",", ":"))
 
 
