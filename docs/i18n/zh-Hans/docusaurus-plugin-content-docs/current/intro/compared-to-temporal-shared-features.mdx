@@ -11,10 +11,9 @@ description: Dex 和 Temporal 都有的功能。有些做法不同，例如回�
 
 ## 做法不同的功能 {#shared-different}
 
-每一行链接到下面对应的小节。
-
 | 功能 | Temporal | Dex |
 | --- | --- | --- |
+| 标识 | Workflow ID 和 Run ID。每次 [Reset](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto) 和每次 [Continue-As-New](https://docs.temporal.io/workflow-execution/continue-as-new) 都开始一次新的运行，Run ID 也是新的，所以同一个流程的 Run ID 会变。Temporal 的文档建议不要在代码里依赖当前的 Run ID 做判断（[Workflow Id and Run Id](https://docs.temporal.io/workflow-execution/workflowid-runid)）。 | Flow ID 和 Run ID。Time Travel 保持 Run ID 不变，Flow 也不需要 Continue-As-New，所以一个 Run ID 在整个运行期间都指向这次运行。 |
 | [流式输出](#stream) | Workflow Streams 通过 Signal 发布，Signal 记录在 Event History 里。持久，但会增加 history。 | Stream 消息保存在 Dex Server 的内存里，不进入运行的 history。尽力而为。同一 Flow 类型的所有运行共用每个 Stream 的容量。 |
 | [回到较早的时间点](#time-travel) | Reset 终止当前运行，从某个 Workflow Task 事件开始一次新的运行。 | Time Travel 让同一次运行回到某个 Step，多一个新的 run attempt。 |
 | [子流程](#subflow) | 父 Workflow 使用 Continue-As-New 时，Child Workflow 不会带过去。 | 父 Flow 的 SubFlow 等待一直留在同一次运行里。 |
@@ -29,7 +28,7 @@ description: Dex 和 Temporal 都有的功能。有些做法不同，例如回�
 | "In all cases the current run will be terminated and a new run started." 新运行有新的 Run ID（[API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)）。 | 同一次运行退回到那个点。Run ID 不变，run attempt 编号加一。 |
 | Reset 的目标点是一个 Workflow Task 事件：completed、timed out、failed 或 started。也可以用 reset 类型选择 FirstWorkflowTask、LastWorkflowTask、LastContinuedAsNew 或 BuildId（[CLI](https://docs.temporal.io/cli/workflow)）。 | 目标点可以是 Step 类型、Step execution、历史事件时间、事件 ID 或开头。在 Dex Web 里，在事件上点 **Time travel from here…** 就能选中它。 |
 | 新运行会重放保留下来的那段历史，所以 Workflow 代码必须和它保持兼容（[CLI](https://docs.temporal.io/cli/workflow)）。 | Attribute、Channel 消息和等待中的 Step 恢复成那个点时的样子。 |
-| Temporal Server 1.27.1（2025-02-26）之前，不支持 reset 到 child 开始和完成之间的点。从 1.27.1 起，这样的 reset 之后父运行会重新连到仍在运行的 child（[v1.27.1](https://github.com/temporalio/temporal/releases/tag/v1.27.1)）。1.28.0（2025-06-27）的发布说明补充：reset 到 child 开始之前的点时，新运行不引用这个 child（[v1.28.0](https://github.com/temporalio/temporal/releases/tag/v1.28.0)）。 | `sub_flow_reset_policy` 为每个恢复的 SubFlow 等待在六种策略中选择一种。默认策略把等待重新附着到它的子运行上（[SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel)，英文）。 |
+| Temporal Server 1.27.1（2025-02-26）之前，不支持 reset 到 child 开始和完成之间的点。从 1.27.1 起，这样的 reset 之后父运行会重新连到仍在运行的 child（[v1.27.1](https://github.com/temporalio/temporal/releases/tag/v1.27.1)）。1.28.0（2025-06-27）的发布说明补充：reset 到 child 开始之前的点时，新运行不引用这个 child（[v1.28.0](https://github.com/temporalio/temporal/releases/tag/v1.28.0)）。 | `sub_flow_reset_policy` 决定 Time Travel 恢复的每个 SubFlow 等待怎么处理：接回已有的子运行、重启子运行、让等待失败，或者拒绝这次 Time Travel。六种策略包括 `ATTACH_ELSE_RESTART`（默认）、`ATTACH_ELSE_FAIL`、`ATTACH_ELSE_REJECT` 和 `ALWAYS_RESTART`（[SubFlows across a time travel](/reference/server/runtime-client#sub-flows-across-a-time-travel)，英文）。 |
 
 <img
   src="/img/compared-to-temporal/dex-web-time-travel-dialog.png"
@@ -46,6 +45,7 @@ description: Dex 和 Temporal 都有的功能。有些做法不同，例如回�
 | "Child Workflows do not carry over when the Parent uses Continue-As-New."（[Child Workflows](https://docs.temporal.io/child-workflows)） | 父 Flow 不需要为了历史大小开始新的运行，所以它的 SubFlow 等待留在同一次运行里。见[历史上限](/intro/compared-to-temporal/operations#history-limit)。 |
 | "A single Parent should not spawn more than 1,000 Child Workflow Executions."（[Child Workflows](https://docs.temporal.io/child-workflows)）自托管的服务默认允许每个 Workflow Execution 有 2,000 个待处理的 Child Workflow（[Defaults](https://docs.temporal.io/self-hosted-guide/defaults)）。 | 长生命周期的父 Flow 保持一组启动 SubFlow 的 Step，同时继续接收新的请求（[高级：长生命周期父 Flow](/design-patterns/subflows/long-lived-parent)）。 |
 | "The Parent can optionally await on the result of the Child Workflow Execution."（[Child Workflows](https://docs.temporal.io/child-workflows)） | Step 在 `WaitFor` 里启动 SubFlow，在 `Execute` 里读取它的结果。 |
+| Child Workflow 和其他 Workflow Execution 一样，用 [Workflow ID Reuse Policy](https://docs.temporal.io/workflow-execution/workflowid-runid)。 | `SubFlowReusePolicy` 决定父 Flow 要启动的 SubFlow ID 已经存在时怎么办：`ATTACH`、`RESTART_IF_PREVIOUS_EXITS_ABNORMALLY`（默认）或 `ALWAYS_RESTART`。默认策略继续等待运行中的子运行，使用已完成子运行的结果，并重启异常结束的子运行（[SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy)，英文）。 |
 
 SubFlow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。见 [SubFlow](/concepts/primitives/subflow)。
 
@@ -96,7 +96,6 @@ Stream 适合实时进度，例如生成的文本片段。不能丢失的数据�
 
 | 功能 | Temporal | Dex |
 | --- | --- | --- |
-| 标识 | Workflow ID 和 Run ID | Flow ID 和 Run ID |
 | ID 复用 | 未结束的 ID 用 Workflow ID Conflict Policy，已结束的用 Workflow ID Reuse Policy | 一个 ID reuse policy，同时管未结束和已结束的 Flow ID |
 | 持久的定时器 | Timer、`sleep` | Step 的 `WaitFor` 里的 [Timer](/concepts/primitives/timer) |
 | 重试和超时 | 每个 Activity 有重试策略和超时 | 每个 Step 方法有重试策略和超时，默认退避相同 |
