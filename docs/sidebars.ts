@@ -207,9 +207,18 @@ const sidebars: SidebarsConfig = {
       customProps: {section: 'correctness'},
       link: {type: 'doc', id: 'intro/evaluate'},
       items: [
-        'intro/what-is-dex',
-        'intro/compared-to-database',
-        'intro/compared-to-durable-execution',
+        {
+          type: 'category',
+          label: 'Dex vs. Temporal',
+          link: {type: 'doc', id: 'intro/compared-to-temporal'},
+          items: [
+            'intro/compared-to-temporal-performance',
+            'intro/compared-to-temporal-operations',
+            'intro/compared-to-temporal-features',
+            'intro/compared-to-temporal-shared-features',
+            'intro/compared-to-temporal-programming-model',
+          ],
+        },
         'intro/performance',
         'intro/limits',
         {

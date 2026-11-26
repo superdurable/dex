@@ -6,7 +6,7 @@ slug: /use-cases/order-processing
 
 # Order Processing
 
-Run the order Flow that [Why Dex?](/intro/what-is-dex) describes. You start Dex, run the samples app, start an order over HTTP, approve the shipment, and look at the run in Dex Web.
+Run an order Flow. You start Dex, run the samples app, start an order over HTTP, approve the shipment, and look at the run in Dex Web.
 
 **SDKs:** Python · Go · TypeScript · Java · Rust
 
@@ -24,7 +24,7 @@ cd dex
 
 ## 2. Flow, Steps, and RPCs
 
-The code below is the Flow from [Why Dex?](/intro/what-is-dex), with its Steps, its approve and describe RPCs, and its Attribute.
+The code below is the Flow, with its Steps, its approve and describe RPCs, and its Attribute.
 
 Pass the mock payment and shipping API to the Flow constructor, so every Step has them from the moment the Worker registers the Flow. A setter or a global variable leaves a window in which a Step runs without them. See [Pass services to the Flow](/components/application#pass-services-to-the-flow).
 
@@ -1415,5 +1415,4 @@ The Timeline tab shows the same run's events from left to right. Select an event
 
 - [Concepts](/concepts): Flows, Steps, Channels, Timers, and the other building blocks this example uses.
 - [Your Application](/components/application): how to add a Worker and a Client to your own service.
-- [Dex vs. Databases](/intro/compared-to-database): the same order process built on a database and queues.
 - [Examples](/use-cases): more complete examples, including two AI agents.

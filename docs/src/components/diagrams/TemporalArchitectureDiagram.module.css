@@ -1,0 +1,139 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Narrow: the two lanes stack. Wide: side by side. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+@media (min-width: 620px) {
+  .layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.lane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.8rem 0.75rem;
+  border-radius: 16px;
+}
+
+.temporalLane {
+  background: var(--cd-external-tint);
+}
+
+.dexLane {
+  background: var(--cd-accent-tint);
+}
+
+.box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: var(--cd-tile);
+  box-shadow: var(--cd-raise);
+}
+
+.code {
+  color: var(--cd-subtle);
+}
+
+.external {
+  color: var(--cd-external);
+}
+
+.dex {
+  color: var(--cd-accent);
+}
+
+.box span {
+  display: flex;
+  flex-direction: column;
+}
+
+.box b {
+  color: var(--cd-ink);
+  font-size: 0.85rem;
+}
+
+.box small {
+  color: var(--cd-subtle);
+  font-size: 0.74rem;
+}
+
+.service {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem 0.7rem 0.65rem;
+  border-radius: 10px;
+  background: var(--cd-tile);
+  box-shadow: var(--cd-raise);
+  color: var(--cd-external);
+}
+
+.dexService {
+  color: var(--cd-accent);
+}
+
+.serviceName {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--cd-ink);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.serviceName svg {
+  color: var(--cd-external);
+}
+
+.dexService .serviceName svg {
+  color: var(--cd-accent);
+}
+
+.serviceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.serviceChip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cd-external) 13%, transparent);
+  color: var(--cd-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.dexService .serviceChip {
+  background: color-mix(in srgb, var(--cd-accent) 14%, transparent);
+}
+
+.dexService .serviceChip svg {
+  color: var(--cd-accent);
+}
+
+.wideChip {
+  align-self: stretch;
+}

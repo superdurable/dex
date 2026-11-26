@@ -3,6 +3,7 @@ id: what-is-dex
 title: 为什么是 Dex？
 sidebar_label: 为什么是 Dex？
 description: Dex 在流程运行时记录它的每个 Step，所以流程能在崩溃、重启或长时间等待之后继续。本页用一个订单流程说明问题所在、Dex 怎样建模，以及 Dex 和基于 replay 的 durable execution 有什么不同。
+displayed_sidebar: docs
 ---
 
 import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
@@ -67,7 +68,7 @@ Dex Server 可以运行在 Dex Cloud 或你自己的基础设施上。Worker 和
 
 基于 replay 的引擎通过重放事件历史来重建 workflow 的状态。所以 workflow 代码必须是确定性的，读取时间和随机值都要通过引擎的 API。Dex 不重放代码。Step 代码就是普通代码，可以读时钟，也可以调用任何库。修改代码不会让正在运行的 Flow 因为 replay 而出错。
 
-[Dex vs. Temporal](/intro/compared-to-durable-execution)比较重放 workflow 代码和保存每个 Step 结果这两种设计。
+[Dex 与 Temporal 对比](/intro/compared-to-temporal)比较重放 workflow 代码和保存每个 Step 结果这两种设计。
 
 ## 下一步
 

@@ -1,0 +1,109 @@
+---
+title: Features Only in Dex
+sidebar_label: Features Only in Dex
+slug: /intro/compared-to-temporal/features
+description: Ten Dex features and the workaround in Temporal for each. Dex draws the Flow design from source, generates Dex Web forms from it, branches runs with Clone fork, ships Connectors, and answers Attribute reads in the server.
+---
+
+# Features Only in Dex
+
+These ten features come with Dex, in Dex Web, dexcli, the SDKs, and Dex Server. For each one, the table gives the workaround in Temporal.
+
+| Feature | Dex | Workarounds in Temporal |
+| --- | --- | --- |
+| [Flow design](#flow-design) | `dexcli visualize` draws a Flow's Steps and transitions from source, and Dex Web shows the graph. | The Web UI shows each Workflow Execution's Event History in Timeline, All, Compact, and JSON views, with no graph of the Workflow Definition ([Web UI](https://docs.temporal.io/web-ui)). |
+| [Generated forms](#generated-ui) | Dex Web builds start forms, Actions, Summary and Display fields, and the Work Queue from the Flow's definition. | Build your own forms and pages on the Temporal Client. The Web UI lists and shows Workflow Executions ([Web UI](https://docs.temporal.io/web-ui)). |
+| [Clone fork](#clone-fork) | Copies a run's state at one point into a new Flow, and the source run keeps running. | Reset: "In all cases the current run will be terminated and a new run started." ([API](https://github.com/temporalio/api/blob/master/temporal/api/workflowservice/v1/request_response.proto)) |
+| [Connectors](#connectors) | Released Connectors give a Flow ready-made Steps and Triggers for external providers. | The integrations page lists agent frameworks, model providers, frameworks, and observability tools, not ready-made Activities or triggers for third-party services ([Integrations](https://docs.temporal.io/integrations)). |
+| [Skip a Timer](#skip-timer) | `SkipTimer` makes one waiting Timer of a running Flow ready at once. | A Timer resolves when its duration has passed ([Timers](https://docs.temporal.io/workflow-execution/timers-delays)), and the SDK test server skips time in tests ([Testing suite](https://docs.temporal.io/develop/python/testing-suite)). |
+| [Wait for a Step](#wait-for-step) | A Client call returns when one Step execution completes, while the Flow keeps running. | An Update whose handler is Workflow code that waits on a condition and runs on a Worker ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). |
+| [Wait for an Attribute](#wait-for-attribute) | A Client call returns when an Attribute's value matches a typed comparison. | The same Update with a handler that waits on a condition ([Message passing](https://docs.temporal.io/encyclopedia/workflow-message-passing)). |
+| [Server-side reads](#read-without-worker) | Dex Server answers `GetAttributes` itself, so the read works while no Worker runs. | A Query calls into its Query handler, which runs on a Worker ([Sending messages](https://docs.temporal.io/sending-messages)). |
+| [Attribute Store sync](#attribute-store-sync) | Dex Server writes selected Attributes to PostgreSQL tables you own. | Write the data to your own database from an Activity. |
+| [Hard-delete Attributes](#hard-delete) | The value lives only in object storage, and deleting it removes it for good. | Keep the value in your own store, and pass a reference through the Workflow. |
+
+## Flow design from source {#flow-design}
+
+`dexcli visualize` reads one Flow source file and builds its Flow Definition Graph without running the code. It reads Go, Python, TypeScript, Java, and Rust. Dex Web draws the graph on the **Designs** page and in each run's **Design** view. A Step card shows who acts at that Step, such as a person, a Timer, or the Flow itself.
+
+<img
+  src="/img/production/dex-web-run-design.png"
+  alt="Dex Web Design view with the Flow design graph and the Step panel open on a Step that waits for a person"
+/>
+
+See [Flow source visualization](/reference/web/flow-visualization).
+
+## Generated forms and Actions {#generated-ui}
+
+Dex Web reads the same Flow Definition Graph. From it, Dex Web renders the **Start Flow** form, an **Actions** form for each RPC that declares an Action, and the Summary and Display fields of each run. The **Work Queue** lists the runs of one Flow type with those fields. **Working as** picks a permission and shows the runs whose Actions it may use.
+
+<img
+  src="/img/compared-to-temporal/dex-web-work-queue.png"
+  alt="Dex Web Work Queue with the Start Flow button, the Display fields of a selected run, and its Approve and Reject Actions"
+/>
+
+See [Dex Web](/reference/web/dex-web#start-flow).
+
+## Clone fork {#clone-fork}
+
+Clone fork gives the new Flow its own Flow ID and copies Attributes, pending Channel messages, and waiting Steps. The new Flow starts a history of its own. A common use is to branch an agent session while the original session continues. Start it from Dex Web with **Clone fork from here…** on an event, from a Client with `CloneForkFlow`, or with `dexcli flow clone-fork`.
+
+<img
+  src="/img/compared-to-temporal/dex-web-clone-fork-dialog.png"
+  alt="Dex Web Clone fork dialog with the Event ID point, a generated New Flow ID, and a reason"
+  width="440"
+/>
+
+See [Branch a Flow with Clone Fork](/components/operate-and-debug#clone-fork).
+
+## Connectors {#connectors}
+
+A Connector gives a Flow Steps that call an external provider, and Triggers that turn provider events into Flow starts or RPC calls. A Mutation sends the same idempotency key on every retry and handles a call whose outcome is unknown. Dex Web **Connectors** shows each connection and the setup it needs. Browse released Connectors in the [Connector catalog](https://connectors.superdurable.io/).
+
+<img
+  src="/img/compared-to-temporal/dex-web-connectors.png"
+  alt="Dex Web Connectors page with the setup form, the authorization guide, and the connection details of one connection"
+/>
+
+See [Connector](/concepts/connector).
+
+## Skip a Timer {#skip-timer}
+
+`SkipTimer` selects one Timer by Flow ID, Step execution, and the Timer's condition ID or index. The waiting Step continues as if the Timer had fired. Use it in tests, or in production to run a waiting Step early. The Go, Python, Java, TypeScript, and Rust Clients have it, and so does `dexcli flow skip-timer`.
+
+See [Skip a Timer](/concepts/primitives/timer#skip-a-timer).
+
+## Wait for a Step {#wait-for-step}
+
+`WaitForStepCompletion` returns when one Step execution of a Flow completes. Later Steps keep running after the caller has its answer. A typical caller starts a Flow, waits for the Step that saves a record, and then answers its HTTP request. Python and Rust name it `wait_for_step_completion`, and Java and TypeScript name it `waitForStepCompletion`.
+
+See [Wait for Step Completion](/design-patterns/responsive-update/step-completion).
+
+## Wait for an Attribute match {#wait-for-attribute}
+
+`WaitForAttributeMatch` returns when an Attribute satisfies a typed comparison, and returns the matched value. A common choice is a revision Attribute that every state change increments. The caller waits until the revision is greater than the last value it saw, then reads the new state.
+
+See [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match).
+
+## Server-side Attribute reads {#read-without-worker}
+
+`GetAttributes` reads any mix of Attributes and AttributeMap instances in one request. All values come from the same committed state. The read dispatches nothing to a Worker and uses no Worker capacity.
+
+See [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow).
+
+## Attribute Store sync {#attribute-store-sync}
+
+A Flow marks an Attribute for sync and names a configured store in its FlowConfig. Dex Server then writes the Attribute to that store's tables in the background, in batches. A row holds the latest values for one Flow ID. Your own services and reports read the tables with SQL.
+
+See [Attribute Store sync](/reference/server/attribute-store-sync).
+
+## Hard-delete Attributes {#hard-delete}
+
+Dex stores every value of a hard-delete Attribute only in object storage, and Flow history keeps a reference. Deleting the Attribute, or setting it to null, deletes the stored value permanently. After that, neither Dex APIs nor Flow history can recover it. Use it for values such as an API key.
+
+See [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes).
+
+## Next
+
+- [Features Both Have](/intro/compared-to-temporal/shared-features): Time Travel and Reset, SubFlow and Child Workflow, RPC, Channel, and Stream.
+- [Dex vs. Temporal](/intro/compared-to-temporal): the overview and the terms map.

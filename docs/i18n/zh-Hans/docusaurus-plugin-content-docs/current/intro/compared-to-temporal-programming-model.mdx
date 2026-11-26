@@ -1,0 +1,364 @@
+---
+title: 编程模型
+sidebar_label: 编程模型
+slug: /intro/compared-to-temporal/programming-model
+description: Temporal 和 Dex 的代码对比。同样的流程，两边的代码行数差不多；改代码时只有 Temporal 需要版本控制代码；一个空闲计时器的例子说明 Temporal Workflow 里哪些语句会变成 command。每个数字都由公开的脚本实测得出。
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inactiveness-tracker.json';
+
+# 编程模型
+
+Temporal 按 Event History 重放 Workflow 代码，所以对已经打开的运行，新代码必须产生同样的 command。Dex 的 Flow 是一组 Step，每个 Step 运行接手它的 Worker 上的代码。
+
+<YouTubeVideo videoId="_5LuwZcJhhc" title="The same process in Temporal and Dex code" poster="/img/videos/dex-vs-temporal-short2.jpg" orientation="vertical" />
+
+## 代码量 {#more-code}
+
+[agent-reply](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply) 示例先起草一条回复，等人工审批，再发送回复。第 2 版在起草之后加了一步：通知审核人。下表统计每个流程定义文件的行数，不含空行和注释行。
+
+| | Temporal | Dex |
+| --- | --- | --- |
+| 第 1 版，`flow_v1.py` | 26 | 26 |
+| 第 2 版，`flow_v2.py` | 34 | 30 |
+| 从第 1 版到第 2 版的改动 | 增加 8 行 | 增加 6 行，删除 2 行 |
+
+Temporal 的改动加了 `notify_reviewer` Activity，并用 `workflow.patched` 保护它。不加保护，已经打开的运行会失败，见下文。见 [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply/temporal/flow_v2.py)。
+
+```diff
++@activity.defn
++async def notify_reviewer(draft: str) -> str:
++    return f"reviewer notified: {draft}"
++
++
+ @activity.defn
+ async def send_reply(draft: str) -> str:
+@@
+         draft = await workflow.execute_activity(
+             draft_reply, ticket,
+             start_to_close_timeout=timedelta(seconds=10),
+         )
++        if workflow.patched("notify-reviewer"):
++            await workflow.execute_activity(
++                notify_reviewer, draft,
++                start_to_close_timeout=timedelta(seconds=10),
++            )
+         await workflow.wait_condition(lambda: self.approved)
+```
+
+Dex 的改动加了 `NotifyReviewerStep`，并让 `DraftReplyStep` 转到它。改动里没有版本控制代码。见 [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply/dex/flow_v2.py)。
+
+```diff
+ class DraftReplyStep(Step[str]):
+     def execute(self, context: Context, input: str) -> StepDecision:
+-        return go_to(SendReplyStep, f"draft reply for {input}")
++        return go_to(NotifyReviewerStep, f"draft reply for {input}")
++
++
++class NotifyReviewerStep(Step[str]):
++    def execute(self, context: Context, input: str) -> StepDecision:
++        return go_to(SendReplyStep, input)
+@@
+         self.draft_reply = DraftReplyStep()
++        self.notify_reviewer = NotifyReviewerStep()
+         self.send_reply = SendReplyStep()
+@@
+         return StepList.start_step(self.draft_reply).other_steps(
+-            self.send_reply
++            self.notify_reviewer, self.send_reply
+         )
+```
+
+演示先在第 1 版上开始几条回复，停掉这个 Worker，再部署第 2 版。在 Temporal 上，这次部署用的是不带 `workflow.patched` 的第 2 版。
+
+| 部署时回复的状态 | Temporal | Dex |
+| --- | --- | --- |
+| 已审批，正在发送回复，并在重试 | 下一个 Workflow Task 因非确定性错误而失败。运行停在 Running。 | 完成。 |
+| 等待审批 | 完成，并在审批之后通知审核人。 | 完成，不经过 `NotifyReviewerStep`。 |
+| 已完成 | `temporal workflow stack` 报同样的错误。 | 能读取结果，有没有 Worker 都可以。 |
+
+Temporal 上的错误：
+
+```text
+[TMPRL1100] Nondeterminism error: Activity type of scheduled event 'send_reply' does not match activity type of activity command 'notify_reviewer'
+```
+
+用了 `workflow.patched` 之后，已审批的 Temporal 运行也能完成。演示仓库列出了这些结果[所用的版本](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply#results)（英文）。
+
+## 场景和需求 {#scenario}
+
+[从 0:40 开始观看](https://youtu.be/fzl88JWt734?t=40)
+
+本页余下的部分对应第 1 集。AI 客服回答客户的问题。每个会话对应一个 Temporal workflow 或一个 Dex Flow。
+
+- 会话从客户的第一条消息开始。
+- 每条客户消息得到一条 AI 回复。
+- 每次回复之后，开始一个 10 分钟的空闲计时。客户追问会得到回复，计时在那次回复之后重新开始。
+- 如果客户 10 分钟没有发消息，应用就发一封提醒邮件。提醒之后一小时仍没有消息，会话关闭。
+
+演示用 30 秒代替 10 分钟。在计时器的演示里，第一条消息在第 0 秒到达，追问在第 20 秒到达。提醒应该在第二次回复之后 30 秒，也就是第 50 秒发出。
+
+## Temporal 的自然写法 {#natural-temporal-code}
+
+[从 3:55 开始观看](https://youtu.be/fzl88JWt734?t=235)
+
+这是计时器的一种直接写法。Signal handler 回复消息，并设置 `nudge_at` 字段。主函数 sleep 到 `nudge_at`，然后发提醒。见 [naive_conversation_workflow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/naive_conversation_workflow.py)。
+
+### 真实运行 {#natural-temporal-code-run}
+
+[从 4:51 开始观看](https://youtu.be/fzl88JWt734?t=291)
+
+提醒在第 30 秒就发了。这次运行没有报错，也没有告警。
+
+| 实现 | 提醒发出时间 | 错误 |
+| --- | --- | --- |
+| Temporal，`NaiveConversationWorkflow` | 30.0 秒 | 无 |
+| Temporal，`ConversationWorkflow` | 50.0 秒 | 无 |
+| Dex，`SupportConversationFlow` | 50.4 秒 | 无 |
+
+### 计时器为什么提前触发 {#why-the-timer-fires-early}
+
+[从 5:49 开始观看](https://youtu.be/fzl88JWt734?t=349)
+
+Temporal 把 workflow 代码切成一个个 [workflow task](https://docs.temporal.io/tasks) 来运行。Worker 用 [command](https://docs.temporal.io/references/commands) 完成每个 workflow task。Temporal 的定义是：Command 是 Worker 在完成一次 Workflow Task Execution 时，请求 Temporal Service 执行的一个动作。
+
+计时器就是一条 command。调用 `sleep` 会发出一条 StartTimer command，server 按 `nudge_at` 当时的值记录这个计时器。之后 Signal handler 修改了 `nudge_at`。改一个变量不会发出任何 command。所以最早的那个计时器照样在第 30 秒触发。
+
+这段代码是合法的 Python，Timer 也按原定时间触发了。哪些语句会变成 command、在什么时候变成 command，代码里看不出来。
+
+## Temporal 的正确写法 {#correct-temporal-code}
+
+[从 8:06 开始观看](https://youtu.be/fzl88JWt734?t=486)
+
+正确的 workflow 沿用官方的 [updatable timer 示例](https://github.com/temporalio/samples-python/tree/main/updatable_timer)。它要做对五件事：
+
+1. Signal handler 只把消息放进队列，不做其他工作。
+2. 主函数写成一个循环。
+3. 每一轮按顺序回复队列里的所有消息。
+4. 用带超时的 `workflow.wait_condition` 等待新消息，或者等空闲时间结束。
+5. 超时会抛出 `asyncio.TimeoutError`，代码要捕获它。
+
+见 [conversation_workflow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/conversation_workflow.py)。
+
+## Dex 的写法 {#dex-flow}
+
+[从 9:28 开始观看](https://youtu.be/fzl88JWt734?t=568)
+
+一个 Step 写明它等什么，以及接下来去哪。`WaitForCustomerStep` 等待两个条件中的任意一个：`CustomerMessages` Channel 上的一条消息，或者一个空闲时长的 Timer。Timer 触发了，Flow 就转到 `NudgeCustomerStep`。否则转到 `GenerateReplyStep`，它回复之后再转回 `WaitForCustomerStep`。`WaitForCustomerStep` 每次开始时都启动一个新的 Timer。`post_message` RPC 把每条客户消息发布到 Channel。见 [flow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow.py)。
+
+[空闲定时器](/design-patterns/external-interaction/idle-timer)模式在每种 SDK 里都是同样的形状。注意 `WaitFor` 里的两个条件，以及 `Execute` 里的决定：有活动时，Step 转到它自己：
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py', go: 'examples/go/patterns/inactiveness-tracker-timer/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/inactivenesstracker/InactivenessTrackerFlow.java', typescript: 'examples/typescript/src/patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts', rust: 'examples/rust/src/patterns/inactiveness_tracker/flow.rs'}}>
+
+<SdkSnippet lang="python">
+
+```python
+class Tracker(Step[None]):
+    def __init__(
+        self,
+        process_inactiveness: ProcessInactiveness,
+        active_channel: Channel[None],
+    ) -> None:
+        self.process_inactiveness = process_inactiveness
+        self.active_channel = active_channel
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.any_of(
+            Timer.by_duration(TRACKER_DURATION),
+            self.active_channel.for_one(),
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        if context.has_timer_fired():
+            return go_to(ProcessInactiveness, None)
+        return go_to(Tracker, None)
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="go">
+
+```go
+type trackerStep struct {
+	dex.StepDefaults
+}
+
+func (trackerStep) WaitFor(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(TrackerDuration),
+		ActiveChannel.ForOne(),
+	), nil
+}
+
+func (trackerStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GoTo(processInactiveness{}, nil), nil
+	}
+	return dex.GoTo(trackerStep{}, nil), nil
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="java">
+
+```java
+final class Tracker implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(
+                Timer.byDuration(TRACKER_DURATION),
+                activeChannel.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        if (context.hasTimerFired()) {
+            return StepDecision.goTo(ProcessInactiveness.class, null);
+        }
+        return StepDecision.goTo(Tracker.class, null);
+    }
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="typescript">
+
+```typescript
+class Tracker implements Step<void> {
+  public getStepType(): string {
+    return "Tracker";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(
+      Timer.byDuration(TRACKER_DURATION_MS),
+      activeChannel.forOne(),
+    );
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    if (context.hasTimerFired()) {
+      return goTo(ProcessInactiveness, undefined);
+    }
+    return goTo(Tracker, undefined);
+  }
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct Tracker;
+
+impl Step for Tracker {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            Timer::by_duration(Duration::from_secs(300)),
+            ACTIVE_CHANNEL.for_one(),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::go_to(&ProcessInactiveness, ()));
+        }
+        Ok(StepDecision::go_to(&Tracker, ()))
+    }
+}
+```
+
+</SdkSnippet>
+
+</SdkTabs>
+
+这个 Step 只有一个 Wait 和一个决定。Timer 和 Channel 在同一个 Wait 里，所以代码不需要队列、循环，也不需要捕获异常。
+
+## 改代码 {#change-code}
+
+[从 10:54 开始观看](https://youtu.be/fzl88JWt734?t=654)
+
+会话还开着的时候来了新需求：回复之前先分析每条客户消息的情绪。
+
+**Temporal。** 第 2 版在 `generate_reply` 之前运行一个 `analyze_sentiment` activity。会话 A 是在第 1 版上开始的。部署之后，它的下一条消息被接收，却一直得不到回复。workflow task 失败并不断重试，运行本身保持打开：
+
+```text
+[TMPRL1100] Nondeterminism error: Activity type of scheduled event 'generate_reply' does not match activity type of activity command 'analyze_sentiment'
+```
+
+对会话 A 的 Query 也会失败。在第 2 版上开始的会话正常运行。Temporal 文档给出两种解决办法：
+
+- **[Patching](https://docs.temporal.io/develop/python/workflows/versioning#patching)。** 用 `workflow.patched` 保护新代码。Temporal 描述了三步。第一步，加上 patch，让新代码和旧代码并存。第二步，删掉旧代码，用 `deprecate_patch()` 把这个 patch 标记为弃用。第三步，等不再有运行上一版代码的打开的 Workflow Execution 时，删掉 `deprecate_patch()`。对第二步和第三步，Temporal 还要求等到用 patch 之前的代码开始的 Workflow 都已超出 retention 期。在演示里，带 `workflow.patched` 的第 3 版让会话 A 不用 reset 就恢复了。会话 A 不会运行情绪分析的 activity，因为它的 history 里没有 patch marker。在演示里，会话 B 是在没有保护的第 2 版上开始的。到了第 3 版，它报出镜像的非确定性错误。
+- **[Worker Versioning](https://docs.temporal.io/worker-versioning)。** Temporal 保证 Pinned 的 Workflow 在同一个 Worker Deployment Version 上运行到结束。其他版本可以继续 poll，让 Pinned 的 Workflow 运行完。Auto-Upgrade 的 Workflow 会移到它的目标版本，也就是它的 Task Queue 的 Current Version 或 Ramping Version。Temporal 要求用 patching 手动让 Auto-Upgrade 的 Workflow 保持与旧 history 兼容。
+
+**Dex。** 第 2 版加了 `AnalyzeSentimentStep`。`WaitForCustomerStep` 和 `WaitAfterNudgeStep` 改为转到它，而不是 `GenerateReplyStep`。见 [flow_v2.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow_v2.py)。
+
+- 会话 A 停在 `WaitForCustomerStep`，这个 Step 是第 1 版的 Worker 启动的。部署之后，第 2 版的 Worker 处理了它的下一条消息。消息先经过 `AnalyzeSentimentStep`，然后得到回复。
+- 在第 2 版上开始的会话从 `AnalyzeSentimentStep` 开始。
+- 部署之前开始的等待保留它的 Timer。在一个同时缩短了空闲时长的变体里，旧的 60 秒 Timer 在第 60.1 秒触发。下一次等待用新的 10 秒。
+
+[部署代码变更](/concepts/change-flow-code)说明一次部署对未结束的 Flow 会改变什么，以及怎样让它们继续正常运行。
+
+## 完整代码 {#complete-code}
+
+[从 20:24 开始观看](https://youtu.be/fzl88JWt734?t=1224)
+
+| | Temporal | Dex |
+| --- | --- | --- |
+| 程序 | [conversation_workflow_inline_transcript.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/conversation_workflow_inline_transcript.py) 和 [activities.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/activities.py) | [flow.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/support_conversation/flow.py) |
+| 发送一条客户消息 | Signal `post_message` | RPC `post_message`，它发布到一个 Channel |
+| 分配客服 | Update `assign_agent` | RPC `assign_agent` |
+| 读取聊天记录 | Query `get_transcript_page` | RPC `get_transcript_page` |
+| 控制流 | 隐含在代码产生的 workflow task 里 | 显式的 Step 和跳转 |
+
+因为跳转是显式的，Dex 能直接从源码画出 Flow design。`dexcli visualize` 生成这张图，Dex Web 把它画出来。在 Dex Web 里，一次运行的页面显示会话正在等哪个 Step。演示的 [flow-definitions](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/dex/flow-definitions) 目录保存了它各个 Flow 版本的图。下面是上文空闲定时器模式的图：
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+[Flow visualization](/reference/web/flow-visualization)（英文）说明分析器和画布。
+
+## 自己运行 {#run-it-yourself}
+
+演示需要 `uv`、`temporal` CLI 和 `dexcli`。每个脚本启动自己的 server，打印结果。两边的 server 都以本地开发模式运行，使用默认限制。AI 回复和情绪分析都是本地 mock，不是真实的模型。
+
+第 1 集的脚本在 [scripts](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a/scripts) 目录里，演示仓库列出了它们[所用的版本](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below)（英文）。带审批的回复的脚本在 [agent-reply](https://github.com/superdurable/dex-vs-temporal-demo/tree/f5aa9f90a5c4a51ae86387e13a5d0d48bb31bb3a/agent-reply) 目录里，还需要 `python3`。
+
+除了 `d-design.sh`，每个脚本都会停掉它启动的东西。`d-design.sh` 的默认值是 `KEEP=1`，成功运行之后 Dex 会继续运行。用 `scripts/dex/stop.sh` 停掉它，或者用 `KEEP=0` 运行这个脚本。
+
+| 主题 | Temporal | Dex |
+| --- | --- | --- |
+| 带审批的回复，第 1 版和第 2 版 | `agent-reply/temporal/run.sh`、`upgrade.sh`、`upgrade-in-send.sh`、`query-completed.sh` | `agent-reply/dex/run.sh`、`upgrade.sh`、`upgrade-in-send.sh`、`read-completed.sh` |
+| 空闲计时器 | `scripts/temporal/t1-naive-timer.sh` | `scripts/dex/d1-timer.sh` |
+| 改代码 | `scripts/temporal/t2-change-code.sh`、`scripts/temporal/t2-patch-fix.sh` | `scripts/dex/d2-change-code.sh`、`scripts/dex/d2-idle-window-variation.sh` |
+| [history 上限](/intro/compared-to-temporal/operations#history-limit) | `scripts/temporal/t5-flood.sh`、`scripts/temporal/t6-continue-as-new.sh` | `scripts/dex/d5-flood-fair.sh` |
+| External Storage | `EXTERNAL_STORAGE=1 scripts/temporal/t6-continue-as-new.sh` | |
+| 每次 activity 带上会话内容，聊天记录预算 | `scripts/temporal/t8-context-in-activity.sh` | `scripts/dex/d7-transcript-budget.sh` |
+| Flow design | | `scripts/dex/d-design.sh` |
+
+## 第 1 集 {#episode-1}
+
+第 1 集完整讲解本页的客服会话：空闲计时器、改代码，以及一直聊下去的会话。视频是英文的。
+
+<YouTubeVideo videoId="fzl88JWt734" title="Dex vs Temporal, Ep. 1: one idle timer, three production problems" poster="/img/videos/dex-vs-temporal-ep1.jpg" />
+
+## 下一步 {#next}
+
+- [Dex 与 Temporal 对比](/intro/compared-to-temporal)：对比总表和术语对照。
+- [部署代码变更](/concepts/change-flow-code)：未结束的 Flow 怎样遇到新代码。

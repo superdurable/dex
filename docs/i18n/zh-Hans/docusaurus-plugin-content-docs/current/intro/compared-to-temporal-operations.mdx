@@ -1,0 +1,112 @@
+---
+title: 运维
+sidebar_label: 运维
+slug: /intro/compared-to-temporal/operations
+description: 自托管的 Temporal Service 在数据库上运行四个服务，Temporal 应用要调 Worker 缓存，还要在代码里应对每个执行的上限。Dex Server 是一个二进制，运行在对象存储或 db9 上。本页说明两边各要部署什么、调什么，以及演示在 Temporal 的 history 和 payload 上限处测到的结果。
+---
+
+import TemporalDeploymentDiagram from '@site/src/components/diagrams/TemporalDeploymentDiagram';
+
+# 运维
+
+自托管的 Temporal Service 在数据库上运行四个服务，Temporal 应用要调 Worker 缓存，还要在代码里应对每个执行的上限。Dex Server 是一个二进制，运行在对象存储或 db9 上，history 变长时 Flow 运行也不需要换成新的运行。
+
+<YouTubeVideo videoId="xZtFv4mOS04" title="How Dex works internally" poster="/img/videos/dex-vs-temporal-short4.jpg" orientation="vertical" />
+
+视频是英文的。
+
+## 运行服务器 {#run-the-server}
+
+<TemporalDeploymentDiagram markdownDescription="Temporal Service：Frontend、History、Matching 和 Worker 四个服务，运行在一个数据库（Cassandra、MySQL 或 PostgreSQL）和一个 Visibility 存储（SQL 数据库或 Elasticsearch）上。Dex Server：一个二进制作为持有 lease 的活跃节点，一个可选的备用节点负责接管，以及对象存储（Amazon S3、Google Cloud Storage、Azure Blob Storage、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储（例如 MinIO））或 db9。" />
+
+| | Temporal Service | Dex Server |
+| --- | --- | --- |
+| 进程 | Frontend、History、Matching 和 Worker 服务。它们可以共用一个进程。Temporal 建议在生产环境中分开运行。 | 一个二进制。一个活跃节点在对象存储里持有 lease。见 [Dex Server](/components/server)。 |
+| 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发和测试。 | [对象存储](/reference/server/object-storage)（英文）：Amazon S3、Google Cloud Storage、Azure Blob Storage、阿里云 OSS、腾讯云 COS，或兼容 S3 的存储（例如 MinIO）。也可以用 [db9](/reference/server/object-storage#db9)（英文）代替。 |
+| 搜索存储 | Visibility 存储：Elasticsearch、OpenSearch、MySQL、PostgreSQL 或 SQLite。Temporal 建议生产环境使用 Elasticsearch。Cassandra 不支持自定义 Search Attribute。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
+
+关于 Temporal 的事实来自 [Temporal Server](https://docs.temporal.io/temporal-service/temporal-server)、[Persistence](https://docs.temporal.io/temporal-service/persistence)、[Visibility](https://docs.temporal.io/self-hosted-guide/visibility) 和[生产环境检查清单](https://docs.temporal.io/self-hosted-guide/production-checklist)。
+
+活跃节点的 [lease](/reference/server/high-availability#lease)（英文）到期后，Dex 的备用节点接管，lease 默认 10 秒。见[故障转移和部署](/concepts/failover-and-deploys)。
+
+## 限制 {#limits}
+
+| 项目 | Temporal | Dex |
+| --- | --- | --- |
+| Worker 缓存 | 缓存上限是 Workflow Execution 的个数（[Worker tuning reference](https://docs.temporal.io/develop/worker-tuning-reference)）。适合 Worker 内存的大小要靠试出来。见 [Worker 内存](/intro/compared-to-temporal/performance#worker)。 | Worker 不保留 Workflow 缓存。存放大值的 blob cache 有字节上限。 |
+| history 大小 | 每个 Workflow Execution 最多 51,200 个事件或 50 MB，到 10,240 个事件或 10 MB 时警告（[limits](https://docs.temporal.io/workflow-execution/limits)）。在 [Temporal Cloud](https://docs.temporal.io/cloud/limits) 上固定，在自托管的 server 上是可以配置的默认值。 | 保留每次运行最新的一段事件。更早的事件被清理，Flow 继续运行。见 [Dex 这边](#history-limit-dex)。 |
+| Continue-As-New | 应用代码在达到 history 上限之前把状态交给一次新的运行。见 [Continue-As-New](#continue-as-new)。 | Flow 不需要为 history 大小换成新的运行。 |
+| payload 大小 | 每个 payload 2 MB，每条 gRPC 消息 4 MB。自托管的 server 在 512 KB 时警告（[blob size limit](https://docs.temporal.io/troubleshooting/blob-size-limit-error)）。在 [Temporal Cloud](https://docs.temporal.io/cloud/limits) 上，一次 Event History 事务最多 4 MB。 | 默认每个值 16 MiB，每次 Flow 运行 64 MiB 活跃状态。见[数据大小](#data-size)。 |
+| 部署新代码 | Patching API 让新代码和打开的运行保持兼容。[Worker Versioning](https://docs.temporal.io/worker-versioning) 从 2026-03-30 起正式可用（[公告](https://temporal.io/blog/ga-worker-versioning-public-preview-upgrade-on-continue-as-new)）。Auto-Upgrade 的 Workflow 仍然需要 patching。 | 每个 Step 运行接手它的 Worker 上的代码。见[修改代码](/intro/compared-to-temporal/programming-model#change-code)。 |
+| 每个执行的消息数 | 10,000 个 Signal，10 个进行中的 Update，总共 2,000 个 Update（[Temporal Cloud limits](https://docs.temporal.io/cloud/limits)），默认最多 2,000 个未完成的 Child Workflow（[defaults](https://docs.temporal.io/self-hosted-guide/defaults)）。 | Channel 消息和 RPC 都没有每次运行的总数上限。见[两边都有的功能](/intro/compared-to-temporal/shared-features#channel)。 |
+
+### history 上限 {#history-limit}
+
+[从 15:02 开始观看](https://youtu.be/fzl88JWt734?t=902)
+
+演示运行的是使用上表默认限制的本地开发 server。Temporal 用 MB 和 KB 写这些限制。下文实测的字节数是精确值，server 实际执行的 payload 上限是 2 MiB，即 2,097,152 字节。每个数字都来自 [dex-vs-temporal-demo](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#3-a-conversation-that-keeps-going)（英文）仓库里的脚本。AI 回复是本地模拟，不是真实的模型。仓库列出了[使用的版本](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#versions-used-for-the-numbers-below)（英文）。
+
+#### 一直聊下去的会话 {#history-limit-flood}
+
+压测以每秒 8 条的速度发送追问，每条约 200 字节，每条消息得到一条 AI 回复。这个 workflow 不做 Continue-As-New。
+
+- 4,266 条追问在 533 秒内被接收并回复。第 4,267 条被拒绝：`workflow execution already completed`。
+- server 在第 51,201 个 history 事件时终止了 workflow：`Workflow history count exceeds limit.` 这时 history 只有 9 MB，远低于 50 MB。
+- 每条客户消息增加 12 个 history 事件：1 个 Signal，2 个 workflow task（各 3 个事件），1 个 activity（3 个事件），1 个计时器取消，1 个计时器启动。
+
+#### Continue-As-New {#continue-as-new}
+
+[Continue-As-New](https://docs.temporal.io/develop/python/workflows/continue-as-new) 结束当前运行，用全新的 history 开始一次新的运行。新的运行保留 Workflow ID，得到一个新的 Run ID。workflow 代码要自己做这些事：
+
+1. 检查 `workflow.info().is_continue_as_new_suggested()`。
+2. 等所有 Signal 和 Update handler 运行完。Temporal 建议在使用 Continue-As-New 之前，先让所有 handler 运行完。
+3. 给状态做一个 snapshot：聊天记录、所有未回复的消息、客服、状态和计时器的截止时间。
+4. 把 snapshot 作为下一次运行的输入，在新的运行里从它恢复状态。
+
+演示的 [conversation_workflow_inline_transcript.py](https://github.com/superdurable/dex-vs-temporal-demo/blob/aa48a175f38bf62663c9ad9d95784b9c7812b38a/temporal/conversation_workflow_inline_transcript.py)（英文）用 249 行做到了这些。不做 Continue-As-New 的 workflow 是 148 行。它按 server 的建议串联运行，每次运行约 4,100 个事件。
+
+snapshot 是一个 payload，所以最大 2 MB。回复了 3,531 条追问之后，下一次运行的输入是 2,199,782 字节，超过了 2,097,152 字节的上限。workflow task 失败：
+
+```text
+[TMPRL1103] Attempted to upload payloads with size that exceeded the error limit.
+```
+
+workflow 仍然是 Running，继续接收 Signal，但不再回复。停下来的位置随每次 Continue-As-New 的时机而变。
+
+对于大的 payload，Temporal 给出的办法是 [External Storage](https://docs.temporal.io/external-storage)，目前是 Public Preview。它把 payload 存在 Event History 之外，在 history 里只记录一个引用。用本地目录作为存储时，演示回复了 10,000 条消息，每条只回复一次。workflow 完成之后，存下的对象仍然留着。Temporal 文档写明，它不会自动删除外部存储里的 payload。
+
+#### 每次 activity 都带上会话内容 {#context-in-activity}
+
+`ConversationWithContextWorkflow` 把完整的聊天记录作为普通输入传给每次回复的 activity，不做 Continue-As-New，也不用 External Storage。Temporal 把每个 activity 的输入记录在它的 `ActivityTaskScheduled` 事件里。所以每次回复都把聊天记录在 history 里再存一份，history 随消息数的平方增长。
+
+| 消息 | 接收的追问 | 终止时 |
+| --- | --- | --- |
+| 200 字节，每秒 8 条 | 408 条，其中 407 条在 51 秒内得到回复 | 4,907 个事件，history 52,602,112 到 52,602,325 字节 |
+| 8 KiB，每秒 2 条 | 109 条，其中 108 条在 54 秒内得到回复 | 1,319 个事件，history 52,719,073 到 52,719,369 字节 |
+
+两组运行都以 `Workflow history size exceeds limit.` 结束。先达到的是 50 MB 的 history 大小上限，2 MB 的 payload 上限没有达到。没有 workflow task 失败，终止之前 Worker 也没有记录任何错误。这些数字适用于每次调用都接收完整聊天记录的普通 activity。演示没有测量其他设计。
+
+#### Dex 这边 {#history-limit-dex}
+
+Dex Flow 承受同样的负载 30 分钟。发出的 14,138 条追问全部得到回复，结束时没有积压，Flow 仍在运行。在大约三分钟的一段慢速期里，压测程序因背压丢弃了 14,400 次计划发送中的 262 次。
+
+Dex 保留每次运行最新的一段事件，并清理更早的事件，所以 Flow 继续运行。[History window](/reference/server/configuration#history-window)（英文）给出默认值。演示仓库列出了[实测的事件数](https://github.com/superdurable/dex-vs-temporal-demo/tree/aa48a175f38bf62663c9ad9d95784b9c7812b38a#3-a-conversation-that-keeps-going)（英文）。
+
+Flow 把聊天记录分块存在一个 AttributeMap 里，占用运行 64 MiB 状态预算中的 32 MiB 以内。追加的内容放不下时，`TrimTranscriptStep` 把最旧的块合并进摘要并删除它们。用 8 KiB 的消息时，聊天记录达到 33.2 MB，仍在预算之内。64 个块进入了摘要，Flow 继续运行。
+
+### 数据大小 {#data-size}
+
+Temporal 的 payload 上限同时适用于 activity 的输入和 Continue-As-New 的 snapshot。Dex 的一个值是一个 Attribute 值或一条 Channel 消息。history 和为 Time Travel 保留的旧值不计入 Flow 运行的 64 MiB 活跃状态。见 [Limits](/reference/server/configuration#limits) 和 [Flow state budget](/reference/server/configuration#flow-state-budget)（英文）。
+
+## 并发的默认行为 {#concurrency-defaults}
+
+在 Temporal 的 Python Workflow 里，主函数和 Signal、Update handler 作为协程运行在一个线程上，在每个 `await` 处切换。对于跨越 `await` 的更新，Temporal 建议用 [`asyncio.Lock`](https://docs.temporal.io/develop/python/workflows/message-passing#use-asynciolock-to-prevent-concurrent-handler-execution) 保护。
+
+Flow 有并行分支时，Dex 并行运行这些分支上的 Step，可能在同一个 Worker 上，也可能在多个 Worker 上。RPC 也可以和它们同时运行。它们共享 Flow 的 Attribute。必须单独运行的先读后写，用[锁](/concepts/primitives/attribute#locking)保护。没有锁时，两个先读后写的写入方可能互相覆盖。
+
+## 下一步 {#next}
+
+- [Dex 独有的功能](/intro/compared-to-temporal/features)：Flow design、生成的表单、Clone fork、Connector 等。
+- [两边都有的功能](/intro/compared-to-temporal/shared-features)：Time Travel、SubFlow、RPC、Channel 和 Stream。
+- [在生产环境运行 Dex](/components/production)：上线前要改的设置，以及如何确定节点规格。
+- [性能](/intro/compared-to-temporal/performance)：Worker 内存和服务器吞吐。

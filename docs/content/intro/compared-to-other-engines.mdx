@@ -1,0 +1,78 @@
+---
+title: Dex vs. Other Engines
+sidebar_label: Dex vs. Other Engines
+slug: /intro/compared-to-other-engines
+description: How Dex compares with other durable execution tools. Journal-based runtimes such as Restate, database-backed libraries such as DBOS, step function services, and agent framework checkpoints, each with a terms map.
+displayed_sidebar: docs
+---
+
+# Dex vs. Other Engines
+
+This page maps Dex to durable execution tools other than Temporal: journal-based runtimes, database-backed libraries, step function services, and agent framework checkpoints. [Dex vs. Temporal](/intro/compared-to-temporal) covers Temporal.
+
+<a id="replay-based-workflow-engines"></a>
+
+**Replay-based engines.** Cadence uses the same replay model as Temporal, so the [Temporal comparison](/intro/compared-to-temporal) also applies to Cadence.
+
+## Journal-based runtimes {#journal-based-durable-function-runtimes}
+
+Restate is an example. A handler runs each side effect through the runtime context, which records the result in a journal. After a failure, the handler runs again and gets the recorded results. A virtual object holds state under a key with one writer per key.
+
+| Restate | Dex |
+| --- | --- |
+| Workflow, service handler | Flow |
+| Journaled action (`ctx.run`) | Step `Execute` |
+| Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A closed Flow is deleted after its retention period, while a virtual object persists. |
+| Object state | Attributes |
+| Awakeable or durable promise | A Channel message that a Step waits for |
+| Durable sleep | Timer |
+
+Handler code between journaled calls must be deterministic, because it runs again. Restate deduplicates invocations by idempotency key. Dex deduplicates Flow starts by Flow ID and request ID.
+
+## Database-backed libraries {#database-backed-workflow-libraries}
+
+DBOS is an example. Workflows and steps are annotated functions in your application. DBOS checkpoints them in your PostgreSQL database and adds no other server. The workflow function must be deterministic between steps. DBOS `send` takes an idempotency key.
+
+| DBOS | Dex |
+| --- | --- |
+| Workflow, Workflow ID | Flow, Flow ID |
+| Step | Step `Execute` |
+| Send and receive | Channel |
+| Events | Attributes, read by RPC |
+| Queue | Task queue. Each Worker's task slots bound its work. |
+
+Dex runs its own server on object storage and can copy Attribute values to your database with [Attribute Store sync](/components/your-database#attribute-store-sync).
+
+## When Restate or DBOS fits better {#when-restate-or-dbos-fits}
+
+- **Your process is one short function in one service, and you already run PostgreSQL.** A database-backed library adds no new server.
+- **You want one writer per key with no locks to declare.** A Restate virtual object gives that by default. In Dex you declare Attribute locks.
+
+## Step function services {#step-function-services}
+
+AWS Step Functions is an example: a state machine in a JSON definition language, with each state calling a service. Both record an explicit graph of states. Dex Steps and decisions are code in your language. They run on your Workers, so a Step can call any library.
+
+## Agent framework checkpoints {#agent-framework-checkpoints}
+
+LangGraph is an example. A checkpointer saves graph state after each node under a thread ID, and an interrupt pauses the graph for human input. The checkpointer only saves state. Resuming a crashed run or waking it on a timer requires a hosted platform or custom code. Dex Server does both for every session.
+
+| Agent framework | Dex |
+| --- | --- |
+| Thread ID | Session ID, which is the Flow ID |
+| Checkpoint | The session's Attributes after each model call or tool call |
+| Interrupt for human input | A tool call waiting for approval, or a question |
+
+With [Durable Agents](/agent-frameworks), you keep your framework. The adapter wraps the agent in a session Flow.
+
+## Agent frameworks on a durable execution engine {#agent-frameworks-on-a-durable-execution-engine}
+
+The OpenAI Agents SDK on Temporal, Pydantic AI on Temporal, DBOS, or Prefect, and the LangGraph platform record each model call and wrapped tool call as a unit of the engine. After a crash, only the in-progress call runs again. Dex adds two capabilities:
+
+- Each tool has an effect class. A read may run again. A non-idempotent write runs in one attempt by default. If it is interrupted, the model receives `outcome_unknown`. See [Tool Calls](/agent-frameworks/tool-calls).
+- The effect class also sets the default approval. An approval wait holds no Worker, for minutes or days. See [Approvals](/agent-frameworks/approvals).
+
+## Next
+
+- [Performance](/intro/performance): measured throughput and latency for one Dex node.
+- [Limits](/intro/limits): what can surprise a team that runs Dex in production.
+- [Durable Agents](/agent-frameworks): keep your agent framework and run it on Dex.
