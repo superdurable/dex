@@ -554,13 +554,15 @@ public StepDecision execute(Context context, Void input) {
 ### Polling an external job
 
 Follow the polling rules in [../core/patterns.md](../core/patterns.md). In Java:
-one `execute` loops; it calls the provider with its own timeout, keeps "not
-ready" inside the loop, throws only transient errors, writes a Stream message
+one `execute` loops; it calls the provider with a client that honors thread
+interrupts, or gives the call its own timeout when the client ignores them,
+because the Worker slot is released only when the handler returns. It keeps
+"not ready" inside the loop, throws only transient errors, writes a Stream message
 or `recordHeartbeat` each round, then `Thread.sleep(interval)`. Restore the
 interrupt flag on `InterruptedException`. Bound the whole wait with
 `executeMethodTimeout`, `RetryPolicy.totalDuration`, and a failure route. Keep
-`interval + call timeout <= heartbeatTimeout - 10 s`, against the
-`heartbeatTimeout` the Step sets. Raise it only when a healthy call is silent
+the longest gap between heartbeats, including the interval and the slowest
+healthy call, below the `heartbeatTimeout` the Step sets, with a margin. Raise it only when a healthy call is silent
 longer; the default is in the
 [StepOptions reference](https://docs.superdurable.io/reference/java/step-options#defaults). Keep
 `maximumAttempts` small, such as 3 to 5; `totalDuration` bounds the time, never

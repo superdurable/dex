@@ -306,4 +306,4 @@ See [Flow visualization](https://docs.superdurable.io/reference/web/flow-visuali
 - [ ] A `tracing` subscriber is installed.
 - [ ] One shared `Arc<BlobCache>`; Worker stopped and joined, cache closed.
 - [ ] External effects in Steps are idempotent (see [error-handling.md](error-handling.md)).
-- [ ] Integration tests run against a real Dex Server (see [testing.md](testing.md)).
+- [ ] Integration tests, when the project has them, run against a real Dex Server (see [testing.md](testing.md)).

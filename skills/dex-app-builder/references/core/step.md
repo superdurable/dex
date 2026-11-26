@@ -25,8 +25,8 @@ Use Execute for work and WaitFor for durable waiting. One rule holds in every SD
 
 - Prefer calls that can fail in Execute. WaitFor returns the Conditions to wait on. It may write the Dex state needed to establish the wait: Attributes, Channel publications, and Step execution local values.
 - WaitFor never mutates an external system and has no irreversible side effect. Put every provider mutation, including Connector write operations, in Execute, and keep it idempotent or compensatable there.
-- WaitFor may make read-only, idempotent, time-bounded calls, for example to read a due date that sets a Timer. The Timer is durable once WaitFor's result commits.
-- If a WaitFor read gets a permanent error, record the error in a [Step execution local value](#step-execution-local-values), return a Wait that is ready immediately, such as Go's SkipWaitImmediately, and let Execute route on it. Never let a permanent error loop in Step retry.
+- WaitFor may make read-only, idempotent calls, for example to read a due date that sets a Timer. The Timer is durable once WaitFor's result commits.
+- When a WaitFor read can fail permanently, let Execute route on it: either record the error in a [Step execution local value](#step-execution-local-values) and return a Wait that is ready immediately, such as Go's SkipWaitImmediately, or use the WaitFor failure policy that proceeds to Execute. A permanent error left to Step retry only delays the outcome until the retry budget runs out.
 - WaitFor may run more than once: a retryable error follows WaitFor's own retry policy, and when that budget runs out, the WaitFor failure policy decides. Keep it cheap and safe to repeat. A retry may read a different value; the Wait that commits is the one that counts.
 - Never poll a provider from WaitFor. Waiting for an external system uses one of the two [Polling](patterns.md#polling) shapes: a WaitFor Timer with one provider call per Execute and a GoTo to the same Step, or one long-running Execute that loops and heartbeats.
 - Never use the Client from WaitFor to start or mutate another Flow. To wait on a child Flow, return a SubFlow Condition.
@@ -65,12 +65,12 @@ Do not split only because there is another API call. Keep consecutive work in on
 
 Rules:
 
-- Leave Conditions unnamed in Until, AnyOf, and AllOf. Read Channel results from the Channel definition and Timer outcomes from the Context.
+- Conditions in Until, AnyOf, and AllOf need no names. Read Channel results from the Channel definition and Timer outcomes from the Context.
 - Every Condition in AnyCombinationOf needs a unique Condition ID.
 - A Timer needs an ID when another operation selects it by ID. SkipTimer can also select by zero-based Condition index.
-- Dex checks a wait when it starts and whenever a Condition it waits on changes, such as a publish or a Timer firing. A message queued before the wait starts wins at once; otherwise the first event to commit wins. Between Channels that are both queued, the first declared wins. The full tie-break order is edge-case semantics; see [AnyOf selection order](https://docs.superdurable.io/reference/go/waits#anyof-selection-order). Do not build business priority between a Timer and a Channel on it.
+- Dex checks a wait when it starts and whenever a Condition it waits on changes, such as a publish or a Timer firing. A message queued before the wait starts wins at once; otherwise the first event to commit wins. Between Channels that are both queued, the first declared wins. The full tie-break order is edge-case semantics; see [AnyOf selection order](https://docs.superdurable.io/reference/go/waits#anyof-selection-order). Do not build business priority between a Timer and a Channel on the selection order; when a Timer can win first, Execute checks the higher-ranked Channel itself.
 - Consumption is not greedy. Only the winning AnyOf alternative, or the winning AnyCombinationOf group, consumes Channel messages. The others stay pending.
-- AnyOf is a race. For strict priority, return only the high-priority Condition until it resolves.
+- AnyOf is a race. For strict priority, return only the high-priority Condition until it resolves. For a business priority between events, state which definition of "the same moment" applies; see [patterns.md](patterns.md#arbitrate-by-business-priority).
 - In Execute, check which Condition won before reading its result. When a Timer wins, no Channel message was consumed, and a message can still commit before Execute runs. When that matters, close a reply window with an Attribute lock; see [patterns.md](patterns.md#close-a-reply-window-with-an-attribute-lock).
 - Add the graceful completion Condition to a Step that would otherwise wait indefinitely, such as one that waits for the next message. Combine it with that Channel in AnyOf, so the Step stops waiting when the Flow is asked to complete gracefully.
 - Handle consumed messages first in Execute; return DeadEnd only when no message was consumed and the graceful completion request exists, so the Flow completes once no Step is active. See [Wait for a completion request](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition).
@@ -137,7 +137,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 
 - Dex takes the state snapshot when it hands the first attempt to a Worker. Every retry of that method call reuses the first snapshot, including its selections, and keeps its Attribute locks.
 - A retry does not see writes made after that snapshot. Do not retry a Step to wait for an RPC or another Step to fix state. Have the writer publish a Channel message and wait on it in the next Step's WaitFor, or fail to a recovery route.
-- Locks stay held through retry backoff and are released when the method call ends. A writing RPC that needs the lock gets a lock conflict for that whole time. Keep lock scope narrow and the retry budget bounded.
+- Locks stay held through retry backoff and are released when the method call ends. A writing RPC that needs the lock gets a lock conflict for that whole time. Under a lock that an RPC takes, make no external call; under a lock that only Steps share, the other Steps wait for that whole time.
 - A returned or retrying attempt keeps its locks while queued. If no Worker can run it, it holds them until the Flow times out or stops.
 - An attempt returned without running keeps its snapshot and may run much later. Locked values cannot change meanwhile, but unlocked values may be stale.
 - A first attempt not yet handed out holds no locks, but later Steps that need the same lock wait behind it.
@@ -152,10 +152,10 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 | Attempt deadline | The absolute end of the current attempt, supplied by the Server on the Context. |
 
 - To bound one long attempt, set the method timeout, not the retry total duration.
-- To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff. After a failure, Dex uses the total duration only to decide whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. A deadline for the whole Flow uses the Flow timeout. A deadline for one wait uses a durable Timer Condition, as in the [Polling watchdog](patterns.md#polling). An external call's hard deadline is its own timeout.
-- Always set the retry total duration explicitly for a long-running Step, and decide what it bounds. To keep retries inside a wait window, use the rule above. To allow several near-full-length attempts, size it at about maximum attempts times the method timeout, plus the backoff between them. That is an estimate, not a guarantee: RetryAfter delays and queue time after backoff also use the budget. With long attempts, the default budget can stop retries before the attempt count is reached.
-- Use the attempt deadline to size an external call's timeout and to decide whether another unit of work fits. Check for absence first: some tasks have no deadline. Do not store it in a checkpoint or Step input, and do not recompute it from the method timeout.
-- When an external call needs a stricter deadline, wrap it in a child context or the SDK's cancellation mechanism.
+- To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff. After a failure, Dex uses the total duration only to decide whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. A deadline for the whole Flow uses the Flow timeout. A deadline for one wait uses a durable Timer Condition, as in the [Polling watchdog](patterns.md#polling).
+- Check the default retry total duration against the method timeout. Set it when attempts are long enough that the default would allow fewer retries than you want, or when retries must stop sooner. To keep retries inside a wait window, use the rule above. To allow several near-full-length attempts, size it at about maximum attempts times the method timeout, plus the backoff between them. That is an estimate, not a guarantee: RetryAfter delays and queue time after backoff also use the budget.
+- Dex ends a hung attempt through the heartbeat timeout and the method timeout, sends cancellation to the handler, and retries by the retry policy. Pass the cancellation signal into each call that accepts one. A call that cannot observe cancellation keeps its Worker slot until it returns, even after Dex ends the attempt, so give such a call its own timeout. Add a tighter call timeout also when the business needs a bound shorter than the method timeout.
+- When a call needs its own timeout, use the attempt deadline to size it and to decide whether another unit of work fits. Check for absence first: some tasks have no deadline. Do not store it in a checkpoint or Step input, and do not recompute it from the method timeout. Wrap the call in a child context or the SDK's cancellation mechanism.
 - Do not infer durability from a large attempt timeout. The timeout is a safety bound.
 
 ### Heartbeats and checkpoints
@@ -164,8 +164,8 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - A heartbeat value is a retry checkpoint. The next attempt receives the last stored value.
 - An explicit valueless heartbeat clears the checkpoint. A Stream message keeps the current one.
 - Heartbeats are not acknowledged. A returned heartbeat call does not prove Dex stored it, even for SYNC. Checkpoints are batched; the next attempt may get an older value. Never use a checkpoint as the only record of an external effect.
-- The default heartbeat timeout is short; see each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults). If the attempt reaches its heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out the attempt; raising only the method timeout keeps that deadline. A non-streaming provider call, such as a long LLM generation, sends neither for its whole duration. Raise the heartbeat timeout to the longest acceptable silent interval, at least the method timeout for one silent call. Do not add periodic heartbeats only to mask provider silence: they prove only that the Worker runs.
-- A loop of short calls that heartbeats between them, such as the [Polling pattern](patterns.md#polling), sets its call timeout and interval so the longest real silent interval stays below the heartbeat timeout, with a margin. Check that against the default before keeping it. The defaults are in each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults).
+- The default heartbeat timeout is short; see each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults). If the attempt reaches its heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out the attempt; raising only the method timeout keeps that deadline. A non-streaming provider call, such as a long LLM generation, sends neither for its whole duration. Either raise the heartbeat timeout above the longest acceptable silent interval, or heartbeat from a background task while the call runs. A background heartbeat proves only that the Worker runs, so a hung call then ends at the method timeout.
+- A loop of short calls that heartbeats between them, such as the [Polling pattern](patterns.md#polling), keeps the longest gap between heartbeats, including the slowest healthy call and the interval, below the heartbeat timeout, with a margin. Check that against the default before keeping it. The defaults are in each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Act on cancellation promptly. Dex cancels a handler that exceeds its heartbeat timeout even if it records none.
 
 ### Retry and failure policy
@@ -204,17 +204,16 @@ The Step Context exposes, among others:
 - the attempt deadline and the cancellation signal;
 - Attribute, AttributeMap, and Channel access for the loaded snapshot.
 
-## Configure the complete method policy
+## Configure the method policy where defaults do not fit
 
-For every WaitFor and Execute method, decide:
+The defaults fit short, idempotent methods. Set StepOptions for a method that runs long or stays silent, holds a lock, makes a non-idempotent effect, needs a failure route, or loads AttributeMaps or pending messages. The options cover:
 
-- durability override or deliberate inheritance;
-- method timeout;
+- durability override;
+- method timeout and, for Execute, the heartbeat timeout;
 - retry attempts, backoff, and total duration;
 - selective AttributeMap and Channel loads;
 - Attribute or map-instance locks;
-- the exhausted-retry failure route;
-- for Execute, the heartbeat timeout.
+- the exhausted-retry failure route.
 
 Exact option names and defaults are in the language's Developer reference.
 
@@ -228,10 +227,8 @@ Exact option names and defaults are in the language's Developer reference.
 
 ## Verify
 
-- A short ASYNC method, and a retried ASYNC method that resumes from its checkpoint.
-- A long method that runs as SYNC.
-- Retry attempts and the total-duration budget across retries.
-- The external call's child deadline.
-- Worker replacement at durable waits and at external-effect boundaries.
-- ASYNC methods and the work after them tolerate a replay.
-- A handler that exceeds its heartbeat timeout is retried.
+Retries, heartbeat timeouts, and SYNC or ASYNC durability are Dex behavior; do not re-test them. When the project has tests:
+
+- If a Step resumes from a heartbeat checkpoint, test that it resumes correctly.
+- Test Worker replacement at durable waits and at external-effect boundaries.
+- Check that ASYNC methods and the work after them tolerate a replay.

@@ -27,11 +27,11 @@ Consumers rebuild canonical state from Attributes, a read-only RPC, or the Flow 
 
 When a Step calls a streaming LLM API, create one buffered text writer for the invocation before the request, and pass its write method as the token or delta callback.
 
-- Never call a direct Stream write for each token or delta.
+- Prefer the buffered text writer for LLM tokens; a direct Stream write per token or delta wastes Stream capacity.
 - The writer flushes on a timer and on a size threshold, and flushes the tail before the result or error.
 - In most SDKs the code only calls write; the SDK finalizes. Python synchronous generator Steps must yield an explicit final flush.
 - An empty buffer does not heartbeat. Raise the heartbeat timeout for a provider that can stay silent.
-- Use separate writers for provider reasoning summaries and visible assistant text. Keep structured tool and lifecycle events on a third Stream.
+- Consider separate writers for provider reasoning summaries and visible assistant text, and a third Stream for structured tool and lifecycle events.
 
 ```text
 AnswerStep.execute(context, prompt)

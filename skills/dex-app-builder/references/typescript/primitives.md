@@ -110,8 +110,9 @@ export class OrderFlow implements Flow<Order> {
 - Derive deterministic identities from `context.flowId` and
   `context.flowStartedAt`, never from `Date.now()` or random values.
 - `context.deadline` is the absolute deadline of the current `waitFor`,
-  `execute`, or timeout-handler attempt, or `undefined` in RPC handlers. Size
-  external call timeouts from `context.deadline.getTime() - Date.now()`.
+  `execute`, or timeout-handler attempt, or `undefined` in RPC handlers. When
+  a call needs its own timeout, size it from
+  `context.deadline.getTime() - Date.now()`.
 - `context.attempt` is the retry attempt of this method call.
   `context.recoveryError` is set on a recovery path
   ([error handling](error-handling.md#recovery)).
@@ -142,7 +143,7 @@ class AwaitApproval implements Step<Order> {
 }
 ```
 
-- `waitFor` returns a `Wait` or a `Promise<Wait>`. It may await a read-only, idempotent, time-bounded call, as the [WaitFor rule](../core/step.md#waitfor-versus-execute) allows. Never sleep for business time; return a Timer Condition.
+- `waitFor` returns a `Wait` or a `Promise<Wait>`. It may await a read-only, idempotent call, as the [WaitFor rule](../core/step.md#waitfor-versus-execute) allows. Never sleep for business time; return a Timer Condition.
 - In `execute`, find the `anyOf` winner with `context.hasTimerFired(index?)`,
   `channel.results(context)`, or `SubFlow.getConditionResults(context, i)`.
 - `Wait.anyCombinationOf(ConditionCombination.of(...))` requires a non-empty,

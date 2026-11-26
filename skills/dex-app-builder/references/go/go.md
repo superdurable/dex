@@ -236,7 +236,8 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 - `time.Sleep` in `Execute` holds the attempt. Durable waits use a Timer in
   `WaitFor`, including the interval of a Timer polling loop. Sleep only
   between rounds of a heartbeating polling loop.
-- Give every Client call a bounded `context.Context`.
+- Pass the caller's `context.Context` to Client calls, and bound Client waits
+  with a deadline.
 - Map instance names are non-empty and contain no `/`.
 
 ## Completion checklist
@@ -245,7 +246,7 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 - [ ] Type names follow the default-name rule.
 - [ ] Flow and Step types are domain names, never `Init`, `Start`, or `Process`.
 - [ ] Every error is returned or matched with `errors.As`; none is parsed from text.
-- [ ] Every Client call has a deadline.
+- [ ] Client waits have a deadline.
 - [ ] External effects use an idempotency key from durable identity.
-- [ ] Tests run against a real Dex Server with unique Flow IDs.
+- [ ] Tests, when the project has them, run against a real Dex Server with unique Flow IDs.
 - [ ] Application code uses only the public SDK.

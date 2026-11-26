@@ -149,9 +149,9 @@ fn await_order_status(&self, flow_id: &str, expected: &str) {
 
 Report the last observed value in the panic message.
 
-## Required scenarios
+## Scenarios to cover
 
-Cover the scenario list in [../core/testing.md](../core/testing.md). In
+Cover the matching scenarios in [../core/testing.md](../core/testing.md). In
 this language:
 
 - Worker replacement: while the Flow waits or retries, start a new Worker

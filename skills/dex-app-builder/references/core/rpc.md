@@ -61,7 +61,7 @@ Do not search for a Run ID before an ordinary RPC. Omit the optional Run ID so t
 
 - One page that needs conversation Attributes, a description, and pending queues gets one read-only snapshot RPC that loads all of them. Do not issue several separately timed requests.
 - When a view needs only stored Attributes and exact map instances, one Client Attribute read call serves it.
-- Never issue sequential Client reads to build one response.
+- Prefer one Client Attribute read or one read-only RPC per response; separate calls can read different commits.
 - Keep separate views as separate RPCs. Do not combine unrelated read models only to save calls.
 
 ## Cancel running Steps from an RPC

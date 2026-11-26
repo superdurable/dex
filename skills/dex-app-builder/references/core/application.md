@@ -42,11 +42,11 @@ Build the smallest end-to-end path first:
 7. Start the Worker and wait for registration.
 8. Define the start identity, duplicate-start behavior, and error outcomes. See [error-handling.md](error-handling.md).
 9. Start the Flow from an HTTP handler, CLI command, or service method.
-10. Add a real-Server integration test that starts the Flow and waits for its result.
+10. When the project has tests or the user asks for them, add a real-Server integration test that starts the Flow and waits for its result.
 
 Add Attributes, Channels, RPCs, Streams, or Connectors only after this path runs.
 
-A complete change includes typed inputs, outputs, and failures; Flow and Step definitions; every persistence schema entry; constructor-injected dependencies; registry wiring; Worker and Client wiring; an application boundary; and a real Dex Server integration test.
+A complete change includes typed inputs, outputs, and failures; Flow and Step definitions; every persistence schema entry; constructor-injected dependencies; registry wiring; Worker and Client wiring; and an application boundary. When the project has tests or the user asks for them, it also includes a real Dex Server integration test.
 
 ## Dispatch
 
@@ -62,7 +62,7 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 - Each open slot is served by one stream. Its maximum concurrent task count is its slot count. A fixed Worker keeps every slot's stream open. An adaptive Worker, which sets a floor below its slot count, opens streams only as load needs them.
 - Dex sends a task only to a free slot, so a Worker never declines work for capacity. A Step that finds every Step slot busy waits in the task queue.
-- A Worker reserves RPC-only slots so RPCs still run while Steps fill the rest. Size the slot count for both Step concurrency and RPC demand: to keep eight Steps running with one reserved slot, use nine slots. Raise the reserve for Workers whose Steps hold slots for minutes.
+- A Worker reserves RPC-only slots so RPCs still run while Steps fill the rest. Raise the reserved RPC slots for Workers whose Steps hold slots for minutes.
 - A freed slot goes to waiting RPCs before waiting Steps.
 - The Server caps slots per Worker and streams per node. When the slot count exceeds the per-Worker cap, a fixed Worker with an explicit slot count fails to start. A fixed Worker with the slot count unset, and an adaptive Worker, clamp the slot count to the cap and log a warning. Plan both caps for rolling overlap.
 - Scale Workers on the Server's task queue depth and oldest-age metrics. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#step-task-queue).
@@ -70,7 +70,7 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 Size each Worker with this checklist. Defaults, caps, and metric names are in the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#choose-slot-count).
 
-- A Worker is adaptive by default, unless its derived floor equals its slot count. Set the slot count explicitly for every production Worker. In containers and schedulers the CPU count can show the whole host and inflate the derived floor, so set both the floor and the slot count there. The Server Workers reference lists the SDK defaults.
+- A Worker is adaptive by default, unless its derived floor equals its slot count. In containers and schedulers, set the slot count and the floor explicitly, because the CPU count can show the whole host and inflate the derived floor. The Server Workers reference lists the SDK defaults.
 - I/O-bound handlers (model calls, HTTP, databases) need many slots, within the downstream rate limits.
 - CPU-bound handlers need about one slot per allocated CPU. To grow throughput, add Worker processes with more CPU capacity; extra processes on the same saturated CPUs add nothing. Python sync handlers share a thread pool, so CPU-bound Python work needs more processes.
 - A fixed Worker holds a Server stream for every slot, idle or busy, so size slots for the expected load, not for the cap. An adaptive Worker holds about its floor while idle and grows under load. A Worker is adaptive by default, unless its derived floor equals its slot count. Set the floor equal to the slot count to make a Worker fixed. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#adaptive-slot-streams).
@@ -124,7 +124,7 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 
 ### Lock business behavior at Flow start
 
-- Persist a business-version value at start, in an Attribute or the start input, and branch on it. Do not branch on the Worker build.
+- When a rule change must not affect open Flows, persist a business version at start, in an Attribute or the start input, and branch on it. Do not branch on the Worker build.
 - A rollout alone is not a versioning strategy.
 
 ### Evolve data and contracts additively
@@ -139,7 +139,7 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 ### Keep old definitions until old Flows finish
 
 - Keep old Step and RPC handlers while open Flow runs can reach them, through retries and any approved time travel.
-- Before removing a definition, search for Flows that can still reach it, including recoverable terminal Flows. For example: `dexcli flow search --query 'FlowType = "OldFlowType"'`. Keep the result with the change record.
+- Before removing a definition, search for Flows that can still reach it, including recoverable terminal Flows. For example: `dexcli flow search --query 'FlowType = "OldFlowType"'`.
 - During a rolling deployment that adds Step types or RPC names, start the new Workers first. Dex hands a Step only to a Worker that registers its Step type. A Step type that no connected Worker registers waits in the task queue without consuming an attempt, and an RPC name that no connected Worker registers fails. Old Workers still run every name they do register, so keep changed logic compatible.
 
 ### Steps that already wait
@@ -155,7 +155,7 @@ A deploy never changes the conditions of a Step that already waits. A Step that 
 To shorten deadlines, run a periodic job or an operator action:
 
 1. Page through `SearchFlows` by Flow type and execution status to find candidate runs. Add `ActiveStepTypes` when the Flow config enables active-Step search.
-2. For each run, read the business start time and the exact Step execution number from business state with the public Client: a registered Attribute, an AttributeMap instance with a known key, or an existing business record. In Python and TypeScript, `GetFlowState` can also confirm the waiting execution number.
+2. For each run, read the business start time and the exact Step execution number from business state with the public Client: a registered Attribute, an AttributeMap instance with a known key, or an existing business record.
 3. Call `SkipTimer` on each old Timer past its new deadline. Select it by the Condition ID or index of the old `WaitFor`.
 
 - The search `StartTime` is the Flow run's start time, not the business start time.
@@ -174,7 +174,7 @@ Upgrading the SDK and changing the Flow model are separate decisions. Test one F
 ## Logs and metrics
 
 - Put high-cardinality IDs, such as the Flow ID, run ID, and Step execution ID, in structured log fields. Never use them as metric labels; each value would create a new metric series.
-- Log those IDs, the Flow type, the Step type, and the attempt number on every handler log line, so a log line maps to one attempt.
+- Log those IDs, the Flow type, the Step type, and the attempt number on handler log lines, preferably every one, so a log line maps to one attempt.
 - Label metrics only with bounded values, such as the Flow type, the Step type, and an outcome.
 
 ## Worker API availability
@@ -192,6 +192,6 @@ When a Step or RPC fails because the Worker API is unavailable:
 
 - Do the Worker and the Client share one registry and payload configuration?
 - Does the Worker wait for registration before serving, and stop gracefully before exit?
-- Is the slot count set explicitly and sized for Steps plus reserved RPC capacity?
+- In containers, are the slot count and floor set explicitly?
 - Are credentials and TLS configured independently on the Client and the Worker?
 - Is business behavior locked at Flow start, with old definitions kept until old Flows finish?

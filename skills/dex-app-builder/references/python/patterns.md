@@ -114,10 +114,13 @@ class AwaitJob(Step[str]):
             await asyncio.sleep(POLL_INTERVAL.total_seconds())
 ```
 
-- Bound each provider call with `asyncio.wait_for`; never block the event
-  loop with a sync client.
-- Keep `POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10 s`,
-  against the `heartbeat_timeout` the Step sets. Raise it only when a healthy
+- Await provider calls, so cancellation reaches them at the `await`; never
+  block the event loop with a sync client. A synchronous call cannot observe
+  cancellation and keeps its Worker slot until it returns, so give it its own
+  timeout, as `asyncio.wait_for` does here.
+- Keep the longest gap between heartbeats, including `POLL_INTERVAL` and the
+  slowest healthy call, below the `heartbeat_timeout` the Step sets, with a
+  margin. Raise it only when a healthy
   call is silent longer. The default is in the
   [StepOptions reference](https://docs.superdurable.io/reference/python/step-options#defaults).
 - `maximum_attempts` stays small, such as 3 to 5. `total_duration` bounds the

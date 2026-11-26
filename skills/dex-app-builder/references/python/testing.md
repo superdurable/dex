@@ -94,7 +94,8 @@ async def test_greeting_completes(client: AsyncClient) -> None:
 Client calls take the registered Flow instance. In a real suite, import it
 from the application's composition module.
 
-- Generate every Flow ID with `uuid4().hex`.
+- Generate every test Flow ID with `uuid4().hex`; application Flow IDs derive
+  from the business key.
 - Bound every wait: `wait_for_flow(flow_id, timeout)`, `request_timeout` on
   Attribute and Step waits. Never `await asyncio.sleep(...)` as the assertion.
 - Skip the suite with a clear message when `health_check()` fails.

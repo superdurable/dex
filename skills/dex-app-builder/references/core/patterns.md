@@ -121,7 +121,7 @@ ReserveStock.execute  -> deadEnd() or gracefulComplete(...)
 ```
 
 - Add a join only when the business outcome needs one.
-- Give each fixed kind of work its own domain-named Step type, even when the branches look alike. Never run fixed kinds of work as one Step type with a kind field: the graph hides them, and they cannot have their own StepOptions or failure routes.
+- Prefer one domain-named Step type per fixed kind of work, even when the branches look alike. One Step type with a kind field hides them from the graph, and they cannot have their own StepOptions or failure routes.
 
 ### Dynamic parallel Steps
 
@@ -188,7 +188,7 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
-- Each branch is its own Step execution. Never collect the first k of n results inside one Execute with in-process concurrency; each branch needs its own retries, failure route, and durable result.
+- Each branch is its own Step execution, with its own retries, failure route, and durable result. Collect the first k of n inside one Execute with in-process concurrency only for idempotent reads that succeed or retry together.
 - In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
@@ -202,14 +202,14 @@ RequestQuotes.execute -> goToMany(FetchQuote(a), FetchQuote(b), FetchQuote(c))
 FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 ```
 
-- Never race several external calls or business branches inside one Execute with in-process concurrency, such as `Promise.any`, asyncio tasks, or threads. Use GoToMany with a sibling cancel, or a Join, so each branch has its own retries, failure route, and durable result.
+- When branches make their own external effects or need their own retries, failure routes, or durable results, race them as Steps: GoToMany with a sibling cancel, or a Join. In-process concurrency inside one Execute, such as `Promise.any`, asyncio tasks, or threads, is fine for idempotent reads that succeed or retry together.
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
 - Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. A reservation that must be released uses an expiring lease or a durable compensation branch keyed by the business ID. The language reference names the signal.
 
 ## Parallel SubFlows
 
-Apply these only after a SubFlow passes the [evolution gate](subflow.md#evolution-gate). Define parent completion, child reuse, cancellation, duplicate submission, and concurrency explicitly. Go folder: `parallel-subflows`.
+Use these when the children need their own lifecycle, history, or retries; see [subflow.md](subflow.md#when-to-use-a-subflow). Define parent completion, child reuse, cancellation, duplicate submission, and concurrency explicitly. Go folder: `parallel-subflows`.
 
 ### Basic
 
@@ -321,7 +321,7 @@ The parent's first Step publishes its start input to Requests, so nothing is los
 Separate admission from processing and make admission durable.
 
 - The Client starts a short submit Flow instead of retrying an RPC in memory.
-- When the parent's RPC returns false (buffer full), the submit Step returns an error so its retry policy backs off durably. An already-started error is handled the same way.
+- When the parent's RPC returns false (buffer full), the submit Step returns an error so its retry policy backs off durably. An already-started error is handled the same way. This retry backs off a full admission inside Dex; it is not polling an external system.
 - On acceptance, the submit Flow completes with the parent ID.
 - Submissions survive submitter and Worker restarts.
 
@@ -344,7 +344,7 @@ Each round waits for a Timer in WaitFor, calls the provider once in Execute, and
 
 ```text
 StartJob.execute(request)
-    jobId = provider.startJob(idempotencyKey = flowId, timeout = short)
+    jobId = provider.startJob(idempotencyKey = flowId, cancel = context's cancellation signal)
     return goTo(CheckJobStatus, {jobId, round = 1})
 
 CheckJobStatus options:
@@ -352,31 +352,29 @@ CheckJobStatus options:
     execute failure route    = RecordJobWaitFailure
 
 CheckJobStatus.waitFor(context, input)
-    return until(Timer(interval, conditionId = "poll-interval"))
+    return until(Timer(interval))
 
 CheckJobStatus.execute(context, input)
-    status = provider.getStatus(input.jobId, timeout = short)   // error -> return error; retry policy re-runs
+    status = provider.getStatus(input.jobId, cancel = context's cancellation signal)   // error -> return error; retry policy re-runs
     if status is succeeded: return gracefulComplete(result)
     if status is failed:    return forceFail(reason)
     if input.round >= maxRounds: return forceFail("did not finish")
     return goTo(CheckJobStatus, {input.jobId, input.round + 1})
 ```
 
-- "Not ready yet" is a normal decision: GoTo the same Step. Never an error.
-- Bound the loop. Carry a round number in the input and stop at a maximum. The round limit bounds the number of checks, not elapsed time: calls, retries, and queueing add time to each round. A hard deadline uses the Flow timeout or a watchdog Timer.
+- Prefer "not ready yet" as a normal decision: GoTo the same Step. Returning it as an error mixes not-ready with real failures and spends the retry budget.
+- Bound the loop with a round limit, the Flow timeout, or a watchdog Timer. A round number in the input bounds the number of checks, not elapsed time: calls, retries, and queueing add time to each round. A hard deadline uses the Flow timeout or a watchdog Timer.
 - Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
 - WaitFor only declares the Timer. The provider call runs in Execute.
 - The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
 - For an interval of a few seconds or less, use the heartbeat shape.
-- Give the Timer a condition ID. Tests skip it with SkipTimer; never shorten the interval for a test.
+- Pass the cancellation signal to provider calls that accept it; give a blocking call that cannot observe cancellation its own timeout.
 
 Never:
 
 - Call the provider in WaitFor.
-- Use retry policy, backoff, or RetryAfter as the polling loop by returning "not ready" as an error.
-- Loop without a maximum round count or deadline.
+- Loop without any bound.
 - Grow the Step input each round.
-- Call an external system without its own timeout.
 - Start a new Flow for each round or page.
 
 ### Polling with long-running Step heartbeat
@@ -385,7 +383,7 @@ One long-running Execute owns the whole wait. Go folder: `polling`.
 
 ```text
 StartJob.execute(request)
-    jobId = provider.startJob(idempotencyKey = flowId, timeout = short)
+    jobId = provider.startJob(idempotencyKey = flowId, cancel = context's cancellation signal)
     return goTo(AwaitJob, jobId)
 
 AwaitJob options:
@@ -398,7 +396,7 @@ AwaitJob options:
 AwaitJob.execute(context, jobId)
     lastReported = context.lastHeartbeatValue()
     loop:
-        status = provider.getStatus(jobId, timeout = short)   // error -> return error; retry policy re-runs
+        status = provider.getStatus(jobId, cancel = context's cancellation signal)   // error -> return error; retry policy re-runs
         if status is succeeded: return gracefulComplete(result)
         if status is failed:    return forceFail(reason)      // a definite business failure
         if status != lastReported: JobProgress.write(status); lastReported = status
@@ -409,32 +407,30 @@ RecordJobWaitFailure.execute(context)
     read context.recoveryError() (detail, error type); record the business failure
 ```
 
-- "Not ready yet" is a normal loop branch, never an error.
-- Keep `interval + call timeout <= heartbeat timeout - 10 s`, against the heartbeat timeout the Step uses. Its default is in each SDK's [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
+- Prefer "not ready yet" as a normal loop branch; as an error it mixes with real failures and spends the retry budget.
+- Keep the longest gap between heartbeats, including the slowest healthy call and the interval, below the heartbeat timeout the Step uses, with a margin. Its default is in each SDK's [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Keep the default heartbeat timeout when the loop fits it, so a stalled Worker is detected quickly. Raise it only when a healthy call is silent longer.
 - Within that bound, use a few seconds when a user watches something they just started, and tens of seconds for long jobs.
 - A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, is a watchdog: a waiting Step that races its Timer. The watchdog and the Step that records the result declare the same Attribute lock. When the Timer fires, the watchdog reads the status under that lock and declares the work overdue only while it is still unfinished.
 - The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. Each attempt lasts at most the method timeout. After a failure, the total duration only decides whether another attempt starts, so recovery can begin well after it. Never use a large attempt count as a time bound.
-- Use the language's plain sleep. Honor cancellation through the language SDK's mechanism. When the provider call accepts a cancellation argument, pass it, and keep the call's own timeout. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](https://docs.superdurable.io/reference/server/runtime-data#cancel-honour).
+- Use the language's plain sleep. Honor cancellation through the language SDK's mechanism. When the provider call accepts a cancellation argument, pass it. Give a blocking call that cannot observe cancellation its own timeout, because the Worker slot is released only when the handler returns. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](https://docs.superdurable.io/reference/server/runtime-data#cancel-honour).
 - The wait limits come from the Step options, and Dex enforces each one: the method timeout ends an attempt, and after a failure the total duration decides whether to schedule another attempt. Queueing can start a scheduled attempt late, and a running attempt is never cut short, so the whole wait can end well after the total duration. The Step code never computes a deadline, and neither the checkpoint nor the input carries one. A hard business deadline uses the watchdog below.
 - The checkpoint is only resume state, such as the last reported status. Resuming from the last stored checkpoint reduces repeated progress frames; it can be lost, so consumers tolerate duplicates and gaps. See [Heartbeat](https://docs.superdurable.io/reference/go/step-options#heartbeat).
 - A business condition that is not a fixed duration, such as a lease the Flow does not own expiring, is still checked inside the loop.
 - Write Stream frames only on status changes. Consumers recover from Attributes or a read-only RPC.
-- Do not hold Execute locks for the whole wait. Commit locked results in a short following Step.
+- Do not hold an Execute lock for the whole wait. Every Step that needs the lock, such as the watchdog, would wait until the loop ends, and every RPC that needs it would fail. Commit locked results in a short following Step.
 - The recovery error does not carry the last status. The Stream and logs do. To branch on which limit ended the wait, follow [recovery error types](error-handling.md#recovery-error-types).
 - Either durability works. With ASYNC, work whose result was not yet saved can run again; the checkpoint is only a resume hint.
 
 Never:
 
-- Use retry policy, backoff, or RetryAfter as the polling loop by returning "not ready" as an error.
 - Run a long loop that never heartbeats or writes progress.
-- Call an external system without its own timeout.
 - Hand-write a deadline that duplicates the method timeout or the retry total duration.
 - Pass a page token to a new execution to iterate.
 
 ## Durable timers
 
-A Timer is a durable Condition, not an in-process timer. Define skip, cancellation, and late-delivery behavior.
+A Timer is a durable Condition, not an in-process timer. A skipped Timer acts as if it fired.
 
 ### Cron schedule
 
@@ -507,7 +503,7 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
     forceCompleteIfChannelsEmpty([Replies, Resolutions], else goTo(AwaitInbound, none))
 ```
 
-- The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
+- The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks, except a reply-window flag as in [Close a reply window](#close-a-reply-window-with-an-attribute-lock).
 - The waiting Step is the only writer of the transcript. It appends every message it consumed, then loops back to itself. The new execution registers a new wait, so the inactivity Timer restarts after each message.
 - Execute asks which Condition won; it never infers the winner from an empty result. A message queued when the wait starts wins at once; otherwise the event that commits first wins. A reply or resolution can still commit after the Timer won. The closing Step's ForceCompleteIfChannelsEmpty catches those messages and returns to the waiting Step, which handles them. Express business priority between Channels by their declaration order.
 - Declare the reply Channel before the resolution Channel in AnyOf. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore always recorded first. If the order must differ, drain the pending replies before you resolve.
@@ -530,7 +526,7 @@ A failure while establishing the wait is recoverable. Go folder: `primitives/pro
 
 ```text
 Lookup options: bounded WaitFor retry; WaitFor failure policy = proceed
-Lookup.waitFor -> may fail (for example a check of Dex state or input, or a read-only, idempotent, time-bounded external call)
+Lookup.waitFor -> may fail (for example a check of Dex state or input, or a read-only, idempotent external call)
 Lookup.execute(context, input)
     if context.waitForMethodFailed(): goTo(Recover, input)    // read context.recoveryError()
     else: normal path
@@ -558,7 +554,7 @@ RestoreQuantity.execute -> compensate; forceFail("payment failed")
 Stop retrying when a provider confirms that an error is permanent, such as a rejected input or a closed account.
 
 - Execute classifies the provider error. A permanent error routes to a failure-handling Step or returns ForceFail. Only an error that can succeed on a later attempt goes to Step retry.
-- When a read-only, idempotent, time-bounded provider call in WaitFor gets a permanent error, WaitFor records it in a Step execution local value and returns a Wait that is ready immediately; Execute routes on it. See [step.md](step.md#waitfor-versus-execute).
+- When a read-only, idempotent provider call in WaitFor gets a permanent error, WaitFor records it in a Step execution local value and returns a Wait that is ready immediately, or the WaitFor failure policy proceeds to Execute; Execute routes on it. See [step.md](step.md#waitfor-versus-execute).
 - Runnable examples: [Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/fail-fast), [Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/fail-fast), [Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/failfast), [TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/fail-fast), [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/fail_fast).
 
 ### Manual recovery
@@ -708,7 +704,7 @@ RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
 - When the wait is evaluated, Dex selects one ready Condition: a ready Timer first, otherwise the first ready Channel in declaration order. When Conditions become ready at different times, the first event to satisfy the wait wins. Declare the decision Channels in business priority order.
-- Declaration order ranks only Channels that are ready when the wait is evaluated. When the business ranks events beyond that, see [Arbitrate by business priority](#arbitrate-by-business-priority).
+- Declaration order ranks only Channels that are ready when the wait is evaluated. When the business ranks responses, keep that rule and state which definition of "the same moment" the design uses; see [Arbitrate by business priority](#arbitrate-by-business-priority).
 - A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. Two responses can also both be accepted before the wait takes one. With the window, the first response closes it: it is recorded and decides, and every later caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
@@ -754,7 +750,7 @@ Rules:
 
 - Every RPC that writes the reply Channel declares the same lock. Locks are cooperative; an RPC without it bypasses the window. Prefer one entry RPC per reply Channel.
 - Lock only Execute. WaitFor and Execute have separate lock sets, and the wait itself holds no lock.
-- Keep the locked Execute short: set the window, check the winner and the size, and route. Put side effects, such as escalation notices or provider calls, in the next Step, with bounded retries. A locked Execute holds the lock through its retry backoff, and every reply meanwhile gets a lock conflict.
+- The reply RPCs take this lock, so the locked Execute makes no external call: set the window, check the winner and the size, and route. Put side effects, such as escalation notices or provider calls, in the next Step. A locked Execute holds the lock through its retry backoff, and every reply meanwhile gets a lock conflict.
 - Give the locked Execute an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The defaults are in each SDK's [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Callers retry a lock conflict with bounded backoff. Keep the reply idempotent, for example with a business reply ID.
 - After the Flow closes, a reply RPC fails before its handler runs. A caller that must answer "window closed" then reads the retained Flow to tell a closed Flow from one that never existed.
@@ -764,13 +760,18 @@ Rules:
 
 ### Arbitrate by business priority
 
-Use this when the business ranks events against each other, such as a withdrawal over a decision. "Arrives at the same moment" is not a boundary Dex can enforce: a lower-ranked event that commits first satisfies the wait before a higher-ranked one commits. Choose the boundary explicitly.
+Use this when the business ranks events against each other, such as a withdrawal over a decision, or "a confirmation wins over a decline that arrives at the same moment". Keep the priority rule; never drop it as unenforceable. State in the design which definition of "the same moment" the code uses. Both are valid:
+
+- **(a) Server commit order.** A reply window or lock admits replies one commit at a time. The first committed reply wins, so ties never occur.
+- **(b) Events present when the wait is evaluated.** The events ready when the waiting Step's wait is evaluated are ranked, by AnyOf declaration order or by an Execute check. An event that commits later is not part of that moment.
+
+A reply window may be combined with ranked replies, for example by ranking the replies present when the locked Execute closes the window.
 
 | Business rule | Recipe |
 | --- | --- |
-| Rank only events already ready when the wait is evaluated | Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued. |
+| Rank only events already ready when the wait is evaluated, definition (b) | Declare the Channels in rank order and use the messages the winning Condition consumed. A Timer in the same wait that is also ready is selected first, and the messages stay queued; when that matters, Execute checks the higher-ranked Channel first, for example by its size, before taking the Timer branch. |
 | Rank every event admitted before the decision closes | Keep each round's window and candidates in AttributeMaps keyed by a round ID that is never reused, not in Channels. Each RPC names its round and appends its candidate under that round's instance locks; the arbitration Step closes that round's window under the same locks and picks the winner from its candidates. See the skeleton below. |
-| The first response wins and later callers get "window closed" | [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock). This is a different, valid policy. |
+| The first committed response wins and later callers get "window closed", definition (a) | [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock). |
 
 ```text
 // RoundWindow and RoundCandidates are AttributeMaps keyed by round ID; a round ID is never reused.
@@ -808,7 +809,7 @@ ArbitrationFailed.execute(roundId), the round's locks
 - The Timer is not a hard cutoff; the successful locked close is. A candidate admitted before it is eligible, even after the Timer fired.
 - When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. Give Execute a failure route whose Step, under the same locks, arbitrates again from the stored candidates or closes the round, records the failure, and answers every admitted sender through an idempotent path. It never relies on the wake-up. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
 - Losing candidates stay in the record. Answer their senders through an idempotent path keyed by the candidate key.
-- Never decide between ranked events in an RPC by lock order: lock order is commit order, not business priority.
+- Never present an RPC that decides by lock order as business priority: lock order is commit order, definition (a).
 
 ### Critical section
 
@@ -969,7 +970,7 @@ rpc getPage(token)             // invocation option loads only chunks[token]
 ```
 
 - For an append-only history, archive bounded chunks and load only the requested page.
-- Bound the total as well, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. Size limits per value and per Flow are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
+- For a long-lived Flow, also bound the total, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. Size limits per value and per Flow are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 - The `current` token is always valid; an empty `current` returns an empty page.
 - Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
 - Retry only the rejected invocation after a lock conflict. A few writers share this lock on `current`.
@@ -1022,7 +1023,7 @@ The released dex-agents packages implement this shape. When you use them, check 
 - Keep a short plan in a regular Attribute that is replaced as one value. Derive plan completion from task states, separately from Flow activity.
 - For planning-only interactions, hide executable tools rather than relying on a prompt. Bind plan approval to the current plan revision through a Channel.
 - Commit completed assistant messages and tool results to Attributes. Stream token deltas, tool progress, and status. The UI recovers from durable state.
-- Use separate buffered writers for provider reasoning summaries and visible text, and a third Stream for structured events. Show a Thinking surface only for an explicit provider reasoning-summary event. Never expose hidden reasoning or relabel ordinary text.
+- Consider separate buffered writers for provider reasoning summaries and visible text, and a third Stream for structured events. Show a Thinking surface only for an explicit provider reasoning-summary event. Never expose hidden reasoning or relabel ordinary text.
 - Persist opaque encrypted reasoning items that a provider requires beside the assistant message, and replay them without interpreting them.
 - Raise the heartbeat timeout for model calls that can stay silent; see [step.md](step.md#heartbeats-and-checkpoints).
 
@@ -1080,4 +1081,4 @@ Context rebuild after Worker replacement, compaction before deletion, approval a
 - Are side effects idempotent or compensated?
 - Is progress classified as durable or best effort?
 - Can a replacement Worker resume from durable state alone?
-- Is every external wait one of the two Polling shapes, bounded, and never a retry loop?
+- Is every external wait one of the two Polling shapes and bounded, with "not ready" preferably a normal loop branch rather than a retry?

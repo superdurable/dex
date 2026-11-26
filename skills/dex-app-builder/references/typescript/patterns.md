@@ -108,8 +108,9 @@ class RecordJobWaitFailure implements Step<string> {
 - `executeMethodTimeoutMs`, `executeRetry.totalDurationMs`, and
   `heartbeatTimeoutMs` bound the wait. `ExecuteFailure.proceedTo` routes
   expiry to the recording Step.
-- Keep `poll interval + call timeout <= heartbeatTimeoutMs - 10 s`, against
-  the `heartbeatTimeoutMs` the Step sets. Raise it only when a healthy call is
+- Keep the longest gap between heartbeats, including the poll interval and
+  the slowest healthy call, below the `heartbeatTimeoutMs` the Step sets,
+  with a margin. Raise it only when a healthy call is
   silent longer. The default is in the
   [StepOptions reference](https://docs.superdurable.io/reference/typescript/step-options#defaults).
 - `maximumAttempts` stays small, such as 3 to 5. `totalDurationMs` bounds the

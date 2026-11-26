@@ -16,12 +16,12 @@ Classify a failure at the narrowest boundary that has enough context to decide w
 
 Rules:
 
-- Catch only the concrete SDK errors whose outcome the code can decide.
+- Prefer catching the concrete SDK errors whose outcome the code can decide.
 - Do not enumerate every Client failure just to turn them all into one retryable response. Leave an unclassified failure to ordinary server-error handling.
 - A narrow reconciliation boundary after a failed mutation may handle documented remote failures only when each one leaves the same mutation outcome uncertain.
 - Use a named status or sub-status only when the SDK has no more specific error type.
 - Never branch on human-readable error detail or raw numeric codes.
-- Never catch a language's broad runtime or exception base for service-error translation.
+- Prefer not to catch a language's broad runtime or exception base for service-error translation; it hides local defects.
 
 The error model is language-specific. Python, Java, and TypeScript have a remote-only service-error base. Go concrete remote errors unwrap to a service error type. Rust uses one error enum for service and local failures. Never copy a catch pattern between SDKs.
 
@@ -47,7 +47,7 @@ Every SDK maps these server outcomes to typed errors. The language files give th
 The Server reports capacity and rate-limit failures as RESOURCE_EXHAUSTED, not INTERNAL. The response keeps the message and any retry-delay hint.
 
 - Use the SDK's named status and the available details. Do not parse text.
-- Retry with bounded backoff and jitter inside the caller's deadline. Honor a retry hint when present.
+- Treat it as retryable. When the SDK has not already retried, retry with backoff inside the caller's deadline, honoring a retry hint when present.
 - A failed mutation can still have an uncertain outcome. Reconcile through its stable identity before you repeat an effect.
 - SDK-managed retries can already use up the deadline. Do not stack unbounded retry loops.
 - A pull Worker stream rejected with RESOURCE_EXHAUSTED is a registration problem, not a Client API failure. See [application.md](application.md#worker-registration-and-readiness).
@@ -271,19 +271,16 @@ Time travel (reset):
 - Use it after a code fix, when replaying from a safe Step boundary will not duplicate an unprotected side effect.
 - It keeps the run ID and creates a new run attempt.
 - Keep the original Flow ID and operation identity. Reconcile provider objects and accepted writes first.
-- The target must lie inside the run's retained history window. An older point fails and leaves the Flow unchanged. Resetting to the beginning always works.
-- It can fail when rebuilding the target needs a permission value that retention already removed. Pick a later point.
 - It cannot invent a missing method boundary or rewrite the original start options. Decide whether replaying later writes is safe before you skip them.
-- It does not restore a deleted hard-delete Attribute value.
+- Which points are available and what it restores are in the [time travel reference](https://docs.superdurable.io/reference/server/runtime-client#time-travel).
 
 Clone fork:
 
-- It creates a new Flow, with a new Flow ID, from another run's state at a point. The point is the current state or an earlier one inside the retained history window. The beginning is always available.
-- It copies state, not history. The new run gets the Attributes, pending Channel messages, Steps, and waits of that point, and starts a history of its own. Hard-delete Attributes are the exception: they take the source's current values, as in a time travel. It does not copy the source's history, Stream messages, parent, or input that reached the source after the point.
-- It only reads the source. The source keeps its Flow ID, Run ID, and run attempt, and a running source keeps running.
+- It creates a new Flow, with a new Flow ID, from another run's state at a point.
+- It copies state, not history. The new run gets the Attributes, pending Channel messages, Steps, and waits of that point, and starts a history of its own.
+- It only reads the source. A running source keeps running.
 - Use a distinct Flow ID for the fork; keep the new Flow ID, Request ID, and options stable across retries.
 - Steps that were running at the point run again in the new Flow. Apply the same idempotency rules as for time travel, and key external effects by the new Flow ID, not the source's.
-- The state at the point must be running. Select an earlier point when the source had begun to close.
 
 | Need | Use |
 | --- | --- |
@@ -292,25 +289,9 @@ Clone fork:
 | Try another path from a past point and keep the original | Clone fork |
 | Start a Flow from fresh input with no source state | StartFlow |
 
-Clone fork anti-patterns:
+Give the forked Flow its own business identity; the two Flows are not one business resource. When Workers pick Flows by task queue, such as for an agent session, give the fork its own task queue, and fork an agent session with the agent session fork, not a raw clone fork.
 
-- Forking an agent session with a raw clone fork at an arbitrary point. Use the agent session fork, which copies only a point between two turns, so no turn is cut in half.
-- Forking a Flow whose Workers pick Flows by task queue, such as an agent session, without giving the new Flow its own task queue. The source's Workers then also run the new Flow's Steps.
-- Using a clone fork to escape a failed history when time travel of the same Flow is the intended recovery.
-- Expecting the new Flow to share the source's later input, history, or Stream messages.
-- Forking a Flow that holds an unprotected external side effect in a running Step, with no idempotency key.
-- Treating the two Flows as one business resource. Give the new Flow its own business identity.
-
-SubFlow reset policy, for time travel and clone fork:
-
-- A restored or copied Step may wait on a SubFlow Condition. The policy decides what each such wait does: attach to the original child and take its result, restart the child, fail the wait, or reject the whole call.
-- Choose attach when the child result still counts. Choose restart when the child must run again under the new state. Choose fail when the wait should end as an abandoned child. Choose reject when no automatic choice is safe.
-- Under time travel, an attached child that still runs keeps the wait open until it ends.
-- Under clone fork, the source's children report only to the source and never change. Only a child that has ended can be attached. For a child that still runs, an attach-else policy takes its fallback: restart, fail, or reject.
-- A restarted child under clone fork is a new child of the new Flow. The source's child keeps running for the source.
-- Under time travel, restarting a child replaces its run under the same Flow ID and terminates it first if it still runs; failing its wait terminates the child if it may still run.
-- A restart repeats the child's start, so the child's external effects need idempotency keys.
-- Pick the policy explicitly when the default is not what the recovery needs. See the [Developer reference](https://docs.superdurable.io/reference/server/runtime-client#sub-flows-across-a-clone-fork) for the values.
+SubFlow reset policy, for time travel and clone fork: a restored or copied Step may wait on a SubFlow Condition, and the policy decides whether that wait attaches to the original child, restarts it, fails, or rejects the call. A restart repeats the child's start, so the child's external effects need idempotency keys. Pick the policy explicitly when the default does not fit; see [SubFlows across a time travel](https://docs.superdurable.io/reference/server/runtime-client#sub-flows-across-a-time-travel) and [across a clone fork](https://docs.superdurable.io/reference/server/runtime-client#sub-flows-across-a-clone-fork).
 
 Details of the request, point types, copied state, and errors are in the [clone fork reference](https://docs.superdurable.io/reference/server/runtime-client#clone-fork).
 

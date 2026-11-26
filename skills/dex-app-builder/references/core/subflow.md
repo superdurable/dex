@@ -4,17 +4,9 @@ A SubFlow is a child Flow run that a parent Step starts in WaitFor and waits on 
 
 A separate top-level Flow that a Step starts through a Client is not a SubFlow. See [flow.md](flow.md#own-downstream-starts-durably). A child job that needs its own business identity, such as a number people look it up, retry it, or stop it by, is such a top-level child Flow; see [flow.md](flow.md#child-jobs-with-their-own-identity).
 
-## Evolution gate
+## When to use a SubFlow
 
-Default a new design to no SubFlows. Parallel Steps cover work that shares one Flow identity and lifecycle. Propose a SubFlow only when all of these hold:
-
-1. An existing single-Flow design or running system gives evidence. A concern that it may become complex later is not evidence.
-2. The main graph is already impractical to review, evolve, or operate, or one fan-out needs more than about 200 concurrent Step executions.
-3. Parallel Steps, batching, Channel coordination, RPCs, and ordinary code abstraction were evaluated and rejected with reasons.
-4. Child identity, input and output, parent completion, cancellation, failure, retry, duplicate submission, and concurrency are defined.
-5. The user explicitly confirms the SubFlow design.
-
-The 200-Step value is an architecture-review threshold for this skill, not a Dex limit. Crossing it permits a proposal; it does not select a SubFlow. Code reuse, provider abstraction, an independent retry policy, or ordinary parallelism is never enough.
+Prefer parallel Steps inside one Flow. Use a SubFlow when the child needs its own lifecycle, history, or retries, or when one fan-out is very large. Define the child's input, output, cancellation, and failure handling. Code reuse or provider abstraction alone is better served by ordinary language helpers.
 
 ## Shape
 
@@ -50,7 +42,7 @@ ParentStep.execute(context, input)
 
 ## Self-check
 
-- Did the SubFlow pass the evolution gate, with explicit user confirmation?
+- Does the child need its own lifecycle, history, or retries, or is the fan-out very large? Otherwise, would parallel Steps do?
 - Is the child start input typed and matching the child's start Step?
 - Are parent completion, child cancellation, failure, and duplicate submission defined?
 - Is fan-out bounded?

@@ -124,8 +124,8 @@ Ask four questions together:
    every poll?
 
 A yes to question 4 rules the split out, whatever the other answers. Every
-call between Flows adds history to both Flows. Every RPC, including a
-read-only one, is a separate engine operation with its own latency and cost.
+call between Flows, including a read-only RPC, adds latency and history to
+both Flows.
 For example, a separate Flow that tracks another Flow's inactivity needs a
 message on every operation. Keep that deadline in the Flow where the
 operations happen. Calls between Flows are fine for rare events: a start, a
@@ -141,29 +141,16 @@ owner, so it never pollutes the authoritative store.
 
 ### Execution shape
 
-| Candidate work | Same business lifecycle | Parallel-Step or batching option | Observed complexity or concurrent Step count | Explicit SubFlow confirmation | Decision and rejected alternatives |
-| --- | --- | --- | --- | --- | --- |
-| product-specific | yes or no | concrete option | measured requirement, not speculation | required before a SubFlow | Step, independent top-level Flow, or confirmed SubFlow |
+| Candidate work | Same business lifecycle | Parallel-Step or batching option | Needs its own lifecycle, history, or retries, or a very large fan-out | Decision |
+| --- | --- | --- | --- | --- |
+| product-specific | yes or no | concrete option | yes or no | Step, independent top-level Flow, or SubFlow |
 
-New applications default to no SubFlows. Use static or dynamic parallel
-Steps, a Join for parallel branches, Channels for quorum, batching, typed RPCs, and ordinary
-helper functions first. Provider abstraction, research stages, model calls, code reuse,
-an independent retry policy, and ordinary bounded fan-out never justify a
-SubFlow.
-
-Propose a SubFlow only when all of these hold:
-
-1. An existing design or running system gives evidence, not a worry about
-   future complexity.
-2. The main graph is already impractical to review, evolve, or operate, or a
-   fan-out needs more than about 200 concurrent Step executions. That number
-   is an architecture-review threshold, not a Server limit. Crossing it
-   permits a proposal; it never selects a SubFlow on its own.
-3. Parallel Steps, batching, Channel coordination, RPCs, and code abstraction
-   were evaluated and rejected with reasons.
-4. Child identity, input and output, parent completion, cancellation,
-   failure, retry, duplicate submission, and concurrency are defined.
-5. The user explicitly confirms the SubFlow design.
+Prefer parallel Steps inside one Flow: static or dynamic parallel Steps, a
+Join for parallel branches, Channels for quorum, batching, typed RPCs, and
+ordinary helper functions. Use a SubFlow when the child needs its own
+lifecycle, history, or retries, or when one fan-out is very large. Define the
+child's input, output, cancellation, and failure handling. Code reuse or
+provider abstraction alone is better served by helper functions.
 
 ## Storage decision
 
@@ -243,8 +230,7 @@ already answers it. Load
 one.
 
 When the user declines, the application calls the system from its own Step
-code in `Execute`. Each call keeps an idempotency identity, a bounded timeout,
-and recovery. Its credentials stay out of code and Flow state.
+code in `Execute`. Each call keeps an idempotency identity and recovery. Its credentials stay out of code and Flow state.
 
 When the user wants a released Connector, create a Connector capability
 matrix for every Trigger, Query, Mutation, and integration UI. Follow the

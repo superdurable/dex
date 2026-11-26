@@ -62,7 +62,7 @@ Errors:
 
 ## Read-after-write
 
-Classify every write API and read API pair. A returned call, a completed future, or a nil error proves only that the API's own response boundary was reached.
+After an RPC write, a direct read of the same state sees it; do not poll. Search and Attribute Store tables lag. A direct read does not prove that triggered Steps finished. A returned call, a completed future, or a nil error proves only that the API's own response boundary was reached. The table below is a reference for less common pairs.
 
 Three different guarantees:
 
@@ -124,7 +124,7 @@ Every result or status a user must see has a durable read path: a result Attribu
 ## Self-check
 
 - Does every business decision and status write live in a Step or RPC, with the caller only supplying facts and reading results?
-- Is each read after a write classified by the matrix above, with no polling on strong pairs?
+- Is a direct read after an RPC write read once, with polling kept for search and Attribute Store tables?
 - Does each response read all its values in one Client Attribute read call or one read-only RPC?
 - Is every wait bounded by a request timeout at an HTTP boundary?
 - Is search used only for discovery, never as proof of a write?
