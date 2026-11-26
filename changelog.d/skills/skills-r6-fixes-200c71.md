@@ -1,9 +1,9 @@
 ---
 bump: patch
 ---
-- When one event must win over another that arrives at the same moment, the RPCs only publish and one waiting Step decides; never decide between ranked events in an RPC under a lock.
-- Locks cover short commits only: no Execute lock on a Step that calls an external system, polls, sleeps, or races sibling Steps.
-- Every external call has its own timeout; the code check adds items for call timeouts, heartbeat timeouts, retry budgets, and lock scope, and splits the deadline item into separate checks.
-- A clear build request is delivered complete; the owner review no longer invites stopping early when the owner cannot be asked.
-- SKILL.md adds pattern rows for a bounded concurrency pool and for controlling long-running work, and adds rules for child Flows that fail without reporting, Request IDs from the complete request, the partition count constant, and Client use inside a Step.
+- Ranked events need an explicit arbitration boundary: Channel order ranks only events queued at evaluation; to rank every admitted event, an arbitration Step closes admission under a shared lock and compares consumed and pending messages. Never decide by RPC lock order.
+- Locks cover short commits only: no Execute lock on a Step that makes a slow external call, polls, sleeps, or waits long.
+- Every external call has its own timeout; the heartbeat timeout covers the longest silent interval with a margin. The code check adds these items and splits the deadline item into separate checks.
+- Complete all requested deliverables; pause only the part that needs a missing fact, access, approval, decision, or API. Record routine decisions and keep required approvals.
+- SKILL.md adds pattern rows for a bounded concurrency pool and for controlling long-running work, and rules for child Flows that end without reporting, start dedup with a stable Request ID, the partition count constant, and Client use inside a Step.
 - The Polling row now forbids polling the provider in WaitFor, consistent with the read-only, time-bounded WaitFor call rule.

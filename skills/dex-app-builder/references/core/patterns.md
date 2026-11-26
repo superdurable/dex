@@ -670,7 +670,7 @@ RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - In Execute, check which Condition fired. Never treat "no Channel result" as "the deadline passed".
 - A response already queued when the wait starts wins at once. Otherwise the event that commits first wins. Declare the decision Channels in business priority order; it decides between responses that are both queued.
-- When the business ranks one event over another that arrives at the same moment, such as a withdrawal over a decision, the RPCs only publish and this waiting Step decides. Execute checks the higher-ranked Channel for a pending message first, even when another Condition fired. A window lock must never let a lower-ranked event's RPC refuse a higher-ranked one; lock order is commit order, not business priority.
+- Declaration order ranks only Channels that are ready when the wait is evaluated. When the business ranks events beyond that, see [Arbitrate by business priority](#arbitrate-by-business-priority).
 - A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. Two responses can also both be accepted before the wait takes one. With the window, the first response closes it: it is recorded and decides, and every later caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
@@ -723,6 +723,34 @@ Rules:
 - Close the window in the reply RPC and in the Execute on every branch, so a reply after the first reply or after the decision gets "window closed".
 - To wait again, such as a new reply round, reopen the window under the same lock, in the Execute that starts the next wait.
 - Test it: a reply before the deadline decides; two replies sent back to back give one "recorded" and one "window closed"; a reply after the window closed gets "window closed"; a reply that commits after the Timer won but before the locked Execute runs is taken through the size check. In that last test, confirm the Execute is waiting for its locks before the reply RPC releases the lock.
+
+### Arbitrate by business priority
+
+Use this when the business ranks events against each other, such as a withdrawal over a decision. "Arrives at the same moment" is not a boundary Dex can enforce: a lower-ranked event that commits first satisfies the wait before a higher-ranked one commits. Choose the boundary explicitly.
+
+| Business rule | Recipe |
+| --- | --- |
+| Rank only events already queued when the wait is evaluated | Declare the Channels in rank order and use the winning Condition's results. |
+| Rank every event admitted before the decision closes | RPCs validate, publish, and answer "received", never the outcome. One short shared lock guards admission and an admission-closed Attribute. The arbitration Step's Execute takes the same lock, closes admission, explicitly loads the pending messages of the competing Channels, and compares the consumed Condition result with the pending candidates. |
+| The first response wins and later callers get "window closed" | [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock). This is a different, valid policy. |
+
+```text
+rpc submitWithdrawal(w), locks admissionClosed  -> if admissionClosed: return closed
+                                                   Withdrawals.publish(w); return received
+rpc submitDecision(d): the same, publishing to Decisions
+
+Arbitrate.waitFor -> AnyOf(Withdrawals.ForOne(), Decisions.ForOne(), Timer(deadline))
+Arbitrate.execute, locks admissionClosed, loads Withdrawals and Decisions, short retry budget
+    admissionClosed.set(true)
+    candidates = the consumed result + Withdrawals.pending + Decisions.pending
+    winner = the highest-ranked candidate; within one Channel, the consumed message, which is older
+    delete the winner by message ID if it is still pending; handle the others by the business rule
+    route on the winner; with no candidate, route on the Timer
+```
+
+- The pending-message load is a snapshot of the Execute attempt; it does not consume messages and is not refreshed on retry. The shared lock keeps new admissions out while Execute holds it, through its retries.
+- Events admitted before Execute takes the lock are eligible, including ones that commit after the Timer fired. The Timer is not a hard cutoff; the locked Execute is.
+- Never decide between ranked events in an RPC by lock order: lock order is commit order, not business priority.
 
 ### Critical section
 
