@@ -18,6 +18,8 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
+require github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4 // indirect

@@ -10,6 +10,7 @@ package flowviz
 
 import (
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -138,6 +139,10 @@ type typeScriptLockedMethodCase struct {
 	extraSource string
 	// projectFiles are other project source files, by path relative to workflow.ts.
 	projectFiles map[string]string
+	// sendInputCodec replaces SendReminderStep's stringCodec input codec when set.
+	sendInputCodec string
+	// linkedOutsideFiles are written under node_modules outside the project and linked from the given path.
+	linkedOutsideFiles map[string]string
 }
 
 const typeScriptReminderStateSource = `import { jsonCodec } from "@superdurable/dex";
@@ -307,6 +312,37 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			},
 			isExecuteClean: true,
 		},
+		"fallback branch reaches a Dex Client": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const target = input ? ending : this.flow.client;\n    if (\"stopFlow\" in target) void target.stopFlow(input);",
+			},
+			messages: []string{"and calls target.stopFlow" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is a written array": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const local: Mailer[] = [];\n    local.push(this.flow.mailer);\n    const chosen = reminderState.get(context) ?? local;\n    const item = chosen[0] as Mailer;\n    void item.send(input);",
+				extraSource: typeScriptReminderStateSource,
+			},
+			messages: []string{"and calls item.send" + typeScriptLockedMessageSuffix},
+		},
+		"Step input decoded by a custom codec": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void (input as unknown as Mailer).send(\"hello\");",
+				extraSource:    "const mailerCodec = {...stringCodec, decode: () => ({send: async (url: string) => { await fetch(url); }})};",
+				sendInputCodec: "mailerCodec",
+			},
+			messages: []string{"(input as unknown as Mailer).send" + typeScriptLockedMessageSuffix},
+		},
+		"symbolic link into node_modules is not followed": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void parse(input);",
+				extraSource:        "import { parse } from \"./shim.js\";",
+				linkedOutsideFiles: map[string]string{"shim.ts": "export function parse(text: string): string { return text.trim(); }\n"},
+			},
+			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+		},
 		"project file helper calls fetch": {
 			source: typeScriptLockedMethodCase{
 				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void notifyCustomer(input);",
@@ -388,8 +424,17 @@ func analyzeTypeScriptLockedMethodSource(t *testing.T, source typeScriptLockedMe
 	for relativePath, contents := range source.projectFiles {
 		writeTestFile(t, filepath.Join(sourceDirectory, relativePath), contents)
 	}
+	outsideDirectory := filepath.Join(t.TempDir(), "node_modules", "pkg")
+	for relativePath, contents := range source.linkedOutsideFiles {
+		writeTestFile(t, filepath.Join(outsideDirectory, relativePath), contents)
+		require.NoError(t, os.Symlink(filepath.Join(outsideDirectory, relativePath), filepath.Join(sourceDirectory, relativePath)))
+	}
+	contents := replacer.Replace(typeScriptLockedMethodSource)
+	if source.sendInputCodec != "" {
+		contents = strings.Replace(contents, "public readonly inputCodec = stringCodec;", "public readonly inputCodec = "+source.sendInputCodec+";", 1)
+	}
 	sourcePath := filepath.Join(sourceDirectory, "workflow.ts")
-	writeTestFile(t, sourcePath, replacer.Replace(typeScriptLockedMethodSource))
+	writeTestFile(t, sourcePath, contents)
 	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow", TypeScriptCompilerDirectory: compilerDirectory})
 	require.NoError(t, err)
 	return graph

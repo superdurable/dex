@@ -9,6 +9,7 @@
 package flowviz
 
 import (
+	"cmp"
 	"maps"
 	"os"
 	"path/filepath"
@@ -107,6 +108,10 @@ type pythonLockedMethodCase struct {
 	moduleExtra      string
 	// projectFiles are other project modules, by path relative to workflow.py, written next to it.
 	projectFiles map[string]string
+	// sendOptions replaces the StepOptions arguments of SendReminderStep; empty derives them from the lock fields.
+	sendOptions string
+	// linkedOutsideFiles are written to a .venv directory outside the project and linked from the given path next to workflow.py.
+	linkedOutsideFiles map[string]string
 }
 
 // pythonRegistrationService does network I/O from another project module.
@@ -374,6 +379,66 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls AuditEntry (calls open('/tmp/audit', 'a').write);"},
 		},
+		"decorated project function may replace its body": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "notify(input)", modulePrelude: "from services import notify",
+				projectFiles: map[string]string{"services.py": "from functools import wraps\n\n\ndef publish(fn):\n    @wraps(fn)\n    def wrapper(*args):\n        open(\"audit.log\", \"a\").write(\"hit\")\n        return fn(*args)\n    return wrapper\n\n\n@publish\ndef notify(name):\n    return name\n"},
+			},
+			messages: []string{"and calls notify;"},
+		},
+		"project function default argument is a client": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "read(input)", modulePrelude: "from services import read",
+				projectFiles: map[string]string{"services.py": "import requests\n\n\ndef read(url, session=requests.Session()):\n    return session.get(url)\n"},
+			},
+			messages: []string{"and calls read (calls session.get);"},
+		},
+		"project helper returns a module-level client": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "provider().get(input)", modulePrelude: "from services import provider",
+				projectFiles: map[string]string{"services.py": "import requests\n\nsession = requests.Session()\n\n\ndef provider():\n    return session\n"},
+			},
+			messages: []string{"and calls provider().get;"},
+		},
+		"project class attribute holds a client": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "dep = Services.dep\n        dep.get(input)", modulePrelude: "from services import Services",
+				projectFiles: map[string]string{"services.py": "import requests\n\n\nclass Services:\n    dep = requests.Session()\n"},
+			},
+			messages: []string{"and calls dep.get;"},
+		},
+		"package directory wins over a same-named module file": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "from_service(input)", modulePrelude: "from services import from_service",
+				projectFiles: map[string]string{
+					"services.py":          "def from_service(text):\n    return text\n",
+					"services/__init__.py": "import requests\n\n\ndef from_service(url):\n    return requests.get(url)\n",
+				},
+			},
+			messages: []string{"and calls from_service (calls requests.get);"},
+		},
+		"symbolic link to an installed package is not followed": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "parse(input)", modulePrelude: "from shim import parse",
+				linkedOutsideFiles: map[string]string{"shim.py": "def parse(text):\n    return text.strip()\n"},
+			},
+			messages: []string{"and calls parse;"},
+		},
+		"package re-export through from . import": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "ReminderFlow.counter.set(context, len(parse(input)))", modulePrelude: "from . import parse",
+				projectFiles: map[string]string{"__init__.py": "from .impl import parse\n", "impl.py": "def parse(text):\n    return text.strip()\n"},
+			},
+			isExecuteClean: true,
+		},
+		"lock list built from local variables": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeBody: "self.mailer.send(input)",
+				sendOptions: "execute_lock_attributes=LOCAL_LOCKS",
+				moduleExtra: "LOCAL_LOCKS = (ReminderFlow.ending.lock(),)",
+			},
+			messages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls self.mailer.send;"},
+		},
 		"Channel results from a module tuple and a helper": {
 			source: pythonLockedMethodCase{
 				rpcLock: endingLock, executeLock: endingLock,
@@ -444,6 +509,54 @@ func TestPythonUnresolvedRegistrationLockIsReported(t *testing.T) {
 	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 }
 
+func TestPythonUnpackedRegistrationOptionsAreReported(t *testing.T) {
+	graph := analyzePythonLockedMethodSource(t, pythonLockedMethodCase{
+		rpcLock: "ReminderFlow.ending.lock()", executeBody: "self.mailer.send(input)",
+		sendOptions: `**{"execute_lock_attributes": (ReminderFlow.ending.lock(),)}`,
+	})
+	var messages []string
+	for _, diagnostic := range graph.Diagnostics {
+		if diagnostic.Code == "registration_lock_unresolved" {
+			messages = append(messages, diagnostic.Message)
+		}
+	}
+	require.Len(t, messages, 1, "%+v", graph.Diagnostics)
+	require.Contains(t, messages[0], "Step SendReminderStep unpacks **{'execute_lock_attributes': (ReminderFlow.ending.lock(),)} into its options")
+}
+
+func TestPythonFlowInitializerFactoryAttribute(t *testing.T) {
+	source := `from dex import Attribute, Context, Flow, PersistenceSchema, Step, StepDecision, StepList, graceful_complete
+
+
+def _synced(name, value_type):
+    return Attribute(name, value_type)
+
+
+class ReminderFlow(Flow[str]):
+    def __init__(self):
+        self.ending = _synced("ending", bool)
+        self.send = SendStep()
+
+    def get_steps(self):
+        return StepList.start_step(self.send)
+
+    def get_persistence_schema(self):
+        return PersistenceSchema.of(self.ending)
+
+
+# dex:group group-id:reminders group-label:"Reminders"
+# dex:explanation text:"Send one reminder."
+class SendStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        return graceful_complete(input)
+`
+	sourcePath := filepath.Join(t.TempDir(), "workflow.py")
+	require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
+	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow"})
+	require.NoError(t, err)
+	require.True(t, slices.ContainsFunc(graph.Nodes, func(node Node) bool { return node.Kind == "attribute" && node.Name == "ending" }), "%+v", graph.Nodes)
+}
+
 func analyzePythonLockedMethodSource(t *testing.T, source pythonLockedMethodCase) *Graph {
 	t.Helper()
 	stepOptions := func(locks map[string]string) string {
@@ -467,7 +580,7 @@ func analyzePythonLockedMethodSource(t *testing.T, source pythonLockedMethodCase
 	}
 	replacer := strings.NewReplacer(
 		"RPC_OPTIONS", rpcOptions,
-		"SEND_OPTIONS", stepOptions(map[string]string{"wait_for_lock_attributes": source.waitLock, "execute_lock_attributes": source.executeLock}),
+		"SEND_OPTIONS", cmp.Or(source.sendOptions, stepOptions(map[string]string{"wait_for_lock_attributes": source.waitLock, "execute_lock_attributes": source.executeLock})),
 		"DELIVER_OPTIONS", stepOptions(map[string]string{"execute_lock_attributes": source.deliverLock}),
 		"WAIT_BODY", statement(source.waitBody),
 		"EXECUTE_BODY", statement(source.executeBody),
@@ -482,6 +595,13 @@ func analyzePythonLockedMethodSource(t *testing.T, source pythonLockedMethodCase
 		projectPath := filepath.Join(sourceDirectory, relativePath)
 		require.NoError(t, os.MkdirAll(filepath.Dir(projectPath), 0o755))
 		require.NoError(t, os.WriteFile(projectPath, []byte(contents), 0o644))
+	}
+	outsideDirectory := filepath.Join(t.TempDir(), ".venv")
+	for relativePath, contents := range source.linkedOutsideFiles {
+		outsidePath := filepath.Join(outsideDirectory, relativePath)
+		require.NoError(t, os.MkdirAll(filepath.Dir(outsidePath), 0o755))
+		require.NoError(t, os.WriteFile(outsidePath, []byte(contents), 0o644))
+		require.NoError(t, os.Symlink(outsidePath, filepath.Join(sourceDirectory, relativePath)))
 	}
 	sourcePath := filepath.Join(sourceDirectory, "workflow.py")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(pythonLockedMethodSource)), 0o644))

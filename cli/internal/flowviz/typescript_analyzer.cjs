@@ -55,6 +55,7 @@ const pureNodeExports = new Map([
 const pureLibraryFunctions = new Set(["parseInt","parseFloat","isNaN","isFinite","encodeURI","encodeURIComponent","decodeURI","decodeURIComponent","structuredClone"]);
 // Source files the locked-method check may type-check besides the Flow source; declarations elsewhere stay unresolved.
 const projectSourceExtensions = [".ts",".tsx",".mts",".cts"];
+const maximumProjectFiles = 200;
 
 // projectRootDirectory returns the nearest directory above sourcePath with a package.json or tsconfig.json, else the source directory.
 function projectRootDirectory(sourcePath) {
@@ -2972,7 +2973,7 @@ class TypeScriptAnalyzer {
         if (problem) calls = [{callee:`code dexcli could not type-check (${problem})`,span:this.span(method)}];
         else if (!method.body) calls = [{callee:`${methodName}, which has no body in this file`,span:this.span(method)}];
         else {
-          this.stepInputParameter = method.parameters[1];
+          this.stepInputParameter = this.hasDataInputCodec(instance.declaration) ? method.parameters[1] : undefined;
           calls = this.bodyExternalCalls([method.body],0,false).calls;
           this.stepInputParameter = undefined;
         }
@@ -2994,10 +2995,13 @@ class TypeScriptAnalyzer {
       const sourcePath = path.resolve(this.path);
       const projectRoot = projectRootDirectory(sourcePath);
       const isLibraryFile = fileName => path.dirname(path.resolve(fileName)) === libraryDirectory && path.basename(fileName).startsWith("lib.");
+      const realProjectRoot = fs.realpathSync(projectRoot);
+      // The real path decides, so a symbolic link cannot reach code outside the project or in node_modules.
       const isProjectFile = fileName => {
         const resolved = path.resolve(fileName);
-        return resolved.startsWith(projectRoot + path.sep) && !resolved.split(path.sep).includes("node_modules") &&
-          projectSourceExtensions.some(extension => resolved.endsWith(extension)) && fs.existsSync(resolved) && fs.statSync(resolved).isFile();
+        if (!projectSourceExtensions.some(extension => resolved.endsWith(extension)) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return false;
+        const relative = path.relative(realProjectRoot,fs.realpathSync(resolved));
+        return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative) && !relative.split(path.sep).includes("node_modules");
       };
       this.projectAnalyzers = new Map([[sourcePath,this]]);
       const host = {
@@ -3027,9 +3031,22 @@ class TypeScriptAnalyzer {
     }
   }
 
+  // hasDataInputCodec reports whether a Step decodes its input with a Dex SDK codec, such as jsonCodec(), which yields plain data.
+  // A custom codec may decode the input into an object with methods that do I/O.
+  hasDataInputCodec(declaration) {
+    const ts = this.ts;
+    const member = declaration.members.find(candidate => ts.isPropertyDeclaration(candidate) && candidate.name && this.propertyName(candidate.name) === "inputCodec");
+    if (!member) return true;
+    const codec = this.unwrap(member.initializer);
+    const codecName = codec && (ts.isCallExpression(codec) ? this.dexName(codec.expression) : this.dexName(codec));
+    return typeof codecName === "string" && codecName !== "*" && /Codec$/.test(codecName);
+  }
+
   // projectAnalyzer returns the analyzer of another project file, which only parses it and indexes its names, or undefined.
   projectAnalyzer(filePath) {
     if (this.projectAnalyzers.has(filePath)) return this.projectAnalyzers.get(filePath);
+    // Past the bound, an import stays unresolved, so its calls keep the conservative classification.
+    if (this.projectAnalyzers.size > maximumProjectFiles) return undefined;
     let analyzer;
     try {
       analyzer = new TypeScriptAnalyzer({path:filePath,source:fs.readFileSync(filePath,"utf8"),flowType:"",compilerEntryPath:this.compilerEntryPath});
@@ -3319,10 +3336,12 @@ class TypeScriptAnalyzer {
   }
 
   // alternativesDexOrigin returns the origin of a fallback, such as attribute.get(context) ?? empty, when every branch is a Dex value or literal data.
+  // A branch that reaches a Dex client or Worker decides the origin, so its calls stay external.
   alternativesDexOrigin(alternatives,depth) {
     let origin;
     for (const alternative of alternatives) {
       const alternativeOrigin = this.dexValueOrigin(alternative,depth);
+      if (alternativeOrigin && dexExternalExports.has(alternativeOrigin)) return alternativeOrigin;
       if (alternativeOrigin) origin = origin || alternativeOrigin;
       else if (!this.isLiteralDataValue(alternative,depth)) return undefined;
     }
@@ -3347,7 +3366,41 @@ class TypeScriptAnalyzer {
     const declaration = this.sourceDeclarationOf(value);
     if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer || declaration.getSourceFile() !== this.tree) return false;
     const isConst = ts.isVariableDeclarationList(declaration.parent) && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
-    return isConst && this.isLiteralDataValue(declaration.initializer,depth + 1);
+    return isConst && this.isReadOnlyBinding(declaration) && this.isLiteralDataValue(declaration.initializer,depth + 1);
+  }
+
+  // isReadOnlyBinding reports whether every use of a same-file variable only reads it: no method call, write, or escape.
+  isReadOnlyBinding(declaration) {
+    const ts = this.ts;
+    let isReadOnly = true;
+    const visit = node => {
+      if (!isReadOnly) return;
+      if (ts.isIdentifier(node) && node !== declaration.name && node.text === declaration.name.text && this.sourceDeclarationOf(node) === declaration) {
+        isReadOnly = this.isReadOnlyUse(node);
+        return;
+      }
+      ts.forEachChild(node,visit);
+    };
+    visit(this.tree);
+    return isReadOnly;
+  }
+
+  // isReadOnlyUse allows a fallback branch, a comparison, or a property read that is neither written nor called.
+  isReadOnlyUse(identifier) {
+    const ts = this.ts;
+    let use = identifier;
+    while (use.parent && (ts.isParenthesizedExpression(use.parent) || ts.isNonNullExpression(use.parent))) use = use.parent;
+    const parent = use.parent;
+    if (!parent) return false;
+    if (ts.isConditionalExpression(parent)) return parent.condition !== use;
+    if (ts.isBinaryExpression(parent)) return fallbackOperatorKinds(ts).has(parent.operatorToken.kind) || [ts.SyntaxKind.EqualsEqualsEqualsToken,ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(parent.operatorToken.kind);
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === use) {
+      const outer = parent.parent;
+      if (outer && (ts.isCallExpression(outer) && outer.expression === parent)) return false;
+      if (outer && ts.isBinaryExpression(outer) && outer.left === parent && outer.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && outer.operatorToken.kind <= ts.SyntaxKind.LastAssignment) return false;
+      return !(outer && (ts.isPrefixUnaryExpression(outer) || ts.isPostfixUnaryExpression(outer) || ts.isDeleteExpression(outer)));
+    }
+    return false;
   }
 
   // allowedRootName returns the Dex SDK export or pure Node export a name refers to, or undefined.

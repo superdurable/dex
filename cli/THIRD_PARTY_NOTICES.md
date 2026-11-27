@@ -1,7 +1,8 @@
 # dexcli third-party notices
 
-`dexcli` statically links the Go modules below into its binary. They draw
-the agents terminal interface. Each is distributed unmodified under the MIT
+`dexcli` statically links the Go modules below into its binary. Most draw
+the agents terminal interface; `go-toml` reads Rust Cargo manifests for
+`dexcli visualize`. Each is distributed unmodified under the MIT
 License, whose text is in `LICENSES/MIT.txt` with the copyright line shown
 here in place of its own. The Sustainable Use License 1.0 does not apply to
 them.
@@ -21,6 +22,7 @@ them.
 | `github.com/lucasb-eyer/go-colorful` | v1.4.1 | Copyright (c) 2013 Lucas Beyer |
 | `github.com/mattn/go-runewidth` | v0.0.30 | Copyright (c) 2016 Yasuhiro Matsumoto |
 | `github.com/muesli/cancelreader` | v0.2.2 | Copyright (c) 2022 Erik Geiser and Christian Muehlhaeuser |
+| `github.com/pelletier/go-toml/v2` | v2.2.4 | Copyright (c) 2021 - 2023 Thomas Pelletier |
 | `github.com/rivo/uniseg` | v0.4.7 | Copyright (c) 2019 Oliver Kuederle |
 | `github.com/xo/terminfo` | v1.0.0 | Copyright (c) 2016 Anmol Sethi |
 | `github.com/yuin/goldmark` | v1.8.6 | Copyright (c) 2019 Yusuke Inuzuka |

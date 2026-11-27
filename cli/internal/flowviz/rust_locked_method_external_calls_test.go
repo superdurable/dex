@@ -517,6 +517,65 @@ func TestRustLockedMethodDexSDKImportForms(t *testing.T) {
 	}
 }
 
+func TestRustLockedMethodDexSDKAliasBoundaries(t *testing.T) {
+	const memberPackage = "[package]\nname = \"reminders\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n"
+	const workspaceRoot = "[workspace]\nmembers = [\"reminders\"]\n\n[workspace.dependencies]\ndex = { package = \"dex-sdk\", version = \"1\" }\n"
+	testCases := map[string]struct {
+		imports, call, workspace, member string
+		// callee is the possible external call the marker must keep; empty requires a clean marker.
+		callee string
+	}{
+		"file binding shadows the renamed dependency": {
+			imports: "use dex_sdk::*;\nuse crate::services as dex;", call: "dex::send(&input);",
+			member: "[dependencies]\ndex = { package = 'dex-sdk', version = \"1\" }\ndex-sdk = \"1\"\n", callee: "dex::send",
+		},
+		"workspace rename that the member does not inherit": {
+			imports: "use dex_sdk::*;\nuse crate::models::*;", call: "dex::send(&input);", workspace: workspaceRoot,
+			member: "[dependencies]\ndex-sdk = \"1\"\ndex = { path = \"../other\" }\n", callee: "dex::send",
+		},
+		"workspace rename that the member inherits": {
+			imports: "use dex::*;\nuse crate::models::*;", workspace: workspaceRoot,
+			member: "[dependencies]\ndex = { workspace = true }\n",
+		},
+		"feature-gated export beside another glob": {
+			imports: "use dex_sdk::*;\nuse crate::services::*;", call: "ApiKeyCredential::send(&input);",
+			member: "[dependencies]\ndex-sdk = { version = \"1\", default-features = false }\n", callee: "ApiKeyCredential::send",
+		},
+		"API key credential builder exchanges a token": {
+			imports: "use dex_sdk::{ApiKeyCredentialBuilder, Attribute, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions};",
+			call:    "let _ = ApiKeyCredentialBuilder::new().build();", member: "[dependencies]\ndex-sdk = \"1\"\n", callee: "ApiKeyCredentialBuilder::new",
+		},
+	}
+	for _, name := range slices.Sorted(maps.Keys(testCases)) {
+		testCase := testCases[name]
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if testCase.workspace != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(root, "Cargo.toml"), []byte(testCase.workspace), 0o644))
+			}
+			directory := filepath.Join(root, "reminders")
+			sourcePath := filepath.Join(directory, "src", "flow.rs")
+			require.NoError(t, os.MkdirAll(filepath.Dir(sourcePath), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(directory, "Cargo.toml"), []byte(memberPackage+testCase.member), 0o644))
+			source := strings.Replace(rustDexSDKImportFormSource, "DEX_IMPORTS", testCase.imports, 1)
+			source = strings.Replace(source, "        ENDING.set(context, false)?;", "        "+testCase.call+"\n        ENDING.set(context, false)?;", 1)
+			require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
+			graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow"})
+			require.NoError(t, err)
+			markerIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
+				return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"
+			})
+			require.GreaterOrEqual(t, markerIndex, 0, "%+v", graph.methodExternalCalls)
+			calls := graph.methodExternalCalls[markerIndex].Calls
+			if testCase.callee == "" {
+				require.Empty(t, calls)
+				return
+			}
+			require.True(t, slices.ContainsFunc(calls, func(call possibleExternalCall) bool { return call.Callee == testCase.callee }), "%+v", calls)
+		})
+	}
+}
+
 func analyzeRustLockedMethodSource(t *testing.T, source rustLockedMethodCase) *Graph {
 	t.Helper()
 	waitMethod := ""

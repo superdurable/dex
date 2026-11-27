@@ -11,66 +11,113 @@ package flowviz
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
-var (
-	cargoSectionHeader         = regexp.MustCompile(`^\[([^\[\]]+)\]\s*(#.*)?$`)
-	cargoInlineDependency      = regexp.MustCompile(`^([A-Za-z0-9_-]+)\s*=\s*\{(.*)\}`)
-	cargoDexSDKPackage         = regexp.MustCompile(`(^|[\s,{])package\s*=\s*"dex-sdk"`)
-	cargoDependencyTableHeader = regexp.MustCompile(`(^|\.)(dependencies|dev-dependencies|build-dependencies)\.([A-Za-z0-9_-]+)$`)
-)
+const rustDexSDKPackage = "dex-sdk"
 
-// rustDexSDKCrateAliases returns the crate names under which the Cargo manifests above sourcePath
-// rename the dex-sdk package, such as dex for dex = { package = "dex-sdk" }.
-// It reads manifests up to the first workspace root and returns nil when none renames dex-sdk.
+// rustDexSDKCrateAliases returns the crate names under which the package that owns sourcePath
+// depends on dex-sdk through a rename, such as dex for dex = { package = "dex-sdk" }.
+// It reads the nearest Cargo.toml with a [package] table, and the workspace root only for a
+// dependency with workspace = true. It returns nil when no owning package exists or none renames dex-sdk.
 func rustDexSDKCrateAliases(sourcePath string) []string {
+	packageDirectory, packageManifest := rustOwningPackageManifest(filepath.Dir(sourcePath))
+	if packageManifest == nil {
+		return nil
+	}
+	var workspaceDependencies map[string]any
 	var aliases []string
-	directory := filepath.Dir(sourcePath)
-	for {
-		manifest, err := os.ReadFile(filepath.Join(directory, "Cargo.toml"))
-		if err == nil {
-			isWorkspace := false
-			aliases, isWorkspace = appendCargoDexSDKAliases(aliases, string(manifest))
-			if isWorkspace {
-				break
+	for name, dependency := range rustNormalDependencies(packageManifest) {
+		table, isTable := dependency.(map[string]any)
+		if !isTable {
+			continue
+		}
+		if inherits, _ := table["workspace"].(bool); inherits {
+			if workspaceDependencies == nil {
+				workspaceDependencies = rustWorkspaceDependencies(packageDirectory)
 			}
+			inherited, isInheritedTable := workspaceDependencies[name].(map[string]any)
+			if !isInheritedTable {
+				continue
+			}
+			table = inherited
 		}
-		parent := filepath.Dir(directory)
-		if parent == directory {
-			break
+		if packageName, _ := table["package"].(string); packageName == rustDexSDKPackage && name != rustDexSDKPackage {
+			aliases = append(aliases, strings.ReplaceAll(name, "-", "_"))
 		}
-		directory = parent
 	}
 	slices.Sort(aliases)
 	return slices.Compact(aliases)
 }
 
-// appendCargoDexSDKAliases appends the dex-sdk renames in one manifest and reports whether it is a workspace root.
-func appendCargoDexSDKAliases(aliases []string, manifest string) ([]string, bool) {
-	section := ""
-	isWorkspace := false
-	for _, line := range strings.Split(manifest, "\n") {
-		line = strings.TrimSpace(line)
-		if header := cargoSectionHeader.FindStringSubmatch(line); header != nil {
-			section = strings.TrimSpace(header[1])
-			isWorkspace = isWorkspace || section == "workspace"
-			continue
-		}
-		if table := cargoDependencyTableHeader.FindStringSubmatch(section); table != nil {
-			if cargoDexSDKPackage.MatchString(line) {
-				aliases = append(aliases, strings.ReplaceAll(table[3], "-", "_"))
+// rustOwningPackageManifest returns the directory and parsed manifest of the nearest Cargo.toml with a [package] table.
+// It stops at the first manifest without one, such as a virtual workspace root, and returns a nil manifest.
+func rustOwningPackageManifest(directory string) (string, map[string]any) {
+	for {
+		manifest, found := rustReadManifest(directory)
+		if found {
+			if _, hasPackage := manifest["package"].(map[string]any); hasPackage {
+				return directory, manifest
 			}
-			continue
+			return "", nil
 		}
-		if !strings.HasSuffix(section, "dependencies") {
-			continue
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return "", nil
 		}
-		if dependency := cargoInlineDependency.FindStringSubmatch(line); dependency != nil && cargoDexSDKPackage.MatchString(dependency[2]) {
-			aliases = append(aliases, strings.ReplaceAll(dependency[1], "-", "_"))
+		directory = parent
+	}
+}
+
+// rustNormalDependencies returns [dependencies] and every [target.<cfg>.dependencies] table, which build the package's code.
+func rustNormalDependencies(manifest map[string]any) map[string]any {
+	dependencies := make(map[string]any)
+	if table, isTable := manifest["dependencies"].(map[string]any); isTable {
+		for name, dependency := range table {
+			dependencies[name] = dependency
 		}
 	}
-	return aliases, isWorkspace
+	targets, _ := manifest["target"].(map[string]any)
+	for _, target := range targets {
+		targetTable, _ := target.(map[string]any)
+		if table, isTable := targetTable["dependencies"].(map[string]any); isTable {
+			for name, dependency := range table {
+				dependencies[name] = dependency
+			}
+		}
+	}
+	return dependencies
+}
+
+// rustWorkspaceDependencies returns [workspace.dependencies] of the nearest manifest with a [workspace] table at or above directory.
+func rustWorkspaceDependencies(directory string) map[string]any {
+	for {
+		if manifest, found := rustReadManifest(directory); found {
+			if workspace, isWorkspace := manifest["workspace"].(map[string]any); isWorkspace {
+				dependencies, _ := workspace["dependencies"].(map[string]any)
+				return dependencies
+			}
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return nil
+		}
+		directory = parent
+	}
+}
+
+// rustReadManifest parses directory/Cargo.toml; it reports false when the file is missing or is not valid TOML.
+func rustReadManifest(directory string) (map[string]any, bool) {
+	contents, err := os.ReadFile(filepath.Join(directory, "Cargo.toml"))
+	if err != nil {
+		return nil, false
+	}
+	var manifest map[string]any
+	if err := toml.Unmarshal(contents, &manifest); err != nil {
+		return nil, false
+	}
+	return manifest, true
 }

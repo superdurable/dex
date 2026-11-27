@@ -367,6 +367,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
     def resource_factory_call(self, call):
         if not isinstance(call.func, ast.Name) or any(isinstance(argument, ast.Starred) for argument in call.args) or any(keyword.arg is None for keyword in call.keywords):
             return None
+        # The call site must see the module-level function, not a local name that shadows it.
+        if self.binding_scope(call.func) is not self.tree:
+            return None
         function = self.static_binding(self.tree, call.func.id)
         if not isinstance(function, ast.FunctionDef) or function.decorator_list or function.args.vararg or function.args.kwarg:
             return None
@@ -440,6 +443,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                 target, value = statement.target, statement.value
             if not isinstance(value, ast.Call):
                 continue
+            factory_call = value
+            value = self.resource_factory_call(value) or value
             kind = self.resource_kind(self.symbol(value.func))
             if not kind or not self.is_dex_reference(value.func, self.symbol(value.func).rsplit(".", 1)[-1]):
                 continue
@@ -447,6 +452,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
             if not target_name:
                 continue
             node_id = self.add_resource(kind, target_name, value, flow_class.name, statement)
+            self.resource_calls[factory_call] = node_id
             local_resources[target_name] = node_id
         for node in ast.walk(initializer):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -1008,21 +1014,26 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         if is_named:
             # A named list may be rebound or changed elsewhere; its locks count as held but cannot prove one missing.
             locks["notLiteral"] = locks.get("notLiteral") or f"the lock list {expression.id} is a variable"
-            expression = self.module_assignment(expression.id) or expression
+            # The lock-edge path resolves names the same way, through the frame of get_step_options.
+            expression, _ = self.resolved_value(expression, self.current_frame)
         if not isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
             locks["unresolved"] = locks["unresolved"] or self.unparse(expression)
             return
-        for lock in expression.elts:
+        for listed_lock in expression.elts:
+            lock, _ = self.resolved_value(listed_lock, self.current_frame)
+            is_lock_named = is_named or lock is not listed_lock
+            if lock is not listed_lock:
+                locks["notLiteral"] = locks.get("notLiteral") or f"the lock {self.unparse(listed_lock)} is a variable"
             is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
             resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
             keywords = {keyword.arg: keyword.value for keyword in lock.keywords} if is_lock_call else {}
             if not resource_id or len(lock.args) + len(keywords) > 1 or (keywords and "instance" not in keywords):
                 locks["unresolved"] = locks["unresolved"] or self.unparse(lock)
                 continue
-            proven_id = None if is_named else self.registration_lock_resource(lock.func.value, owner_id, scope_method, class_call)
+            proven_id = None if is_lock_named else self.registration_lock_resource(lock.func.value, owner_id, scope_method, class_call)
             if proven_id is not None:
                 resource_id = proven_id
-            elif not is_named:
+            elif not is_lock_named:
                 locks["notLiteral"] = locks.get("notLiteral") or f"the lock {self.unparse(lock)} is not proven in its registration scope"
             instance = lock.args[0] if lock.args else keywords.get("instance")
             locks["locks"].append((resource_id, self.constant_instance(instance), instance is not None))
@@ -1571,6 +1582,11 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         for expression in expressions:
             if not isinstance(expression, ast.Call):
                 continue
+            # Only Dex StepOptions and rpc calls register locks; other calls with these keywords are not reported.
+            is_registration_call = self.is_dex_reference(expression.func, "StepOptions") or self.is_dex_reference(expression.func, "rpc")
+            unpacked = next((keyword for keyword in expression.keywords if keyword.arg is None), None)
+            if unpacked is not None and is_registration_call:
+                self.report_unresolved_registration_options(owner_id, unpacked.value)
             for keyword in expression.keywords:
                 phase = phases.get(keyword.arg)
                 if not phase:
@@ -1582,7 +1598,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                     is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
                     resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
                     if not resource_id:
-                        if not (isinstance(lock, ast.Constant) and lock.value is None):
+                        if is_registration_call and not (isinstance(lock, ast.Constant) and lock.value is None):
                             self.report_unresolved_registration_lock(owner_id, keyword.arg, listed_lock)
                         continue
                     key = (resource_id, phase)
@@ -1605,6 +1621,15 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
             "registration_lock_unresolved",
             f"{owner} lists {self.unparse(lock)} in {field}, but dexcli cannot resolve it to an Attribute lock of this Flow; lock checks such as locked_method_external_call skip it",
             self.span(lock),
+        )
+
+    def report_unresolved_registration_options(self, owner_id, options):
+        kind, _, name = owner_id.partition(":")
+        owner = f"RPC {name}" if kind == "rpc" else f"Step {name}"
+        self.warning(
+            "registration_lock_unresolved",
+            f"{owner} unpacks **{self.unparse(options)} into its options, but dexcli cannot read the locks in it; lock checks such as locked_method_external_call skip them",
+            self.span(options),
         )
 
     def analyze_decisions(self, owner_id, method, rpc):

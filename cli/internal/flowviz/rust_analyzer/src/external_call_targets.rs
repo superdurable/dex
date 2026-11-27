@@ -133,14 +133,19 @@ const COLLECTION_TYPES: &[&str] = &[
 ];
 
 /// Dex SDK items that reach the Dex server, other Flows, or the file system.
-const DEX_SDK_EXTERNAL_ITEMS: &[&str] = &["BlobCache", "Client", "FileCredential", "Worker"];
-
-/// Names exported at the dex_sdk crate root; a glob import of dex_sdk supplies them even beside other globs.
-const DEX_SDK_ROOT_EXPORTS: &[&str] = &[
-    "ActiveStepSearchMode",
+const DEX_SDK_EXTERNAL_ITEMS: &[&str] = &[
     "ApiKeyCredential",
     "ApiKeyCredentialBuilder",
-    "ApiKeyCredentialError",
+    "BlobCache",
+    "Client",
+    "FileCredential",
+    "Worker",
+];
+
+/// Names exported at the dex_sdk crate root without a feature gate; a glob import of dex_sdk supplies them even beside other globs.
+/// Feature-gated exports, such as ApiKeyCredential, are left out because the feature may be off.
+const DEX_SDK_ROOT_EXPORTS: &[&str] = &[
+    "ActiveStepSearchMode",
     "Attribute",
     "AttributeIndex",
     "AttributeLock",
@@ -673,8 +678,12 @@ impl RustFlowSource<'_> {
     }
 
     /// Reports whether name refers to the dex-sdk crate, directly or through a Cargo.toml rename.
+    /// A file binding of the same name, such as `use crate::services as dex`, shadows the rename.
     fn is_dex_sdk_crate_name(&self, name: &str) -> bool {
-        name == "dex_sdk" || self.dex_sdk_crate_aliases.iter().any(|alias| alias == name)
+        name == "dex_sdk"
+            || (self.dex_sdk_crate_aliases.iter().any(|alias| alias == name)
+                && !self.use_paths.contains_key(name)
+                && !self.is_file_item(name))
     }
 
     /// Returns the value type of a same-file Attribute, Channel, or Stream static, such as T in `LazyLock<Attribute<T>>`.
