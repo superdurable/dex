@@ -219,6 +219,10 @@ impl Step for ManualStep {
 </SdkSnippet>
 </SdkTabs>
 
+## 只允许一个决定生效时 {#when-only-one-decision-may-count}
+
+示例里的 **Retry** 和 **Skip** RPC 只发布消息。当重试和跳过不能同时生效时，决定 RPC 在同一次提交里检查这项工作正在等待决定，并认领它。它在这项工作记录的锁下完成这一步，做法与[回应窗口](/design-patterns/external-interaction/decision-with-deadline#close-the-response-window)相同。
+
 ## 下一步
 
 - [失败处理](/design-patterns/failure-handling)

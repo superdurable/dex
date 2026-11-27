@@ -3,10 +3,15 @@ bump: patch
 ---
 - App Builder SKILL.md groups its rules under Must, Fine: no extra guard needed, and Prefer. Each Must states the rule and its consequence in at most three sentences. Recipes and edge cases moved into the pattern sections.
 - The pattern table gives each pattern a one-sentence shape; the rules live in the pattern sections. A new row maps "keep trying for up to X" to the retry total duration plus an Execute failure route.
-- State four default limits that shape a design, each with its recommended action: a Flow run's active state, one value, pending messages per Channel, and active Step executions per Flow run.
+- State four default limits as facts with their workarounds, Dex options first and an external store as one option: a Flow run's active state, one value, pending messages per Channel, and active Step executions per Flow run.
 - An ID reuse policy decides only by how the latest run closed, not by what it saved. A child that records a business failure and completes is closed as completed.
-- A concurrent RPC never locks and rewrites shared state such as a list, a counter, or an admission deadline. Never keep state that a later handler reads on one Worker's disk.
+- A concurrent RPC never locks and rewrites shared state such as a list, a counter, or an admission deadline. A new fact: a later Step or RPC may run on another Worker, and sticky routing does not promise the same process.
 - Stopping an already-decided action is a two-row choice by what the business promises. Drop the state-snapshot timing from reply windows, reminders, and the stop grace.
 - Drop caveats that invited extra guards: late timeout-handler commits, Timer drift, stale queued-attempt snapshots, heartbeat acknowledgment, same-attempt ASYNC reruns, loose dispatch order, and the run-ID double read. Steps need no deadline check when the timeout handler force-closes the Flow.
 - The deadline watchdog is simpler: the polling loop runs as the only branch of a Join, and the join Step waits on its result or the deadline Timer, then decides alone. No shared lock, no losing Step, and no rule that a polling Step avoid the watchdog's lock.
+- A stand-in for an external service keeps the real call's heartbeat timeout and is never a Timer. When attempts are long, set the retry total duration so the default does not cut the retries you want.
+- A parent lists a rejected child admission in its report and goes on with the admitted children. A parent tied to a claimed run records a newer run as a business outcome, never as an error.
+- Every exit of a critical section returns the token, including each Step's Execute failure route. Start first names a reuse policy that rejects a new run even after the original closes, such as the default.
+- Every RPC that races a decision shares one lock with the deciding Execute and closes the same window. Manual recovery retry and skip RPCs claim the failure under one lock, so only one decision counts.
+- The clock may validate a request against a stored deadline, but never decides which Condition fired, the order of events, or when a deadline fires.
 - Rust: pass a cancellation check into a call that can poll it, so a canceled branch ends its open request.

@@ -621,6 +621,8 @@ rpc retry -> Retry.publish();  rpc skip -> Skip.publish()
 
 Persist the failure so the operator can see it, and make the decision durable through the Channel.
 
+When a retry and a skip must not both count, the decision RPC checks that the work waits for a decision and claims it in the same commit, under a lock on that work's record, as in [Close a reply window](#close-a-reply-window-with-an-attribute-lock).
+
 ### Graceful timeout
 
 Handle the overall Flow deadline with application logic. Go folder: `timeout`.
@@ -770,7 +772,7 @@ Use this when a caller must learn whether its reply was accepted before the dead
 - The Timer wins, Execute is about to run, and a reply RPC publishes and returns success. Execute then escalates as if no reply came, and the reply is silently ignored.
 - Two reply RPCs both publish and return success before the wait takes one. The wait consumes only one, so the other caller was told a reply was accepted that never decides.
 
-A Channel size read in Execute is a snapshot, and a closing check such as ForceCompleteIfChannelsEmpty guards only the Flow close, so neither closes these gaps. Runnable examples: [Decision with Deadline](#decision-with-deadline).
+A Channel size read in Execute is a snapshot, and a closing check such as ForceCompleteIfChannelsEmpty guards only the Flow close, so neither closes these gaps. Every RPC that can decide, such as a confirmation, a decline, or a cancel, checks and closes the same window. Runnable examples: [Decision with Deadline](#decision-with-deadline).
 
 ```text
 Attribute replyWindow: open | closed            // unset reads as open

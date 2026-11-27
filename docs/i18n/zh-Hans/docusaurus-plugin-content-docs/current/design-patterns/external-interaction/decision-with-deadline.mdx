@@ -64,6 +64,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 使用这个窗口时遵守这些规则：
 
 - 每个写回应 Channel 的 RPC 都声明同一把锁。锁是协作式的，不声明锁的 RPC 会绕过窗口。
+- 每个能做出决定的 RPC，例如确认、拒绝或取消，都检查并关闭同一个窗口。
 - 只锁 `Execute`，不锁 `WaitFor`。
 - 回应 RPC 也拿这个锁，所以加锁的 `Execute` 不调用外部系统。把副作用（例如过期通知）放到下一个 Step。失败的 `Execute` 在重试期间一直持有锁，这段时间里回应都会遇到 lock conflict。
 - 给加锁的 `Execute` 设一个明确的短重试预算：总重试时长、最大尝试次数和每次尝试的超时。默认的总预算很长，而第一次尝试之前等待锁的时间不计入预算。示例的首次重试间隔为 1 秒，最多 3 次尝试，总预算 1 分钟，每次尝试 10 秒。参见 [StepOptions reference](/reference/go/step-options#defaults)。
