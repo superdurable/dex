@@ -65,7 +65,10 @@ Skills contain no Dex version numbers and no release-tag pins. APIs,
 parameters, defaults, limits, configuration, flags, error codes, and version
 differences belong in SDK doc comments and the versioned docs Developer
 reference. Link to the Developer reference and to `examples/` for those
-details. Never link to the docs Primitives, Components, or Design pattern
+details. Skills may state a few important default limits that shape a
+design, such as a Flow run's active state or a Channel's pending messages.
+Each one gives the recommended action and links the Server configuration
+reference for the current value. Never link to the docs Primitives, Components, or Design pattern
 pages. Link examples that show a mechanism, such as primitives, patterns,
 configuration, and tests, not product examples under `examples/*/products/`.
 

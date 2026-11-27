@@ -137,9 +137,13 @@ Information Placement. Change skills only when one of these changes:
 - a design pattern.
 
 New APIs, options, defaults, limits, error codes, configuration, and version
-differences do not change skills. Put them in SDK doc comments and the docs
+differences do not change skills, except the default limits described
+below. Put them in SDK doc comments and the docs
 Developer reference. Pure internal refactors and fixes that preserve
-application behavior do not change skills either.
+application behavior do not change skills either. Skills may state a few
+important default limits that shape a design, such as a Flow run's active
+state or a Channel's pending messages. Each one gives the recommended action
+and links the Server configuration reference for the current value.
 
 If a Dex change makes existing skills text wrong, remove or correct that text
 in the same work item. That correction adds a skills fragment with
@@ -273,7 +277,7 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 | Primitive concepts, relations, and mental model | Docs Concepts and skills | Change both in one pull request |
 | Components (Application, server, cli, web): what each is and how they work together | Docs Components and skills | Change both in one pull request |
 | Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
-| Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it |
+| Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it; a few design-shaping default limits may also appear in skills with their recommended action |
 
 - Skills link only to the Developer reference, including its generated API
   references, and to `examples/`. They never link to the Concepts,
