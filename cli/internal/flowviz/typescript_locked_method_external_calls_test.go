@@ -156,7 +156,26 @@ interface ReminderState {
 const emptyState: ReminderState = {sent: []};
 const reminderState = new Attribute("ReminderState", jsonCodec<ReminderState>());`
 
-const typeScriptFallbackExecuteBody = `const current = reminderState.get(context) ?? {sent: []};
+const typeScriptNamedFallbackSource = typeScriptReminderStateSource + `
+
+interface ReminderTree {
+  label: string;
+  children: ReminderTree[];
+  byName: Record<string, ReminderTree>;
+}
+
+interface FormattedState {
+  sent: string[];
+  format: (text: string) => string;
+}
+
+const emptyTree: ReminderTree = {label: "", children: [], byName: {}};
+const reminderTree = new Attribute("ReminderTree", jsonCodec<ReminderTree>());
+const formattedState = new Attribute("FormattedState", jsonCodec<FormattedState>());
+const emptyFormattedState: FormattedState = {sent: [], format: text => text};
+const untypedState: any = {sent: []};`
+
+const typeScriptFallbackExecuteBody =`const current = reminderState.get(context) ?? {sent: []};
     const other = reminderState.get(context) || {sent: []};
     const chosen = input === "" ? current : {sent: []};
     counter.set(context, current.sent.filter(Boolean).length + other.sent.slice(0).length + chosen.sent.map(String).length);`
@@ -328,6 +347,38 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				extraSource: typeScriptReminderStateSource,
 			},
 			messages: []string{"and calls item.send" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is a named data constant": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? emptyState;\n    const chosen = input === \"\" ? current : emptyState;\n    counter.set(context, current.sent.filter(Boolean).length + chosen.sent.slice(0).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			isExecuteClean: true,
+		},
+		"fallback branch is a named constant of a recursive data type": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const tree = reminderTree.get(context) ?? emptyTree;\n    counter.set(context, tree.children.filter(child => child.label !== \"\").length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			isExecuteClean: true,
+		},
+		"fallback branch type has a function-valued property": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = formattedState.get(context) ?? emptyFormattedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is typed any": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? untypedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
 		},
 		"fallback branch is a written array through an alias": {
 			source: typeScriptLockedMethodCase{

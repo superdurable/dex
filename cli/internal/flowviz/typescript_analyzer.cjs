@@ -57,6 +57,10 @@ const pureLibraryFunctions = new Set(["parseInt","parseFloat","isNaN","isFinite"
 const projectSourceExtensions = [".ts",".tsx",".mts",".cts"];
 const maximumProjectFiles = 200;
 const excludedProjectDirectories = new Set(["node_modules","venv",".venv","site-packages"]);
+// Library containers whose type arguments, not their methods, decide whether a value is data.
+const dataContainerTypeNames = new Set(["Array","ReadonlyArray","Map","ReadonlyMap","Set","ReadonlySet","Promise"]);
+const dataLibraryTypeNames = new Set(["Date","RegExp"]);
+const maximumDataTypeDepth = 12;
 
 // projectRootDirectory returns the nearest directory above sourcePath with a package.json or tsconfig.json, else the source directory.
 function projectRootDirectory(sourcePath) {
@@ -3360,7 +3364,7 @@ class TypeScriptAnalyzer {
     return origin;
   }
 
-  // isLiteralDataValue reports whether a value is a literal written inline, which holds no service; a named binding never counts.
+  // isLiteralDataValue reports whether a value is a literal written inline, or a name whose checked type is data; neither holds a service.
   isLiteralDataValue(expression,depth) {
     const ts = this.ts;
     const value = this.unwrap(expression);
@@ -3374,7 +3378,34 @@ class TypeScriptAnalyzer {
         ts.isShorthandPropertyAssignment(property) ? this.isLiteralDataValue(property.name,depth + 1) :
         ts.isSpreadAssignment(property) && this.isLiteralDataValue(property.expression,depth + 1));
     }
-    return false;
+    if (!ts.isIdentifier(value)) return false;
+    try {
+      return this.isDataType(this.checker.getTypeAtLocation(value),new Set(),0);
+    } catch {
+      return false;
+    }
+  }
+
+  // isDataType reports whether a checked type contains no function, any, unknown, or unresolved part.
+  isDataType(type,visited,depth) {
+    const ts = this.ts;
+    if (visited.has(type)) return true;
+    if (depth > maximumDataTypeDepth) return false;
+    visited.add(type);
+    const flags = type.flags;
+    if (flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter | ts.TypeFlags.NonPrimitive | ts.TypeFlags.Never)) return false;
+    if (type.isUnionOrIntersection()) return type.types.every(part => this.isDataType(part,visited,depth + 1));
+    if (!(flags & ts.TypeFlags.Object)) return !!(flags & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.EnumLike | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void));
+    if (type.getCallSignatures().length || type.getConstructSignatures().length) return false;
+    const libraryName = type.symbol?.declarations?.some(declaration => this.program.isSourceFileDefaultLibrary(declaration.getSourceFile())) ? type.symbol.name : undefined;
+    if (this.checker.isTupleType(type) || (libraryName && dataContainerTypeNames.has(libraryName))) {
+      return this.checker.getTypeArguments(type).every(argument => this.isDataType(argument,visited,depth + 1));
+    }
+    if (libraryName && dataLibraryTypeNames.has(libraryName)) return true;
+    const location = this.tree;
+    // A getter runs code when read.
+    return this.checker.getPropertiesOfType(type).every(property => !(property.flags & ts.SymbolFlags.GetAccessor) && this.isDataType(this.checker.getTypeOfSymbolAtLocation(property,location),visited,depth + 1)) &&
+      this.checker.getIndexInfosOfType(type).every(info => this.isDataType(info.type,visited,depth + 1));
   }
 
   // allowedRootName returns the Dex SDK export or pure Node export a name refers to, or undefined.
