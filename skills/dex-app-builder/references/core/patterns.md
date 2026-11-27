@@ -367,7 +367,7 @@ CheckJobStatus.execute(context, input)
 
 - Prefer "not ready yet" as a normal decision: GoTo the same Step. Returning it as an error mixes not-ready with real failures and spends the retry budget.
 - Bound the loop with a round limit, the Flow timeout, or a watchdog Timer. A round number in the input bounds the number of checks, not elapsed time: calls, retries, and queueing add time to each round. A durable deadline that polling retries cannot delay uses the Flow timeout or a deadline watchdog.
-- A Timer in the polling Step's WaitFor waits only between rounds, so a round that is retrying delays it, even when its duration comes from a stored deadline. A deadline that must fire while a round retries uses the deadline watchdog.
+- The polling interval Timer has already fired when Execute begins, so it cannot enforce a deadline while Execute retries. Computing the next round's Timer from a stored deadline does not cover that retrying round. Use a deadline watchdog when the deadline must trigger work during a retry.
 - Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
 - WaitFor only declares the Timer. The provider call runs in Execute.
 - The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
