@@ -303,6 +303,7 @@ impl ComponentConfigs {
                 ..EffectsConfig::default().child_run_settings
             },
             heads_resync_interval: config.matching.heads_resync_interval,
+            timer_full_scan_interval: config.timers.full_scan_interval,
             history_upload_limits: HistoryUploadLimits {
                 max_concurrency: to_usize(
                     "history.uploadConcurrency",

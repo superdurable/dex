@@ -164,6 +164,15 @@ pub(crate) fn timer_index_start_key(partition: PartitionId, fire_at_micros: i64)
     key
 }
 
+/// Returns the fire time that a Timer index key or start key of `partition` sorts at, or
+/// `i64::MIN` for the bare index prefix, which sorts before every timer.
+pub(crate) fn timer_index_key_fire_at_micros(partition: PartitionId, key: &[u8]) -> i64 {
+    let prefix_len = partition_index_prefix(partition, IndexKind::Timer).len();
+    key.get(prefix_len..prefix_len + 8)
+        .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
+        .map_or(i64::MIN, timestamp_from_ordered_bytes)
+}
+
 /// Parses an index key whose suffix is `flow_hash(8) ‖ run_id(16) ‖ item`, returning the run
 /// and the item bytes.
 pub(crate) fn parse_run_item_index_key(

@@ -152,6 +152,9 @@ matching:
   maxFlowTypeLength: 256
   unsupportedTypeCacheEntries: 10000
   pingInterval: 20s
+timers:
+  # Full scan of each partition's timers for any armed without a notification; 0 disables.
+  fullScanInterval: 1h
 streamStore:
   backend: memory
   maxMessageBytes: 102400

@@ -1052,6 +1052,37 @@ flowDefinitions:
   maxDefinitionBytes: 8388608
 ~~~
 
+## Timers {#timers}
+
+Since 0.1.38. Each partition's timer service reads due timers from a read
+position that moves forward with time. Every timer the server writes also
+sends the service an arm notification. A notified timer that is due before the
+read position moves the position back.
+
+A periodic full scan is insurance against a timer written without an arm
+notification. At each interval, one pass of the service reads from the
+partition's first timer instead of its read position. It fires every due timer
+it reads the normal way. Normally it finds no timer that the read position
+skipped. A process restart and a partition rebuild also read from the first
+timer.
+
+When a full scan finds a due timer below the old read position, and no arm
+notification for it arrives within 10 seconds, the server logs an ERROR line,
+"a full timer scan found and fired a due timer that no arm notification
+reported". The line has the partition, run ID, timer ID, fire time, and old
+read position. One scan logs at most 16 timers. A WARN line counts the rest.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **timers.fullScanInterval** | 1h | Time between two full scans of each partition's timers. 0 turns the full scan off. |
+
+A timer never fires before its fire time.
+
+~~~yaml
+timers:
+  fullScanInterval: 1h
+~~~
+
 ## Performance tuning {#performance-tuning}
 
 The defaults suit most nodes. Change these keys only when a load test shows a
