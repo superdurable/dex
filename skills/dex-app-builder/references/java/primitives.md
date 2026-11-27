@@ -553,7 +553,7 @@ public StepDecision execute(Context context, Void input) {
 
 ### Polling an external job
 
-Follow the polling rules in [../core/patterns.md](../core/patterns.md). In Java:
+Follow the polling rules in [../core/patterns/polling-and-timers.md](../core/patterns/polling-and-timers.md#polling). In Java:
 one `execute` loops; it calls the provider with a client that honors thread
 interrupts, or preferably gives the call its own timeout when the client
 ignores them, because the Worker slot is released only when the handler

@@ -576,7 +576,7 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 
 ### Polling an external job
 
-Follow the polling rules in [../core/patterns.md](../core/patterns.md).
+Follow the polling rules in [../core/patterns/polling-and-timers.md](../core/patterns/polling-and-timers.md#polling).
 
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
