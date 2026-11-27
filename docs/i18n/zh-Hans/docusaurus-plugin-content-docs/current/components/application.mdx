@@ -406,6 +406,7 @@ Worker 和 Client 适合运行在无状态容器中：
 - **网络。** Worker 只向 Dex Server 发起出站连接，所以它的容器不需要为 Dex 开放入站端口或负载均衡器。在每个进程的配置中设置服务器地址，例如用环境变量。
 - **凭据。** 服务器要求认证时，把 token 作为文件挂载，并通过 `credential` 选项传入文件凭据。见[从 Worker 和 Client 发送凭据](/reference/server/authentication#sdk-credentials)（英文）。
 - **Blob cache。** [blob cache](#blob-cache) 是本地副本缓存。临时目录（例如容器的临时磁盘）就够用。每个进程使用自己的目录。新容器从空缓存开始，需要时再重新加载数据。
+- **状态放在 Dex 里。** 之后的 Step 或 RPC 要读的状态，放在 Dex 里，或放在每个 Worker 都能访问的存储里。下一个 handler 可能在另一个 Worker 上运行，所以单个 Worker 的内存或磁盘不是这样的存储。
 - **相同的 Flow 定义。** 用注册同一组 Flow 的代码构建每个 Worker 和 Client 镜像，这样 Client 编码输入的方式和 Worker 解码的方式一致。滚动部署期间，缺少某个 Step 类型的旧 Worker 会把这次调用交给新 Worker。见 [故障转移和部署](/concepts/failover-and-deploys)。
 - **优雅停止。** 先发送停止信号，在容器被强制终止前给进程留出时间完成正在运行的任务。见[容量和关闭](#capacity-and-shutdown)。
 
