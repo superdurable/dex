@@ -498,20 +498,40 @@ async fn a_notification_arriving_after_a_pass_consumed_notifications_and_before_
         "the full scan fires the unnotified timer"
     );
     service.fire_due_timers().await.expect("pass");
-    // The grace ends at 130 seconds; this pass consumes notifications just before it.
+    // The grace ends at 130 seconds. The next pass consumes notifications at 129.999.
     tokio::time::sleep_until(started_at + Duration::from_millis(129_999)).await;
+    // The pass's first wall clock read follows its swap: the notification lands, then
+    // monotonic time passes the deadline within the same pass.
     let late_wake = Arc::clone(&wake);
-    *harness
-        .flow_effect_operations
-        .committed_reader_hook
-        .lock()
-        .expect("lock") = Some(Box::new(move |_| late_wake.note_armed(fire_at)));
-    service.fire_due_timers().await.expect("pass");
-    tokio::time::sleep_until(started_at + Duration::from_secs(132)).await;
+    let runtime = tokio::runtime::Handle::current();
+    harness.clock.run_in_next_read(Box::new(move || {
+        late_wake.note_armed(fire_at);
+        std::thread::spawn(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "no lock is held; only a helper thread can move paused time mid-pass"
+            )]
+            runtime.block_on(tokio::time::advance(Duration::from_secs(2)));
+        })
+        .join()
+        .expect("advance paused time");
+    }));
     service
         .fire_due_timers()
         .await
-        .expect("pass after the deadline");
+        .expect("the pass that crosses the deadline");
+    assert!(
+        tokio::time::Instant::now() >= started_at + Duration::from_secs(131),
+        "the pass crossed the deadline"
+    );
+    assert!(
+        errors.timer_ids().is_empty(),
+        "the notification arrived before the deadline"
+    );
+    service
+        .fire_due_timers()
+        .await
+        .expect("the pass that consumes the notification");
 
     assert_eq!(fires_of(&harness, run_id, &wait_timer(1)).len(), 1);
     assert!(errors.timer_ids().is_empty(), "{:?}", errors.timer_ids());

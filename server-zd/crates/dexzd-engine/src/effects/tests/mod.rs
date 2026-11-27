@@ -88,12 +88,16 @@ use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffec
 pub(super) const SECOND_MICROS: i64 = 1_000_000;
 pub(super) const START_MICROS: i64 = 1_800_000_000 * SECOND_MICROS;
 
+/// Runs inside the next wall clock read, before the clock computes its value.
+pub(super) type WallClockReadHook = Box<dyn FnOnce() + Send>;
+
 /// Wall clock that follows paused tokio time.
 pub(super) struct TokioWallClock {
     base_micros: i64,
     start: tokio::time::Instant,
     /// How far tests moved the wall clock back from tokio time.
     moved_back_micros: AtomicI64,
+    next_read_hook: Mutex<Option<WallClockReadHook>>,
 }
 
 impl TokioWallClock {
@@ -102,6 +106,7 @@ impl TokioWallClock {
             base_micros: START_MICROS,
             start: tokio::time::Instant::now(),
             moved_back_micros: AtomicI64::new(0),
+            next_read_hook: Mutex::new(None),
         }
     }
 
@@ -109,10 +114,19 @@ impl TokioWallClock {
     pub(super) fn move_back(&self, micros: i64) {
         self.moved_back_micros.fetch_add(micros, Ordering::SeqCst);
     }
+
+    /// Runs `hook` inside the next `now_unix_micros` call, from any task.
+    pub(super) fn run_in_next_read(&self, hook: WallClockReadHook) {
+        *self.next_read_hook.lock().expect("lock") = Some(hook);
+    }
 }
 
 impl WallClock for TokioWallClock {
     fn now_unix_micros(&self) -> i64 {
+        let hook = self.next_read_hook.lock().expect("lock").take();
+        if let Some(hook) = hook {
+            hook();
+        }
         self.base_micros + i64::try_from(self.start.elapsed().as_micros()).expect("fits")
             - self.moved_back_micros.load(Ordering::SeqCst)
     }

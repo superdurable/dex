@@ -139,8 +139,9 @@ pub struct TimersConfig {
     /// pass from its first timer instead of its read position. The pass fires every due timer
     /// it reads the normal way. It is insurance against a timer written without an arm
     /// notification, and normally finds nothing. The first pass of a scan checks the due timers
-    /// it reads below the previous read position, except timers with a retry delay. It tracks at
-    /// most 16 and counts the rest in one WARN line. A tracked timer is logged at ERROR when the
+    /// it reads below the previous read position, except timers with a retry delay and timers
+    /// covered by an arm notification that the same pass consumed. It tracks at most 16 of the
+    /// remaining timers and counts the other remaining timers in one WARN line. A tracked timer is logged at ERROR when the
     /// service observes no covering arm notification within 10 seconds.
     #[serde(with = "humantime_serde")]
     pub full_scan_interval: Duration,

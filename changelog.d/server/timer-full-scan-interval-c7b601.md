@@ -1,4 +1,4 @@
 ---
 section: Added
 ---
-- **timers.fullScanInterval** (default 1h, 0 off) sets how often timer services rescan all due timers. The first pass tracks up to 16 due timers below the old cursor, minus retried ones, and logs an ERROR when no arm notification arrives in 10s. [Reference](/reference/server/configuration#timers)
+- **timers.fullScanInterval** (default 1h, 0 off) sets how often timers are fully rescanned. Its first pass tracks up to 16 unretried, uncovered due timers below the old cursor and logs ERROR when no covering arm notification is observed within 10s. [Reference](/reference/server/configuration#timers)
