@@ -10,7 +10,7 @@ bump: patch
 - Drop caveats that invited extra guards: late timeout-handler commits, Timer drift, stale queued-attempt snapshots, heartbeat acknowledgment, same-attempt ASYNC reruns, loose dispatch order, and the run-ID double read. Steps need no deadline check when the timeout handler force-closes the Flow.
 - The deadline watchdog is simpler: the polling loop runs as the only branch of a Join, and the join Step waits on its result or the deadline Timer, then decides alone. No shared lock, no losing Step, and no rule that a polling Step avoid the watchdog's lock.
 - When attempts are long, set the retry total duration so the default does not cut the retries you want. The rule about stand-ins for external services is removed; it described test fakes, not Dex behavior.
-- A parent lists a rejected child admission in its report and goes on with the admitted children. A parent tied to a claimed run records a newer run as a business outcome, never as an error.
+- A rejected child admission is its own state; whether the parent goes on with the other children or stops them is a business decision. A parent tied to a claimed run records a newer run as a business outcome, never as an error.
 - Every exit of a critical section returns the token, including each Step's Execute failure route. Start first names a reuse policy that rejects a new run even after the original closes, such as the default.
 - Every RPC that races a decision shares one lock with the deciding Execute and closes the same window. Manual recovery retry and skip RPCs claim the failure under one lock, so only one decision counts.
 - The clock may validate a request against a stored deadline, but never decides which Condition fired, the order of events, or when a deadline fires.

@@ -250,9 +250,9 @@ The parent receives each child's result durably:
   reports that the Flow already started. Always handle that result: read that
   run and track it only when its stored business identity matches. When it
   does not match, record a rejected admission that the parent lists as
-  rejected in any report but never waits for, counts, or stops, and the
-  parent goes on with the admitted children. Rejected is
-  its own state, never ended or failed. The identity check can be skipped
+  rejected in any report but never waits for, counts, or stops. Rejected is
+  its own state, never ended or failed. Whether the parent goes on with the
+  other children or stops them and fails is a business decision. The identity check can be skipped
   only when the mapping from business identity to child Flow ID guarantees
   that only a replay of the same logical request starts it again. People who
   retry or start the child by its own number break that guarantee.
