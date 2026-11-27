@@ -568,7 +568,7 @@ fn effects_config(settings: RunSettings) -> EffectsConfig {
         blocking_work: BlockingWorkPlacement::CallingTaskForTest,
         // Periodic Heads would restore a lost ref and hide a stranded-task bug.
         heads_resync_interval: Duration::ZERO,
-        // The pinned trajectories predate the one-hour default.
+        // Shorter than the one-hour default, so simulated runs reach the timer full scan.
         timer_full_scan_interval: Duration::from_secs(5 * 60),
         ..EffectsConfig::default()
     }
