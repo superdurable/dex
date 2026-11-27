@@ -30,8 +30,11 @@ skeletons, and checklists. Each rule must be complete without its links.
 
 Ask one question of each fact: will this still hold in the next minor release?
 If yes, it may belong in the Skills. If no, it belongs in SDK doc comments or
-the versioned docs Developer reference. Skills contain no Dex version numbers
-and no release-tag pins. They link only to the Developer reference and to
+the versioned docs Developer reference. Skills may state a few important
+default limits that shape a design, such as a Flow run's active state or a
+Channel's pending messages. Each one gives the recommended action and links
+the Server configuration reference for the current value. Skills contain no
+Dex version numbers and no release-tag pins. They link only to the Developer reference and to
 `examples/`, never to the Concepts, Components, or Design pattern pages.
 
 Change the Skills only when a stable programming rule, a Primitive concept or
