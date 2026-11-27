@@ -41,6 +41,8 @@ Only one Condition wins, so only one branch ever starts.
 
 ## Close the response window {#close-the-response-window}
 
+Use the window when a customer must learn whether a response was accepted before the deadline. When the business accepts that a response arriving just after the deadline is ignored, skip the window: the response RPC only publishes and takes no lock.
+
 Without a window, a customer can be told a response was accepted that never decides the offer. This happens in two ways:
 
 - A response commits after the Timer won but before `Execute` runs. Its RPC returns success. `Execute` then expires the offer, and the response is silently ignored.

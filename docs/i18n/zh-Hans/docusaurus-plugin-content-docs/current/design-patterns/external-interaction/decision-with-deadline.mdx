@@ -41,6 +41,8 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 ## 关闭回应窗口 {#close-the-response-window}
 
+当客户必须知道自己的回应是否在截止时间前被接受时，使用这个窗口。如果业务可以接受截止时间刚过才到的回应被忽略，就不需要窗口：回应 RPC 只发布消息，不加锁。
+
 如果没有窗口，客户可能被告知回应已被接受，但这个回应并没有决定报价。这有两种情况：
 
 - 回应在 Timer 胜出之后、`Execute` 运行之前提交，它的 RPC 返回成功。`Execute` 随后让报价过期，这个回应就被悄悄忽略了。
