@@ -14,22 +14,26 @@ use std::sync::Arc;
 
 use dexzd_apply::{ApplyEffect, FlowStateReader, dispatch_queue_entry};
 use dexzd_keyspace::dispatch_queue_keys::dispatch_queue_key;
-use dexzd_keyspace::row_keys::prefix_range;
+use dexzd_keyspace::row_keys::{ordered_timestamp_bytes, prefix_range};
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionId, RunTable, TenantId, partition_index_prefix,
-    run_table_prefix,
+    partition_meta_key, run_table_prefix,
 };
-use dexzd_protocol::dexzd::v1::{StepInvocationKey, StepInvocationPhase};
+use dexzd_protocol::dexzd::v1::{PartitionMeta, StepInvocationKey, StepInvocationPhase};
 
 use crate::effects::dispatch::InterruptedAttempt;
 use crate::effects::history_uploads::oldest_sealed_first_seq;
 use crate::effects::method_request::{MethodAttemptKey, pinned_durability};
 use crate::effects::state_reads::{
-    RunLocation, parse_retention_index_key, parse_run_item_index_key, read_run_record,
-    read_step_executions, scan_all,
+    RunLocation, decode_row, parse_retention_index_key, parse_run_item_index_key, prefix_successor,
+    read_run_record, read_step_executions, scan_all, scan_range,
 };
 use crate::effects::{EffectContext, EffectError, RouterMessage};
 use crate::flow_coordination::FlowAddress;
+
+/// Covers runs a stale Retention fire marks purging up to one postponement (one hour) early
+/// ([#2322](https://github.com/superdurable/dex/issues/2322)).
+const RETENTION_REBUILD_MARGIN_MICROS: i64 = 60 * 60 * 1_000_000;
 
 /// Rebuilds the partition's work and submits it to the router as committed effects.
 pub(crate) async fn rebuild_partition(
@@ -310,7 +314,14 @@ fn rebuild_run_purges(
     work: &mut BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)>,
 ) -> Result<(), EffectError> {
     let prefix = partition_index_prefix(partition, IndexKind::Retention);
-    for (key, _) in scan_all(reader, ColumnFamily::PartitionIndex, &prefix)? {
+    let end = match last_command_timestamp_micros(reader, partition)? {
+        Some(watermark) => {
+            let delete_at_bound = watermark.saturating_add(RETENTION_REBUILD_MARGIN_MICROS);
+            prefix_successor(&[&prefix[..], &ordered_timestamp_bytes(delete_at_bound)].concat())
+        }
+        None => prefix_successor(&prefix),
+    };
+    for (key, _) in scan_range(reader, ColumnFamily::PartitionIndex, &prefix, &end)? {
         let (_, run) = parse_retention_index_key(partition, &key)?;
         let Some(run_record) = read_run_record(reader, run)? else {
             continue;
@@ -326,6 +337,21 @@ fn rebuild_run_purges(
         add_effects(work, run, flow, vec![effect]);
     }
     Ok(())
+}
+
+/// Returns the partition's command-time watermark, or `None` when the partition has none.
+///
+/// A missing PartitionMeta row and a non-positive timestamp both return `None`.
+fn last_command_timestamp_micros(
+    reader: &dyn FlowStateReader,
+    partition: PartitionId,
+) -> Result<Option<i64>, EffectError> {
+    let key = partition_meta_key(partition);
+    let Some(bytes) = reader.get(ColumnFamily::PartitionMeta, &key)? else {
+        return Ok(None);
+    };
+    let meta: PartitionMeta = decode_row("PartitionMeta", &key, &bytes)?;
+    Ok((meta.last_command_timestamp_micros > 0).then_some(meta.last_command_timestamp_micros))
 }
 
 /// Returns the run's Flow and current run attempt, or `None` when the run is gone.

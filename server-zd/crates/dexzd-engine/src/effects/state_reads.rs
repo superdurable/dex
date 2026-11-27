@@ -93,11 +93,20 @@ pub(crate) fn scan_all(
     column_family: ColumnFamily,
     prefix: &[u8],
 ) -> Result<Vec<StateRow>, EffectError> {
-    let end = prefix_successor(prefix);
+    scan_range(reader, column_family, prefix, &prefix_successor(prefix))
+}
+
+/// Returns every row with a key from `start` inclusive to `end` exclusive, reading in pages.
+pub(crate) fn scan_range(
+    reader: &dyn FlowStateReader,
+    column_family: ColumnFamily,
+    start: &[u8],
+    end: &[u8],
+) -> Result<Vec<StateRow>, EffectError> {
     let mut rows = Vec::new();
-    let mut start = prefix.to_vec();
+    let mut start = start.to_vec();
     loop {
-        let page = reader.scan(column_family, &start, &end, SCAN_PAGE_ROWS)?;
+        let page = reader.scan(column_family, &start, end, SCAN_PAGE_ROWS)?;
         let is_last_page = page.len() < SCAN_PAGE_ROWS;
         if let Some((last_key, _)) = page.last() {
             start = key_successor(last_key);

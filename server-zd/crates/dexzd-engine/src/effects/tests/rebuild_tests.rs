@@ -8,13 +8,17 @@
 
 use std::time::Duration;
 
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use dexzd_apply::FlowStateReader;
+use dexzd_clock::WallClock;
 use dexzd_keyspace::row_keys::{
     hard_delete_pending_key, outbox_key, run_item_index_key, run_singleton_key,
 };
-use dexzd_keyspace::{ColumnFamily, IndexKind, RunTable, partition_index_prefix};
+use dexzd_keyspace::{
+    ColumnFamily, IndexKind, PartitionId, RunTable, partition_index_prefix, partition_meta_key,
+};
 use dexzd_object_store::{FaultAction, ObjectStore, ObjectStoreOperation};
 use dexzd_protocol::dex::{
     AttributeWrite, CloseDecision, CloseDecisionType, FlowStatus, InvokeExecuteMethodResponse,
@@ -22,14 +26,14 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     ChildFlowCompletedMessage, CrossFlowEndpoint, HardDeleteObjectRecord,
-    HardDeleteObjectReference, OutboxRecord, PendingHardDeleteUpload, StepAttemptFailureKind,
-    StepInvocationPhase, flow_command, outbox_record,
+    HardDeleteObjectReference, OutboxRecord, PartitionMeta, PendingHardDeleteUpload,
+    StepAttemptFailureKind, StepInvocationPhase, flow_command, outbox_record,
 };
 use dexzd_storage::LocalStore;
 use prost::Message;
 
 use super::hard_delete_tests::set_hard_delete_attribute;
-use super::outbox_and_purge_tests::put_object;
+use super::outbox_and_purge_tests::{mark_purging, put_object, terminate_run};
 use super::{
     DurableState, EffectHarness, SECOND_MICROS, SwitchableFault, is_attempt_failed,
     is_method_completed, ok_override, ok_reply, settings, start_request, string_value,
@@ -580,6 +584,128 @@ async fn a_crash_after_retention_expiry_is_purged_from_the_retention_index_on_re
         .expect("list succeeds");
     assert!(remaining.objects.is_empty());
     second.shutdown().await;
+}
+
+/// What a restarted node's rebuild did with the Retention index.
+#[derive(Debug, PartialEq, Eq)]
+struct PurgeRebuildReads {
+    retention_rows_read: usize,
+    run_purges: usize,
+}
+
+/// Seeds the watermark directly to exercise precise rebuild boundaries independently of command timing.
+async fn rebuild_with_one_purging_run(
+    kept_run_count: usize,
+    watermark_of: impl FnOnce(i64) -> Option<i64>,
+) -> PurgeRebuildReads {
+    let first = EffectHarness::new();
+    first.rebuild_all_partitions().await;
+    let mut purging_settings = settings();
+    purging_settings.retention_after_close_micros = 10 * SECOND_MICROS;
+    let purging_run = first.start_flow(start_request("purging"), purging_settings);
+    terminate_run(&first, "purging", purging_run);
+    for index in 0..kept_run_count {
+        let flow_id = format!("kept-{index}");
+        let run_id = first.start_flow(start_request(&flow_id), settings());
+        terminate_run(&first, &flow_id, run_id);
+    }
+    first.settle().await;
+    mark_purging(&first, "purging", purging_run);
+    let deadline = first
+        .run_record("purging", purging_run)
+        .retention_deadline_micros;
+    if let Some(watermark) = watermark_of(deadline) {
+        let purging_partition = first.partition_of("purging");
+        let mut state = first.durable.state.lock().expect("lock");
+        for partition in 0..first.hasher.partition_count() {
+            let partition = PartitionId(u16::try_from(partition).expect("fits"));
+            let last_command_timestamp_micros = if partition == purging_partition {
+                watermark
+            } else {
+                watermark - SECOND_MICROS
+            };
+            state.put_message(
+                ColumnFamily::PartitionMeta,
+                partition_meta_key(partition).to_vec(),
+                &PartitionMeta {
+                    partition: u32::from(partition.0),
+                    last_command_timestamp_micros,
+                    ..PartitionMeta::default()
+                },
+            );
+        }
+    }
+    let durable = first.durable.clone();
+    first.shutdown().await;
+
+    let second = restart(&durable);
+    second.clock.move_back(10 * SECOND_MICROS);
+    assert!(second.clock.now_unix_micros() < deadline);
+    second.rebuild_all_partitions().await;
+    second.settle().await;
+    let reads = PurgeRebuildReads {
+        retention_rows_read: second
+            .flow_effect_operations
+            .committed_retention_rows
+            .load(Ordering::SeqCst),
+        run_purges: second
+            .flow_effect_operations
+            .commands_matching(|command| matches!(command, flow_command::Command::RunPurge(_)))
+            .iter()
+            .filter(|purge| purge.reply == ok_reply())
+            .count(),
+    };
+    second.shutdown().await;
+    reads
+}
+
+const FOUND_PURGING_RUN_ONLY: PurgeRebuildReads = PurgeRebuildReads {
+    retention_rows_read: 1,
+    run_purges: 1,
+};
+
+const READ_NO_RETENTION_ROW: PurgeRebuildReads = PurgeRebuildReads {
+    retention_rows_read: 0,
+    run_purges: 0,
+};
+
+const ONE_HOUR_MICROS: i64 = 60 * 60 * SECOND_MICROS;
+
+#[tokio::test(start_paused = true)]
+async fn a_rebuild_skips_retention_rows_for_runs_kept_for_a_week() {
+    let reads = rebuild_with_one_purging_run(20, |deadline| Some(deadline + SECOND_MICROS)).await;
+    assert_eq!(
+        reads, FOUND_PURGING_RUN_ONLY,
+        "only the purging run's row, and so only its RunRecord, is read"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rebuild_finds_a_purging_run_due_one_hour_after_the_watermark() {
+    let reads = rebuild_with_one_purging_run(1, |deadline| Some(deadline - ONE_HOUR_MICROS)).await;
+    assert_eq!(reads, FOUND_PURGING_RUN_ONLY);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rebuild_skips_a_retention_row_due_one_microsecond_beyond_the_margin() {
+    let reads =
+        rebuild_with_one_purging_run(1, |deadline| Some(deadline - ONE_HOUR_MICROS - 1)).await;
+    assert_eq!(reads, READ_NO_RETENTION_ROW);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rebuild_without_a_watermark_scans_the_whole_retention_index() {
+    for watermark in [None, Some(0), Some(-1)] {
+        let reads = rebuild_with_one_purging_run(3, |_| watermark).await;
+        assert_eq!(
+            reads,
+            PurgeRebuildReads {
+                retention_rows_read: 4,
+                run_purges: 1,
+            },
+            "watermark {watermark:?}"
+        );
+    }
 }
 
 /// Ledger whose reads fail, as a local metadata read error would.
