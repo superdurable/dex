@@ -754,6 +754,15 @@ loaded through LoadBlobs and the BlobCache, and a value that cannot be decoded
 fails with `ValueMappingException`. Every error names the Flow ID, and an error
 about one read names its Attribute key.
 
+To work with one exact run of a Flow ID, such as a child run whose run ID the
+caller recorded, use `describeFlowRun(flowId, runId)`,
+`getFlowRunAttributes(flowId, runId, reads...)`, `waitForFlowRun(flowId, runId)`,
+and `StopFlowOptions.withRunId(runId)`. Since 1.45.4. For RPCs,
+`newRpcStub(flowClass, flowId, runId)` already targets one run. They address
+that run even when a newer run exists. A stop with a run ID never affects a
+newer run. A closed run throws `FlowNotActiveOrNotFoundException` to a stop,
+and a missing run throws the call's not-found exception.
+
 ## Exceptions
 
 Public exceptions live in `io.superdurable.dex.exceptions`. Catch concrete

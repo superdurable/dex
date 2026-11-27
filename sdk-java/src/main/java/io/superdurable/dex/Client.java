@@ -506,6 +506,23 @@ public final class Client implements AutoCloseable {
      * constructor. RPC methods and the containing class must therefore be non-final. Kotlin classes
      * and methods are final by default and must be declared {@code open}.
      *
+     * <p>A non-empty run ID makes every {@code invokeRPC} call through this stub target that one
+     * run instead of the active or latest run. Use it when the caller tracks one run, such as a
+     * parent that started a child Flow and recorded the run ID that {@link #startFlow} returned.
+     * A query-only RPC, one without locks, transactional execution, or durable effects, can read
+     * a closed run that Dex still retains. An RPC that needs an active execution throws
+     * {@link FlowNotActiveOrNotFoundException} when that run is closed; it never runs on a newer
+     * run of the same Flow ID. A run that does not exist or belongs to another Flow ID also throws
+     * {@link FlowNotActiveOrNotFoundException}. Request IDs are recorded per run, so a retry with
+     * the same {@link RPCInvokeOptions.Builder#requestId(String) request ID} deduplicates against
+     * that run only. A run ID that is not in canonical 36-character lowercase hyphenated UUID form
+     * makes the call throw a {@link DexServiceException} whose code is {@code INVALID_ARGUMENT}.
+     *
+     * <pre>{@code
+     * OrderFlow trackedRun = client.newRpcStub(OrderFlow.class, "order-42", childRunId);
+     * OrderStatus status = client.invokeRPC(trackedRun::getStatus);
+     * }</pre>
+     *
      * @param rpcClass the non-final registered Flow class containing {@link RPC} methods
      * @param flowId the target Flow ID
      * @param runId the target run ID, or an empty string for the current run
@@ -898,15 +915,23 @@ public final class Client implements AutoCloseable {
      * {@link #waitForFlow(String)} to observe the terminal Flow result. See
      * {@link StopFlowOptions} for a complete stop example.
      *
+     * <p>{@link StopFlowOptions#withRunId(String)} stops one exact run instead of the active run.
+     * Such a stop never affects a newer run of the same Flow ID. When that run has already
+     * closed, this method throws {@link FlowNotActiveOrNotFoundException}.
+     *
      * <p>Changed in 1.45.3: accepts {@link StopType#GRACEFUL_COMPLETE},
      * {@link StopType#FORCE_COMPLETE}, and a {@link StopFlowOptions} output.
      *
+     * <p>Changed in 1.45.4: sends the run ID of {@link StopFlowOptions#withRunId(String)}.
+     *
      * @param flowId the target Flow ID
-     * @param stopOptions the stop mode, optional reason, and optional output
+     * @param stopOptions the stop mode, optional reason, optional output, and optional run ID
      * @throws IllegalArgumentException if the options carry an output for a stop type that does
      *     not complete the Flow; the Client sends no request
-     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot stop the Flow
+     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution, or the
+     *     run that the options select has closed, does not exist, or belongs to another Flow ID
+     * @throws DexServiceException if Dex otherwise cannot stop the Flow; a run ID that is not in
+     *     canonical UUID form fails with code {@code INVALID_ARGUMENT}
      * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public void stopFlow(final String flowId, final StopFlowOptions stopOptions) {
@@ -920,6 +945,7 @@ public final class Client implements AutoCloseable {
         final StopType type = stopOptions.getType();
         final StopFlowRequest.Builder request = StopFlowRequest.newBuilder()
                 .setFlowId(flowId)
+                .setRunId(stopOptions.getRunId())
                 .setReason(stopOptions.getReason() == null ? "" : stopOptions.getReason())
                 .setStopType(mapStopType(type));
         if (stopOptions.getOutput() == null) {
@@ -940,6 +966,8 @@ public final class Client implements AutoCloseable {
      * inspect {@link FlowResult#getStatus()} before decoding completion outputs. This overload
      * imposes no overall timeout. A transport or caller deadline can still end the request.
      * Use the duration overload for a bounded long poll. The class example shows a completion wait.
+     * To wait for one exact run, which may be older than the latest run, use
+     * {@link #waitForFlowRun(String, String)}.
      *
      * @param flowId the target Flow ID
      * @return the terminal Flow result
@@ -966,7 +994,90 @@ public final class Client implements AutoCloseable {
     public FlowResult waitForFlow(
             final String flowId,
             final Duration timeout) {
-        final io.superdurable.gen.FlowResult response = waitForFlowResponse(flowId, timeout);
+        return waitForFlowResult(flowId, "", timeout);
+    }
+
+    /**
+     * Blocks until one exact run of a Flow ID reaches any terminal status.
+     *
+     * <p>Use it when the caller tracks one run, such as a parent that started a child Flow under
+     * a business Flow ID and recorded the run ID that {@link #startFlow} returned.
+     * {@link #waitForFlow(String)} waits for the latest run instead, which may be a newer run than
+     * the tracked one. When the tracked run has already closed, this method returns its result at
+     * once, even while a newer run of the same Flow ID is running.
+     *
+     * <p>Like {@link #waitForFlow(String)}, it returns failed, canceled, timed-out, and terminated
+     * results as well as successful ones, and imposes no overall timeout. A transport or caller
+     * deadline can still end the request. Use {@link #waitForFlowRun(String, String, Duration)}
+     * for a bounded long poll.
+     *
+     * <pre>{@code
+     * try {
+     *     FlowResult result = client.waitForFlowRun("shipment-42", claimedRunId);
+     *     if (result.getStatus() == FlowStatus.COMPLETED) {
+     *         recordShipment(result.getSingleOutput(Receipt.class));
+     *     }
+     * } catch (FlowNotFoundException gone) {
+     *     recordShipmentUnavailable();
+     * }
+     * }</pre>
+     *
+     * @param flowId the target Flow ID
+     * @param runId the non-blank run ID, such as one {@link #startFlow} returned
+     * @return the terminal result of that run
+     * @throws IllegalArgumentException before any request if {@code runId} is null or blank
+     * @throws FlowNotFoundException if the run does not exist, belongs to another Flow ID, or is
+     *     being deleted after its retention period
+     * @throws DexServiceException if Dex otherwise cannot complete the wait request; a run ID that
+     *     is not in canonical 36-character lowercase hyphenated UUID form fails with code
+     *     {@code INVALID_ARGUMENT}
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
+     * @since 1.45.4
+     */
+    public FlowResult waitForFlowRun(final String flowId, final String runId) {
+        return waitForFlowRun(flowId, runId, null);
+    }
+
+    /**
+     * Blocks for a bounded duration until one exact run of a Flow ID reaches any terminal status.
+     *
+     * <p>This overload behaves like {@link #waitForFlowRun(String, String)} and bounds the long
+     * poll like {@link #waitForFlow(String, Duration)}. A run that has already closed returns its
+     * result at once.
+     *
+     * <pre>{@code
+     * FlowResult result = client.waitForFlowRun(
+     *         "shipment-42", claimedRunId, Duration.ofSeconds(30));
+     * }</pre>
+     *
+     * @param flowId the target Flow ID
+     * @param runId the non-blank run ID, such as one {@link #startFlow} returned
+     * @param timeout the nonnegative whole-second long-poll duration, or {@code null} for no bound
+     * @return the terminal result of that run
+     * @throws IllegalArgumentException before any request if {@code runId} is null or blank, or
+     *     {@code timeout} is not a supported whole-second duration
+     * @throws LongPollTimeoutException if {@code timeout} expires while the run remains running
+     * @throws FlowNotFoundException if the run does not exist, belongs to another Flow ID, or is
+     *     being deleted after its retention period
+     * @throws DexServiceException if Dex otherwise cannot complete the wait request; a run ID that
+     *     is not in canonical 36-character lowercase hyphenated UUID form fails with code
+     *     {@code INVALID_ARGUMENT}
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
+     * @since 1.45.4
+     */
+    public FlowResult waitForFlowRun(
+            final String flowId,
+            final String runId,
+            final Duration timeout) {
+        requireRunId("waitForFlowRun", flowId, runId);
+        return waitForFlowResult(flowId, runId, timeout);
+    }
+
+    private FlowResult waitForFlowResult(
+            final String flowId,
+            final String runId,
+            final Duration timeout) {
+        final io.superdurable.gen.FlowResult response = waitForFlowResponse(flowId, runId, timeout);
         return new FlowResult(
                 mapFlowStatus(response.getFlowStatus()),
                 mapNullableFlowErrorType(response.getErrorType()),
@@ -979,6 +1090,8 @@ public final class Client implements AutoCloseable {
      *
      * <p>The summary contains the Flow ID, run ID, Flow type, current status, and start time. It
      * reflects the execution when Dex handles this request; a running Flow may change afterward.
+     * To read one exact run, which may be older than the latest run, use
+     * {@link #describeFlowRun(String, String)}.
      *
      * @param flowId the target Flow ID
      * @return the current Flow run summary
@@ -987,8 +1100,59 @@ public final class Client implements AutoCloseable {
      * @throws IllegalStateException if the Dex Server does not support protocol version 4
      */
     public FlowInfo describeFlow(final String flowId) {
+        return describeFlowSummary(flowId, "");
+    }
+
+    /**
+     * Returns a {@link FlowInfo} summary of one exact run of a Flow ID without waiting.
+     *
+     * <p>Use it when the caller tracks one run, such as a parent that started a child Flow under
+     * a business Flow ID and recorded the run ID that {@link #startFlow} returned. The summary
+     * describes that run even when a newer run of the same Flow ID exists, so the caller does not
+     * need to check that the latest run is still the tracked one. A closed run returns its final
+     * status. Use {@link #describeFlow(String)} to read the latest run instead.
+     *
+     * <pre>{@code
+     * try {
+     *     FlowInfo info = client.describeFlowRun("shipment-42", claimedRunId);
+     *     if (info.getStatus() == FlowStatus.RUNNING) {
+     *         waitForShipment();
+     *     }
+     * } catch (FlowNotFoundException gone) {
+     *     recordShipmentUnavailable();
+     * }
+     * }</pre>
+     *
+     * @param flowId the target Flow ID
+     * @param runId the non-blank run ID, such as one {@link #startFlow} returned
+     * @return the summary of that run, whose run ID equals {@code runId}
+     * @throws IllegalArgumentException before any request if {@code runId} is null or blank
+     * @throws FlowNotFoundException if the run does not exist, belongs to another Flow ID, or is
+     *     being deleted after its retention period; treat it as "the tracked run is gone"
+     * @throws DexServiceException if Dex otherwise cannot describe the run; a run ID that is not
+     *     in canonical 36-character lowercase hyphenated UUID form fails with code
+     *     {@code INVALID_ARGUMENT}
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
+     * @since 1.45.4
+     */
+    public FlowInfo describeFlowRun(final String flowId, final String runId) {
+        requireRunId("describeFlowRun", flowId, runId);
+        return describeFlowSummary(flowId, runId);
+    }
+
+    private static void requireRunId(
+            final String operation,
+            final String flowId,
+            final String runId) {
+        if (runId == null || runId.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    operation + " Flow " + flowId + " requires a non-blank run ID");
+        }
+    }
+
+    private FlowInfo describeFlowSummary(final String flowId, final String runId) {
         final GetFlowSummaryResponse response = call(() -> service.getFlowSummary(
-                GetFlowSummaryRequest.newBuilder().setFlowId(flowId).build()),
+                GetFlowSummaryRequest.newBuilder().setFlowId(flowId).setRunId(runId).build()),
                 FlowTargetRequirement.EXISTING,
                 flowId);
         final FlowRunID execution = response.getFlowRunId();
@@ -1018,7 +1182,8 @@ public final class Client implements AutoCloseable {
      * targets the current run, or the latest run when no run is open. A closed run stays readable
      * until Dex purges it. The call sees only committed state. It does not see writes that a
      * running Step or RPC has not committed yet. An Attribute read inside an RPC handler, by
-     * contrast, also sees that RPC's own uncommitted writes.
+     * contrast, also sees that RPC's own uncommitted writes. To read one exact run, which may be
+     * older than the latest run, use {@link #getFlowRunAttributes(String, String, AttributeRead...)}.
      *
      * <p>Hard-delete Attributes from {@link Attribute#hardDeleteOnNull()} and
      * {@link AttributeMap#hardDeleteOnNull()} are supported. Dex returns their current committed
@@ -1128,15 +1293,133 @@ public final class Client implements AutoCloseable {
     public AttributeValues getAttributes(
             final String flowId,
             final List<? extends AttributeRead<?>> reads) {
-        final Map<String, PersistenceDefinition> requested = validateAttributeReads(flowId, reads);
-        final Map<String, Value> setValues = fetchAttributeValues(flowId, requested.keySet());
+        return readAttributes("getAttributes", flowId, "", reads);
+    }
+
+    /**
+     * Reads committed Attribute and AttributeMap instance values of one exact run of a Flow ID.
+     *
+     * <p>Use it when the caller tracks one run, such as a parent that started a child Flow under
+     * a business Flow ID and recorded the run ID that {@link #startFlow} returned. It reads that
+     * run's values even when a newer run of the same Flow ID exists. A closed run returns the
+     * values it held when it closed. Use {@link #getAttributes(String, AttributeRead...)} to read
+     * the latest run instead.
+     *
+     * <p>It validates, reads, loads, and decodes values exactly like
+     * {@link #getAttributes(String, AttributeRead...)}. See that method for the read rules, the
+     * returned {@link AttributeValues}, and the registration requirement. Error messages start
+     * with {@code getFlowRunAttributes Flow <flowId> run <runId>}.
+     *
+     * <pre>{@code
+     * try {
+     *     AttributeValues values = client.getFlowRunAttributes(
+     *             "shipment-42", claimedRunId, shipmentFlow.outcome);
+     *     String outcome = values.get(shipmentFlow.outcome).orElse("unknown");
+     * } catch (FlowNotFoundException gone) {
+     *     recordShipmentUnavailable();
+     * }
+     * }</pre>
+     *
+     * @param flowId the non-blank Flow ID
+     * @param runId the non-blank run ID, such as one {@link #startFlow} returned
+     * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
+     *     the same Attribute or AttributeMap instance are rejected
+     * @return the decoded values of that run, with one entry for every read
+     * @throws IllegalArgumentException before any request when {@code flowId} or {@code runId} is
+     *     null or blank, or the reads are invalid as for
+     *     {@link #getAttributes(String, AttributeRead...)}
+     * @throws FlowDefinitionException before any request when a definition is not registered by a
+     *     Flow in the Client's Registry, or differs from the registered definition object
+     * @throws FlowNotFoundException when the run does not exist, belongs to another Flow ID, or is
+     *     being deleted after its retention period, including when Dex deletes it between the
+     *     read and the LoadBlobs request
+     * @throws ValueMappingException when a stored value cannot be loaded or decoded as its
+     *     definition's value class
+     * @throws IllegalStateException when Dex returns an unexpected key, a duplicate key, or a key
+     *     without a value, or if the Dex Server does not support protocol version 4
+     * @throws DexServiceException for other FlowService failures, including a failed LoadBlobs
+     *     request; a run ID that is not in canonical 36-character lowercase hyphenated UUID form
+     *     fails with code {@code INVALID_ARGUMENT}
+     * @since 1.45.4
+     */
+    public AttributeValues getFlowRunAttributes(
+            final String flowId,
+            final String runId,
+            final AttributeRead<?>... reads) {
+        return getFlowRunAttributes(
+                flowId,
+                runId,
+                reads == null
+                        ? Collections.<AttributeRead<?>>emptyList()
+                        : Arrays.<AttributeRead<?>>asList(reads));
+    }
+
+    /**
+     * Reads committed values of one exact run for a list of Attribute and AttributeMap instance
+     * reads.
+     *
+     * <p>This overload behaves exactly like
+     * {@link #getFlowRunAttributes(String, String, AttributeRead...)}. Use it when the reads are
+     * assembled at runtime. The list is copied before the request, so later changes to it do not
+     * affect the call.
+     *
+     * <pre>{@code
+     * List<AttributeRead<?>> reads = new ArrayList<AttributeRead<?>>();
+     * reads.add(orderFlow.orderStatus);
+     * AttributeValues values = client.getFlowRunAttributes("order-42", claimedRunId, reads);
+     * }</pre>
+     *
+     * @param flowId the non-blank Flow ID
+     * @param runId the non-blank run ID, such as one {@link #startFlow} returned
+     * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
+     *     the same Attribute or AttributeMap instance are rejected
+     * @return the decoded values of that run, with one entry for every read
+     * @throws IllegalArgumentException before any request when {@code flowId} or {@code runId} is
+     *     null or blank, {@code reads} is {@code null} or empty, a read is {@code null} or is not an
+     *     {@link Attribute} or {@link AttributeMapInstance}, or two reads select the same physical
+     *     key
+     * @throws FlowDefinitionException before any request when a definition is not registered by a
+     *     Flow in the Client's Registry, or differs from the registered definition object
+     * @throws FlowNotFoundException when the run does not exist, belongs to another Flow ID, or is
+     *     being deleted after its retention period
+     * @throws ValueMappingException when a stored value cannot be loaded or decoded as its
+     *     definition's value class
+     * @throws IllegalStateException when Dex returns an unexpected key, a duplicate key, or a key
+     *     without a value, or if the Dex Server does not support protocol version 4
+     * @throws DexServiceException for other FlowService failures; a run ID that is not in
+     *     canonical UUID form fails with code {@code INVALID_ARGUMENT}
+     * @since 1.45.4
+     */
+    public AttributeValues getFlowRunAttributes(
+            final String flowId,
+            final String runId,
+            final List<? extends AttributeRead<?>> reads) {
+        requireRunId("getFlowRunAttributes", flowId, runId);
+        return readAttributes("getFlowRunAttributes", flowId, runId, reads);
+    }
+
+    private AttributeValues readAttributes(
+            final String operation,
+            final String flowId,
+            final String runId,
+            final List<? extends AttributeRead<?>> reads) {
+        if (flowId == null || flowId.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    operation + " requires a non-blank Flow ID, got '" + flowId + "'");
+        }
+        final String context = runId.isEmpty()
+                ? operation + " Flow " + flowId
+                : operation + " Flow " + flowId + " run " + runId;
+        final Map<String, PersistenceDefinition> requested = validateAttributeReads(context, reads);
+        final Map<String, Value> setValues =
+                fetchAttributeValues(context, flowId, runId, requested.keySet());
         final Map<String, AttributeValues.ReadValue> decoded =
                 new LinkedHashMap<String, AttributeValues.ReadValue>();
         for (Map.Entry<String, PersistenceDefinition> read : requested.entrySet()) {
             final Value value = setValues.get(read.getKey());
             final Object decodedValue = value == null
                     ? null
-                    : decodeAttributeValue(flowId, read.getKey(), read.getValue(), value);
+                    : decodeAttributeValue(context, read.getKey(), read.getValue(), value);
             decoded.put(read.getKey(), new AttributeValues.ReadValue(read.getValue(), decodedValue));
         }
         return new AttributeValues(flowId, decoded);
@@ -1144,13 +1427,8 @@ public final class Client implements AutoCloseable {
 
     // Returns each read's definition keyed by physical key, in read order.
     private Map<String, PersistenceDefinition> validateAttributeReads(
-            final String flowId,
+            final String context,
             final List<? extends AttributeRead<?>> reads) {
-        if (flowId == null || flowId.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "getAttributes requires a non-blank Flow ID, got '" + flowId + "'");
-        }
-        final String context = "getAttributes Flow " + flowId;
         if (reads == null || reads.isEmpty()) {
             throw new IllegalArgumentException(context + " requires at least one Attribute read");
         }
@@ -1188,10 +1466,11 @@ public final class Client implements AutoCloseable {
 
     // Returns the hydrated value of every set key; an absent key is unset.
     private Map<String, Value> fetchAttributeValues(
+            final String readContext,
             final String flowId,
+            final String runId,
             final Set<String> keys) {
-        final String context = "getAttributes Flow " + flowId + " Attributes "
-                + String.join(", ", keys);
+        final String context = readContext + " Attributes " + String.join(", ", keys);
         negotiateServerProtocol(NO_REQUEST_DEADLINE, context);
         final GetAttributesResponse response;
         try {
@@ -1199,6 +1478,7 @@ public final class Client implements AutoCloseable {
                     options.getCredential(),
                     () -> service.getAttributes(GetAttributesRequest.newBuilder()
                             .setFlowId(flowId)
+                            .setRunId(runId)
                             .addAllKeys(keys)
                             .build()));
         } catch (StatusRuntimeException failure) {
@@ -1210,16 +1490,16 @@ public final class Client implements AutoCloseable {
         final List<Value> returnedValues = new ArrayList<Value>(response.getAttributesCount());
         for (KV attribute : response.getAttributesList()) {
             if (!keys.contains(attribute.getKey())) {
-                throw new IllegalStateException("getAttributes Flow " + flowId
+                throw new IllegalStateException(readContext
                         + " returned unexpected Attribute " + attribute.getKey());
             }
             if (!returnedKeySet.add(attribute.getKey())) {
-                throw new IllegalStateException("getAttributes Flow " + flowId
+                throw new IllegalStateException(readContext
                         + " returned duplicate Attribute " + attribute.getKey());
             }
             if (!attribute.hasValue()
                     || attribute.getValue().getKindCase() == Value.KindCase.KIND_NOT_SET) {
-                throw new IllegalStateException("getAttributes Flow " + flowId
+                throw new IllegalStateException(readContext
                         + " returned Attribute " + attribute.getKey() + " without a value");
             }
             returnedKeys.add(attribute.getKey());
@@ -1245,11 +1525,11 @@ public final class Client implements AutoCloseable {
     }
 
     private Object decodeAttributeValue(
-            final String flowId,
+            final String readContext,
             final String key,
             final PersistenceDefinition definition,
             final Value value) {
-        final String context = "getAttributes Flow " + flowId + " Attribute " + key
+        final String context = readContext + " Attribute " + key
                 + " cannot be decoded as " + definition.getValueType().getName();
         try {
             return values.decode(value, definition.getValueType());
@@ -1921,9 +2201,11 @@ public final class Client implements AutoCloseable {
 
     private io.superdurable.gen.FlowResult waitForFlowResponse(
             final String flowId,
+            final String runId,
             final Duration timeout) {
         final WaitForFlowRequest.Builder request = WaitForFlowRequest.newBuilder()
                 .setFlowId(flowId)
+                .setRunId(runId)
                 .setNeedsResults(true);
         if (timeout != null) {
             request.setWaitTimeSeconds(seconds32(timeout));
