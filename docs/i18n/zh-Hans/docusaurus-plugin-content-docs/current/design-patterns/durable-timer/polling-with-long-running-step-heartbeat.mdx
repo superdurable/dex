@@ -32,7 +32,7 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 ## 规则 {#rules}
 
 - <a id="interval-and-timeouts"></a>每一轮都要落在 heartbeat 窗口内；计算方法见 [Heartbeat](/reference/python/step-options#heartbeat)（英文）。用户正在等待时，间隔用几秒；构建这类长任务，用几十秒。
-- <a id="limits"></a>`ExecuteMethodTimeout` 和 `TotalDuration` 使用同一个最长等待时间。Dex 会强制执行这两个值，所以 Step 不需要自己计算截止时间。失败之后，`TotalDuration` 只决定是否安排下一次尝试。排队可能让已安排的尝试晚开始，进行中的尝试也不会被截断，所以整个等待可能比它晚很多才结束。Flow 的业务截止时间用下面的 watchdog。`ExecuteRetry` 使用少量带退避的尝试，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)（英文）。Polling Step 可以使用任一种 durability。
+- <a id="limits"></a>`ExecuteMethodTimeout` 和 `TotalDuration` 使用同一个最长等待时间。Dex 会强制执行这两个值，所以 Step 不需要自己计算截止时间。Flow 的业务截止时间用下面的 watchdog。`ExecuteRetry` 使用少量带退避的尝试，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)（英文）。Polling Step 可以使用任一种 durability。
 - <a id="when-the-wait-expires"></a>等待超时后，Step 失败。用 `ExecuteFailure` 选项把这个失败路由到一个短 Step，由它记录业务失败；见 [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)。失败记录不包含最后的状态；从 Stream 或日志中读取它。
 - 其他业务条件仍然在循环中检查，例如由其他系统持有、可能过期的 lease。这些 timeout 只能限定固定时长。
 - <a id="deadline-watchdog"></a>业务截止时间比整个等待短，或者轮询 Step 为了提交每次状态变化而重新进入自身、Step options 无法守住截止时间时，使用 watchdog。watchdog 是一个与自己的 Timer 竞争的等待 Step。它和记录结果的 Step 声明同一个 Attribute lock。Timer 触发时，它在这个 lock 下读取状态，只有工作仍未完成时才判定超期。
