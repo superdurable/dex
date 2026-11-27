@@ -1215,6 +1215,32 @@ export interface StopFlowOptions {
    * @since 1.45.6
    */
   readonly output?: unknown;
+  /**
+   * Stops this run of the Flow ID instead of its active run.
+   *
+   * Empty or `undefined`, the default, stops the active run. Use it to stop exactly the run the
+   * caller tracks, such as a child run whose run ID `startFlow` returned. A stop with a `runId`
+   * never affects a newer run of the same Flow ID.
+   *
+   * When that run has already closed, does not exist, or belongs to another Flow ID, `stopFlow`
+   * rejects with {@link FlowNotActiveOrNotFoundError}. The caller can treat it as "the tracked run
+   * already closed". A `runId` that is not a run ID in its canonical 36-character form rejects
+   * with a {@link DexServiceError} whose code is `INVALID_ARGUMENT`.
+   *
+   * @example
+   * ```ts
+   * try {
+   *   await client.stopFlow("shipment-42", { runId: claimedRunId, reason: "claim expired" });
+   * } catch (error) {
+   *   if (!(error instanceof FlowNotActiveOrNotFoundError)) {
+   *     throw error;
+   *   }
+   *   // The claimed run had already closed.
+   * }
+   * ```
+   * @since 1.45.17
+   */
+  readonly runId?: string;
 }
 
 /**
