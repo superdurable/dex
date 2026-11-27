@@ -185,6 +185,8 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 		source pythonLockedMethodCase
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
+		// uncertainMessages lists every locked_method_uncertain_call message fragment, in report order.
+		uncertainMessages []string
 		// isExecuteClean requires an analyzed SendReminderStep execute with no possible external call.
 		isExecuteClean bool
 		// isExecuteUnchecked requires no SendReminderStep execute marker, because it shares no lock with an RPC.
@@ -262,8 +264,8 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 				rpcLock: endingLock, executeLock: endingLock,
 				modulePrelude: "import functools", executeDecorator: "@functools.cache\n    ",
 			},
-			messages:      []string{"and calls code dexcli cannot read (execute has decorator functools.cache);"},
-			hasOtherError: true,
+			uncertainMessages: []string{"and calls code dexcli cannot read (execute has decorator functools.cache), which dexcli cannot tell whether it does I/O."},
+			hasOtherError:     true,
 		},
 		"no RPC lock": {
 			source:             pythonLockedMethodCase{executeLock: endingLock, executeBody: "self.mailer.send(input)"},
@@ -325,7 +327,7 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 				modulePrelude: "import requests",
 				moduleExtra:   "class Session(requests.Session):\n    pass",
 			},
-			messages: []string{"and calls Session (a constructor dexcli cannot read);"},
+			uncertainMessages: []string{"and calls Session (a constructor dexcli cannot read), which dexcli cannot tell whether it does I/O."},
 		},
 		"project module function does network I/O": {
 			source: pythonLockedMethodCase{
@@ -506,6 +508,24 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 			},
 			isExecuteClean: true,
 		},
+		"third-party library that may be pure": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "ReminderFlow.counter.set(context, len(parser.parse(input).isoformat()))",
+				modulePrelude: "from dateutil import parser",
+			},
+			uncertainMessages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls parser.parse(input).isoformat, which dexcli cannot tell whether it does I/O (and 1 more uncertain call). If it calls an external system, Dex fails that RPC while the lock is held; make that call in the next, unlocked Step."},
+		},
+		"printing is uncertain": {
+			source:            pythonLockedMethodCase{rpcLock: endingLock, executeLock: endingLock, executeBody: "print(input)"},
+			uncertainMessages: []string{"and calls print, which dexcli cannot tell whether it does I/O."},
+		},
+		"injected service and an uncertain call": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "parser.parse(input)\n        self.mailer.send(input)",
+				modulePrelude: "from dateutil import parser",
+			},
+			messages: []string{"and calls self.mailer.send (and 1 uncertain); Dex fails that RPC while the lock is held."},
+		},
 		"metaclass call opens a file": {
 			source: pythonLockedMethodCase{
 				rpcLock: endingLock, executeLock: endingLock, executeBody: "Built()",
@@ -519,18 +539,7 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 		testCase := testCases[name]
 		t.Run(name, func(t *testing.T) {
 			graph := analyzePythonLockedMethodSource(t, testCase.source)
-			var messages []string
-			for _, diagnostic := range graph.Diagnostics {
-				if diagnostic.Code == "locked_method_external_call" {
-					require.Equal(t, "warning", diagnostic.Severity)
-					require.NotNil(t, diagnostic.Span)
-					messages = append(messages, diagnostic.Message)
-				}
-			}
-			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
-			for index, fragment := range testCase.messages {
-				require.Contains(t, messages[index], fragment)
-			}
+			requireLockedMethodDiagnostics(t, graph, testCase.messages, testCase.uncertainMessages)
 			executeIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
 				return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"
 			})

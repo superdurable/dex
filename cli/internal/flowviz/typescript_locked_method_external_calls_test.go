@@ -201,7 +201,7 @@ function ticketIds(tickets: readonly Ticket[]): string[] {
 
 const typeScriptPureExecuteBody = `const names: string[] = [input.trim().toUpperCase(), String(counter.get(context)), context.flowId.toLowerCase()];
     names.sort((left, right) => left.localeCompare(right));
-    console.log(JSON.stringify({names, at: new Date().toISOString(), max: Math.max(1, names.length)}));
+    void JSON.stringify({names, at: new Date().toISOString(), max: Math.max(1, names.length)});
     const lengths = new Map<string, number>(names.map(name => [name, name.length]));
     const label = new Intl.NumberFormat("en-US").format(lengths.size);
     counter.set(context, lengths.size + formatReminder(label).length + this.countWords(input));
@@ -256,6 +256,8 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 		messages []string
 		// isExecuteClean requires a checked SendReminderStep execute with no possible external call.
 		isExecuteClean bool
+		// uncertainMessages lists every locked_method_uncertain_call message fragment, in report order.
+		uncertainMessages []string
 	}{
 		"execute calls an injected service while holding an RPC lock": {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);"},
@@ -301,8 +303,8 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			messages: []string{"and calls readFileSync" + typeScriptLockedMessageSuffix},
 		},
 		"map receives an imported callback": {
-			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void [input].map(sendMail);"},
-			messages: []string{"and calls sendMail" + typeScriptLockedMessageSuffix},
+			source:            typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void [input].map(sendMail);"},
+			uncertainMessages: []string{"and calls sendMail, which dexcli cannot tell whether it does I/O."},
 		},
 		"then receives an injected method": {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void Promise.resolve(input).then(this.flow.mailer.send);"},
@@ -443,6 +445,24 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
 		},
+		"package function that may be pure": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, uniq([input]).length);",
+				extraSource: "import { uniq } from \"lodash\";",
+			},
+			uncertainMessages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls uniq, which dexcli cannot tell whether it does I/O. If it calls an external system, Dex fails that RPC while the lock is held; make that call in the next, unlocked Step."},
+		},
+		"console output is uncertain": {
+			source:            typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "console.log(input);"},
+			uncertainMessages: []string{"and calls console.log, which dexcli cannot tell whether it does I/O."},
+		},
+		"injected service and an uncertain call": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "console.log(uniq([input]));\n    void this.flow.mailer.send(input);",
+				extraSource: "import { uniq } from \"lodash\";",
+			},
+			messages: []string{"and calls this.flow.mailer.send (and 2 uncertain)" + typeScriptLockedMessageSuffix},
+		},
 		"project file helper calls fetch": {
 			source: typeScriptLockedMethodCase{
 				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void notifyCustomer(input);",
@@ -455,18 +475,7 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 		testCase := testCases[name]
 		t.Run(name, func(t *testing.T) {
 			graph := analyzeTypeScriptLockedMethodSource(t, testCase.source)
-			var messages []string
-			for _, diagnostic := range graph.Diagnostics {
-				if diagnostic.Code == "locked_method_external_call" {
-					require.Equal(t, "warning", diagnostic.Severity)
-					require.NotNil(t, diagnostic.Span)
-					messages = append(messages, diagnostic.Message)
-				}
-			}
-			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
-			for index, fragment := range testCase.messages {
-				require.Contains(t, messages[index], fragment)
-			}
+			requireLockedMethodDiagnostics(t, graph, testCase.messages, testCase.uncertainMessages)
 			if testCase.isExecuteClean {
 				executeIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
 					return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"

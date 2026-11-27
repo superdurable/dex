@@ -11,6 +11,7 @@ import builtins
 import datetime
 import decimal
 import os
+import sys
 
 # Standard-library modules whose functions and objects do no I/O; PYTHON_DENIED_STANDARD_LIBRARY_CALLS lists exceptions.
 PYTHON_PURE_STANDARD_LIBRARY_MODULES = {
@@ -41,6 +42,16 @@ PYTHON_DEX_EXTERNAL_NAMES = {
 PYTHON_EXTERNAL_BUILTINS = {
     "open", "input", "print", "breakpoint", "exit", "quit", "help",
     "getattr", "setattr", "delattr", "exec", "eval", "compile", "__import__", "globals", "locals", "vars",
+}
+
+# Printing writes locally and reaches no external system, so dexcli cannot tell whether it matters.
+PYTHON_UNCERTAIN_BUILTINS = {"print"}
+
+# Third-party packages that do network or database I/O; other third-party packages may be pure.
+PYTHON_KNOWN_IO_PACKAGES = {
+    "aiohttp", "anthropic", "boto3", "botocore", "elasticsearch", "google", "grpc", "httpx", "kafka", "openai",
+    "paramiko", "pika", "psycopg", "psycopg2", "pymongo", "pymysql", "redis", "requests", "slack_sdk", "smtplib",
+    "sqlalchemy", "stripe", "twilio", "urllib3", "websocket", "websockets",
 }
 
 # Methods of built-in values, dates, and decimals, which a Step input or a literal may hold.
@@ -85,6 +96,16 @@ RETURNED_KIND = "returned_kind"
 # Directories that hold installed packages, never project modules.
 PYTHON_INSTALLED_PACKAGE_DIRECTORIES = {"site-packages", "dist-packages", ".venv", "venv", "node_modules", "__pycache__"}
 PYTHON_MAXIMUM_REEXPORT_DEPTH = 4
+
+
+class UncertainCallee(str):
+    # A possible external call that may be pure, such as a third-party library call.
+    pass
+
+
+def callee_like(text, inner):
+    # Returns text with the certainty of inner, the call it reports through a helper.
+    return UncertainCallee(text) if isinstance(inner, UncertainCallee) else text
 
 
 class ExternalCallScope:
@@ -135,18 +156,18 @@ class ExternalCallAnalyzer:
             except RecursionError:
                 self.kinds_in_progress.clear()
                 self.helpers_in_progress.clear()
-                self.add_method_external_calls(owner_id, phase, [{"callee": f"code dexcli cannot read ({phase} nests too deeply)", "span": self.span(step_class)}])
+                self.add_method_external_calls(owner_id, phase, [self.external_call_entry(UncertainCallee(f"code dexcli cannot read ({phase} nests too deeply)"), step_class)])
         self.current_frame = step_frame
 
     def record_method_external_calls(self, owner_id, step_class, phase):
         method = self.method(step_class, phase)
         if method is None:
             if phase in self.scope_bindings.get(step_class, {}):
-                self.add_method_external_calls(owner_id, phase, [{"callee": f"code dexcli cannot read ({phase} is assigned, not defined)", "span": self.span(step_class)}])
+                self.add_method_external_calls(owner_id, phase, [self.external_call_entry(UncertainCallee(f"code dexcli cannot read ({phase} is assigned, not defined)"), step_class)])
             return
         for decorator in method.decorator_list:
             if not self.is_followed_step_method_decorator(decorator):
-                self.add_method_external_calls(owner_id, phase, [{"callee": f"code dexcli cannot read ({phase} has decorator {self.unparse(decorator)})", "span": self.span(decorator)}])
+                self.add_method_external_calls(owner_id, phase, [self.external_call_entry(UncertainCallee(f"code dexcli cannot read ({phase} has decorator {self.unparse(decorator)})"), decorator)])
                 return
         positional = [*method.args.posonlyargs, *method.args.args]
         is_static = any(isinstance(decorator, ast.Name) and decorator.id == "staticmethod" for decorator in method.decorator_list)
@@ -162,6 +183,12 @@ class ExternalCallAnalyzer:
 
     def add_method_external_calls(self, owner_id, phase, calls):
         self.method_external_calls.append({"nodeId": owner_id, "phase": phase, "calls": calls})
+
+    def external_call_entry(self, callee, node):
+        entry = {"callee": str(callee), "span": self.span(node)}
+        if isinstance(callee, UncertainCallee):
+            entry["certainty"] = "uncertain"
+        return entry
 
     def is_followed_step_method_decorator(self, decorator):
         if isinstance(decorator, ast.Name) and decorator.id == "staticmethod":
@@ -180,12 +207,12 @@ class ExternalCallAnalyzer:
             callee, _, call_is_exact = self.classify_call(call.func, call.args, call.keywords, scope)
             is_exact = is_exact and call_is_exact
             if callee is not None:
-                found.append({"callee": callee, "span": self.span(call)})
+                found.append(self.external_call_entry(callee, call))
             for argument in self.called_arguments(call, scope):
                 callee, _, argument_is_exact = self.classify_call(argument, [], [], scope)
                 is_exact = is_exact and argument_is_exact
                 if callee is not None:
-                    found.append({"callee": callee, "span": self.span(argument)})
+                    found.append(self.external_call_entry(callee, argument))
             if first_only and found:
                 break
         return found, is_exact
@@ -221,7 +248,7 @@ class ExternalCallAnalyzer:
             target = self.project_module_target(qualified)
             if target is not None:
                 return self.project_module_call(callee, target, arguments, keywords, scope)
-            return callee, OPAQUE, True
+            return self.imported_callee(callee, qualified), OPAQUE, True
         if isinstance(function, ast.Name):
             return self.classify_name_call(function, arguments, keywords, scope)
         if isinstance(function, ast.Attribute):
@@ -231,6 +258,8 @@ class ExternalCallAnalyzer:
     def classify_name_call(self, function, arguments, keywords, scope):
         callee = function.id
         if self.is_builtin_name(function):
+            if function.id in PYTHON_UNCERTAIN_BUILTINS:
+                return UncertainCallee(callee), OPAQUE, True
             if function.id in PYTHON_EXTERNAL_BUILTINS:
                 return callee, OPAQUE, True
             return None, DATA, True
@@ -270,14 +299,15 @@ class ExternalCallAnalyzer:
             if method is not None:
                 is_static = any(isinstance(decorator, ast.Name) and decorator.id == "staticmethod" for decorator in method.decorator_list)
                 return self.helper_call(callee, method, None if is_static else receiver_kind, arguments, keywords, scope, DATA)
-        return callee, OPAQUE, True
+        return (UncertainCallee(callee) if self.is_uncertain_receiver(receiver, scope, 0) else callee), OPAQUE, True
 
     # A method of a data value is pure when every same-module class that defines it is pure.
     def module_method_call(self, callee, name, arguments, keywords, scope):
         methods = [(declaration, self.method(declaration, name)) for declaration in self.classes.values()]
         methods = [(declaration, method) for declaration, method in methods if method is not None]
         if not methods:
-            return callee, OPAQUE, True
+            # Data holds no service, but another module's class may define this method.
+            return UncertainCallee(callee), OPAQUE, True
         is_exact = True
         for declaration, method in methods:
             external, _, method_is_exact = self.helper_call(callee, method, ("class", declaration.name), arguments, keywords, scope, DATA)
@@ -290,18 +320,18 @@ class ExternalCallAnalyzer:
     def construction_call(self, callee, declaration, arguments, keywords, scope):
         classes = self.same_file_class_chain(declaration)
         if classes is None:
-            return f"{callee} (a constructor dexcli cannot read)", OPAQUE, True
+            return UncertainCallee(f"{callee} (a constructor dexcli cannot read)"), OPAQUE, True
         constructors = []
         for metaclass in (keyword.value for chained in classes[0] for keyword in chained.keywords if keyword.arg == "metaclass"):
             metaclass_declaration = self.static_binding(self.tree, metaclass.id) if isinstance(metaclass, ast.Name) else None
             if not isinstance(metaclass_declaration, ast.ClassDef):
                 qualified = self.qualified_import_name(metaclass)
                 if qualified is None or not self.is_pure_standard_library_call(qualified):
-                    return f"{callee} (a constructor dexcli cannot read)", OPAQUE, True
+                    return UncertainCallee(f"{callee} (a constructor dexcli cannot read)"), OPAQUE, True
                 continue
             metaclass_chain = self.same_file_class_chain(metaclass_declaration)
             if metaclass_chain is None:
-                return f"{callee} (a constructor dexcli cannot read)", OPAQUE, True
+                return UncertainCallee(f"{callee} (a constructor dexcli cannot read)"), OPAQUE, True
             constructors.extend(self.first_class_method(metaclass_chain, "__call__"))
         for name in ("__new__", "__init__", "__post_init__"):
             constructors.extend(self.first_class_method(classes, name))
@@ -388,21 +418,23 @@ class ExternalCallAnalyzer:
         cached = self.helper_external_call_results.get(key, False)
         if cached is not False:
             if cached:
-                return f"{callee} (calls {cached})", OPAQUE, True
+                return callee_like(f"{callee} (calls {cached})", cached), OPAQUE, True
             return None, self.helper_result_kind(helper_scope, result_kind), True
         if key in self.helpers_in_progress:
             return None, DATA if result_kind == RETURNED_KIND else result_kind, False
         if depth + 1 > PYTHON_MAXIMUM_HELPER_DEPTH:
-            return f"{callee} (calls a helper chain deeper than dexcli follows)", OPAQUE, False
+            return UncertainCallee(f"{callee} (calls a helper chain deeper than dexcli follows)"), OPAQUE, False
         self.helpers_in_progress.add(key)
         calls, is_exact = self.function_external_calls(helper_scope, first_only=True)
         self.helpers_in_progress.discard(key)
-        inner = calls[0]["callee"] if calls else None
+        inner = None
+        if calls:
+            inner = UncertainCallee(calls[0]["callee"]) if calls[0].get("certainty") else calls[0]["callee"]
         if is_exact:
             self.helper_external_call_results[key] = inner
         if inner is None:
             return None, self.helper_result_kind(helper_scope, result_kind), is_exact
-        return f"{callee} (calls {inner})", OPAQUE, is_exact
+        return callee_like(f"{callee} (calls {inner})", inner), OPAQUE, is_exact
 
     # A clean helper returns an SDK value when every return is one, such as a Channel; opaque when any return is unknown.
     def helper_result_kind(self, helper_scope, result_kind):
@@ -724,6 +756,34 @@ class ExternalCallAnalyzer:
         if binding.asname:
             return binding.name
         return binding.name.split(".")[0]
+
+    # Standard-library I/O and known I/O packages are definite; other imports, such as dateutil, may be pure.
+    def imported_callee(self, callee, qualified):
+        if qualified == "dex" or qualified.startswith("dex."):
+            return callee
+        top_level = qualified.split(".")[0]
+        if ":" not in qualified and (top_level in sys.stdlib_module_names or top_level in PYTHON_KNOWN_IO_PACKAGES):
+            return callee
+        return UncertainCallee(callee)
+
+    # Returns whether an opaque receiver comes from an import that may be pure, rather than from self or a parameter.
+    def is_uncertain_receiver(self, receiver, scope, depth):
+        root = receiver
+        while isinstance(root, (ast.Attribute, ast.Call, ast.Subscript, ast.Await)):
+            root = root.func if isinstance(root, ast.Call) else root.value
+        if not isinstance(root, ast.Name) or root.id == "self" or depth > PYTHON_MAXIMUM_HELPER_DEPTH:
+            return False
+        qualified = self.qualified_import_name(root)
+        if qualified is not None:
+            return isinstance(self.imported_callee("", qualified), UncertainCallee)
+        binding_scope = self.binding_scope(root)
+        bindings = self.scope_bindings.get(binding_scope, {}).get(root.id, [])
+        if len(bindings) != 1 or not isinstance(bindings[0], ast.Name):
+            return False
+        statement = self.parents.get(bindings[0])
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)) or statement.value is None:
+            return False
+        return self.is_uncertain_receiver(statement.value, scope, depth + 1)
 
     # Project modules are parsed, never imported or run, so following them executes no project code.
     def project_module_call(self, callee, target, arguments, keywords, scope):

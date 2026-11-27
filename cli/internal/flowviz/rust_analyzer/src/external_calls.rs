@@ -131,7 +131,14 @@ impl<'source> RustFlowSource<'source> {
                 calls.sort_by_key(|call| Reverse(call.certainty));
                 let calls: Vec<_> = calls
                     .iter()
-                    .map(|call| json!({"callee": call.callee, "span": source_span(call.span)}))
+                    .map(|call| {
+                        let mut entry =
+                            json!({"callee": call.callee, "span": source_span(call.span)});
+                        if call.certainty == Certainty::Possible {
+                            entry["certainty"] = json!("uncertain");
+                        }
+                        entry
+                    })
                     .collect();
                 graph
                     .facts("methodExternalCalls")
@@ -687,7 +694,8 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         if let [name] = segments.as_slice()
             && self.is_binding(name)
         {
-            return CallVerdict::External(Certainty::Possible);
+            // A call through a function value is dynamic, so it counts as definite.
+            return CallVerdict::External(Certainty::Definite);
         }
         let last = segments.last().cloned().unwrap_or_default();
         match self.finder.source.path_target(&segments, &self.scope) {
@@ -768,11 +776,12 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
             .unwrap_or_default();
         let callee = format!("{name}!");
         let name = name.as_str();
+        // Printing writes locally and reaches no external system, so it stays uncertain.
         if PRINT_MACROS.contains(&name) {
             self.add(
                 value.span(),
                 callee,
-                CallVerdict::External(Certainty::Definite),
+                CallVerdict::External(Certainty::Possible),
             );
             return;
         }

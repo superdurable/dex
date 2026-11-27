@@ -305,7 +305,7 @@ impl<'ast> MethodScan<'_, '_, 'ast> {
         if is_data {
             declared_origin.into_data()
         } else {
-            declared_origin
+            injected_field_origin(declared_origin)
         }
     }
 
@@ -527,6 +527,20 @@ fn visible_sources<'sources, 'ast>(
         sources.iter().collect()
     } else {
         unscoped
+    }
+}
+
+/// Returns the origin of a struct field that holds a dependency: an external type there is an injected service.
+fn injected_field_origin(origin: ValueOrigin) -> ValueOrigin {
+    match origin {
+        ValueOrigin::External(_) => ValueOrigin::External(Certainty::Definite),
+        ValueOrigin::Optional(payload) => {
+            ValueOrigin::Optional(Box::new(injected_field_origin(*payload)))
+        }
+        ValueOrigin::Collection(element) => {
+            ValueOrigin::Collection(Box::new(injected_field_origin(*element)))
+        }
+        origin => origin,
     }
 }
 

@@ -695,6 +695,11 @@ a {
   color: var(--busy);
 }
 
+/* An info diagnostic is a hint, so it stays muted. */
+.flow-definition-diagnostic.is-info b {
+  color: var(--muted);
+}
+
 .flow-rendering-empty p {
   margin: 8px 0 0;
   color: var(--muted);

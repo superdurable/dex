@@ -88,7 +88,7 @@ export interface FdgEdge {
 }
 
 export interface FdgDiagnostic {
-  severity: 'warning' | 'error'
+  severity: 'warning' | 'error' | 'info'
   code: string
   message: string
   span?: SourceSpan

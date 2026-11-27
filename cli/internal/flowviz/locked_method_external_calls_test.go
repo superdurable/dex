@@ -159,7 +159,17 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 		source goLockedMethodCase
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
+		// uncertainMessages lists every locked_method_uncertain_call message fragment, in report order.
+		uncertainMessages []string
 	}{
+		"printing is uncertain": {
+			source:            goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "fmt.Println(input)"},
+			uncertainMessages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls fmt.Println, which dexcli cannot tell whether it does I/O. If it calls an external system, Dex fails that RPC while the lock is held; make that call in the next, unlocked Step."},
+		},
+		"injected service and an uncertain call": {
+			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "fmt.Println(input)\n\t_ = step.mailer.Send(input)\n\tfmt.Println(input)"},
+			messages: []string{"and calls step.mailer.Send (and 2 uncertain); Dex fails that RPC"},
+		},
 		"execute calls an injected service while holding an RPC lock": {
 			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "_ = step.mailer.Send(input)"},
 			messages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls step.mailer.Send; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step."},
@@ -203,14 +213,14 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 				rpcLock: "dex.LockAttribute(ending)", deliverLock: "dex.LockAttribute(ending)",
 				deliverExecute: "func (step DeliverStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error)",
 			},
-			messages: []string{"and calls Execute of DeliverStep, whose body dexcli cannot read;"},
+			uncertainMessages: []string{"and calls Execute of DeliverStep, whose body dexcli cannot read, which dexcli cannot tell whether it does I/O."},
 		},
 		"bodyless same-package helper": {
 			source: goLockedMethodCase{
 				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "linkedHelper(input)",
 				extraSource: "func linkedHelper(input string)",
 			},
-			messages: []string{"and calls linkedHelper;"},
+			uncertainMessages: []string{"and calls linkedHelper, which dexcli cannot tell whether it does I/O."},
 		},
 		"standard library sleep": {
 			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "time.Sleep(time.Second)"},
@@ -224,18 +234,7 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 		testCase := testCases[name]
 		t.Run(name, func(t *testing.T) {
 			graph := analyzeGoLockedMethodSource(t, testCase.source)
-			var messages []string
-			for _, diagnostic := range graph.Diagnostics {
-				if diagnostic.Code == "locked_method_external_call" {
-					require.Equal(t, "warning", diagnostic.Severity)
-					require.NotNil(t, diagnostic.Span)
-					messages = append(messages, diagnostic.Message)
-				}
-			}
-			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
-			for index, fragment := range testCase.messages {
-				require.Contains(t, messages[index], fragment)
-			}
+			requireLockedMethodDiagnostics(t, graph, testCase.messages, testCase.uncertainMessages)
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 		})
 	}
@@ -312,6 +311,45 @@ func requireStepLocksOnlyUndrawn(t *testing.T, graph *Graph) {
 	}
 	require.False(t, slices.ContainsFunc(graph.Edges, isStepLock), "%+v", graph.Edges)
 	require.True(t, slices.ContainsFunc(graph.undrawnLockEdges, isStepLock), "%+v", graph.undrawnLockEdges)
+}
+
+func TestDiagnosticsSortErrorWarningInfo(t *testing.T) {
+	graph := NewGraph("go", "workflow.go")
+	graph.AddDiagnostic("info", "locked_method_uncertain_call", "uncertain", nil)
+	graph.AddDiagnostic("warning", "locked_method_external_call", "definite", nil)
+	graph.AddDiagnostic("error", "flow_not_found", "missing", nil)
+	graph.Normalize()
+	var severities []string
+	for _, diagnostic := range graph.Diagnostics {
+		severities = append(severities, diagnostic.Severity)
+	}
+	require.Equal(t, []string{"error", "warning", "info"}, severities)
+}
+
+// requireLockedMethodDiagnostics checks the warning and info fragments of the locked-method check, each in report order.
+func requireLockedMethodDiagnostics(t *testing.T, graph *Graph, warnings []string, uncertain []string) {
+	t.Helper()
+	var warningMessages, uncertainMessages []string
+	for _, diagnostic := range graph.Diagnostics {
+		switch diagnostic.Code {
+		case "locked_method_external_call":
+			require.Equal(t, "warning", diagnostic.Severity)
+			require.NotNil(t, diagnostic.Span)
+			warningMessages = append(warningMessages, diagnostic.Message)
+		case "locked_method_uncertain_call":
+			require.Equal(t, "info", diagnostic.Severity)
+			require.NotNil(t, diagnostic.Span)
+			uncertainMessages = append(uncertainMessages, diagnostic.Message)
+		}
+	}
+	require.Len(t, warningMessages, len(warnings), "%+v", graph.Diagnostics)
+	for index, fragment := range warnings {
+		require.Contains(t, warningMessages[index], fragment)
+	}
+	require.Len(t, uncertainMessages, len(uncertain), "%+v", graph.Diagnostics)
+	for index, fragment := range uncertain {
+		require.Contains(t, uncertainMessages[index], fragment)
+	}
 }
 
 func lockedMethodWarningMessages(graph *Graph) []string {

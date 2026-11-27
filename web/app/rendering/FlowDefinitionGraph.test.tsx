@@ -41,6 +41,19 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).not.toContain('title="lines ');
   });
 
+  it('styles an info diagnostic apart from warnings and errors', () => {
+    const markup = renderToStaticMarkup(<FlowDefinitionGraphView displayName="Example" graph={{
+      ...graph,
+      diagnostics: [
+        { severity: 'warning', code: 'locked_method_external_call', message: 'Calls a client' },
+        { severity: 'info', code: 'locked_method_uncertain_call', message: 'Calls a library' },
+      ],
+    }} />);
+
+    expect(markup).toContain('flow-definition-diagnostic is-warning');
+    expect(markup).toContain('flow-definition-diagnostic is-info');
+  });
+
   it('links loaded child definitions and displays the SubFlow argument index', () => {
     const markup = renderToStaticMarkup(<FlowDefinitionGraphView
       displayName="Example" graph={graph} subFlowLinks={{ 'subflow:ChildFlow:12': '?definition=child.json' }}

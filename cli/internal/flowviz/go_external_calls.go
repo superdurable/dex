@@ -90,7 +90,7 @@ func (finder *goExternalCallFinder) record(stepLockEdges []Edge) {
 // unreadableBody is the unresolved call reported for a Step method whose body dexcli cannot read.
 func (finder *goExternalCallFinder) unreadableBody(nodeID string, phase string) possibleExternalCall {
 	node := finder.analyzer.node(nodeID)
-	return possibleExternalCall{Callee: stepMethodLabel(phase) + " of " + node.Name + ", whose body dexcli cannot read", Span: node.Span}
+	return possibleExternalCall{Callee: stepMethodLabel(phase) + " of " + node.Name + ", whose body dexcli cannot read", Span: node.Span, Certainty: externalCallUncertain}
 }
 
 // isDexSDKStepMethod reports whether the Step's method comes from an SDK default, such as dex.StepDefaults.
@@ -162,13 +162,27 @@ func (scan *goExternalCallScan) visit(node ast.Node) bool {
 }
 
 func (scan *goExternalCallScan) add(node ast.Node, calleeExpression ast.Expr, function *types.Func) {
-	external, isExact := scan.finder.classify(scan.finder.analyzer.expressionString(calleeExpression), function, scan.depth)
+	external, isExact := scan.finder.classify(scan.finder.analyzer.expressionString(calleeExpression), function, scan.depth, scan.isFieldReceiver(calleeExpression))
 	scan.isExact = scan.isExact && isExact
 	if external == nil {
 		return
 	}
 	external.Span = scan.finder.analyzer.span(node)
 	scan.calls = append(scan.calls, *external)
+}
+
+// isFieldReceiver reports whether a method callee runs on a struct field, such as step.gateway.Send; a field holds an injected service.
+func (scan *goExternalCallScan) isFieldReceiver(calleeExpression ast.Expr) bool {
+	selector, isSelector := ast.Unparen(calleeExpression).(*ast.SelectorExpr)
+	if !isSelector {
+		return false
+	}
+	receiver, isReceiverSelector := ast.Unparen(selector.X).(*ast.SelectorExpr)
+	if !isReceiverSelector {
+		return false
+	}
+	selection := scan.finder.analyzer.typeInfo.Selections[receiver]
+	return selection != nil && selection.Kind() == types.FieldVal
 }
 
 // inspectCall classifies the callee of call; a function literal callee is walked as part of the body.
@@ -200,7 +214,8 @@ func (scan *goExternalCallScan) inspectCall(call *ast.CallExpr) {
 
 // classify returns the possible external call for a callee, or nil, and whether the result is exact.
 // A nil function is a dynamic call through a function value.
-func (finder *goExternalCallFinder) classify(callee string, function *types.Func, depth int) (*possibleExternalCall, bool) {
+// A call into another package that may be pure is uncertain, unless isFieldReceiver marks an injected service.
+func (finder *goExternalCallFinder) classify(callee string, function *types.Func, depth int, isFieldReceiver bool) (*possibleExternalCall, bool) {
 	if function == nil {
 		return &possibleExternalCall{Callee: callee}, true
 	}
@@ -223,12 +238,36 @@ func (finder *goExternalCallFinder) classify(callee string, function *types.Func
 		if inner == nil {
 			return nil, isExact
 		}
-		return &possibleExternalCall{Callee: callee + " (calls " + inner.Callee + ")"}, isExact
+		return &possibleExternalCall{Callee: callee + " (calls " + inner.Callee + ")", Certainty: inner.Certainty}, isExact
 	}
 	if isGoPureStandardLibraryFunction(function) {
 		return nil, true
 	}
+	_, isModulePackage := finder.analyzer.modules[function.Pkg().Path()]
+	if goPrintFunctions[function.Pkg().Path()+"."+function.Name()] || (!isFieldReceiver && isModulePackage && !isGoKnownInputOutputModule(function.Pkg().Path())) {
+		return &possibleExternalCall{Callee: callee, Certainty: externalCallUncertain}, true
+	}
 	return &possibleExternalCall{Callee: callee}, true
+}
+
+// goPrintFunctions write to standard output, which reaches no external system.
+var goPrintFunctions = map[string]bool{"fmt.Print": true, "fmt.Printf": true, "fmt.Println": true}
+
+// goKnownInputOutputModulePrefixes are third-party modules that do network or database I/O.
+var goKnownInputOutputModulePrefixes = []string{
+	"cloud.google.com/go/", "github.com/aws/aws-sdk-go", "github.com/go-redis/", "github.com/go-sql-driver/mysql",
+	"github.com/jackc/pgx", "github.com/lib/pq", "github.com/nats-io/", "github.com/redis/go-redis", "github.com/segmentio/kafka-go",
+	"github.com/slack-go/", "github.com/stripe/", "github.com/twilio/", "go.mongodb.org/mongo-driver", "google.golang.org/grpc",
+}
+
+// isGoKnownInputOutputModule reports whether a package of a Go module, not the standard library, is known to do I/O.
+func isGoKnownInputOutputModule(path string) bool {
+	for _, prefix := range goKnownInputOutputModulePrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // helperExternalCall returns the first possible external call of a same-package helper, and whether it is exact.
@@ -240,7 +279,7 @@ func (finder *goExternalCallFinder) helperExternalCall(function *types.Func, dec
 		return nil, false
 	}
 	if depth+1 > goMaximumHelperDepth {
-		return &possibleExternalCall{Callee: "a helper chain deeper than dexcli follows"}, false
+		return &possibleExternalCall{Callee: "a helper chain deeper than dexcli follows", Certainty: externalCallUncertain}, false
 	}
 	finder.inProgress[function] = true
 	calls, isExact := finder.bodyExternalCalls(declaration.Body, depth+1, true)
