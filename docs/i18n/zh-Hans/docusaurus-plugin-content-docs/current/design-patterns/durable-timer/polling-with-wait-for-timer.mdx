@@ -35,7 +35,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)（英文）
   或下面的截止时间 watchdog。
 - <a id="deadline-watchdog"></a>截止时间短于 Flow，并且必须在轮询循环或它的重试仍在进行时触发，使用截止时间 watchdog。轮询间隔的 Timer 在 `Execute` 开始前已经触发，因此不能在 `Execute` 重试期间执行截止动作。即使下一轮的 Timer 时长由存下的截止时间算出，它也覆盖不到当前正在重试的一轮。watchdog 把轮询循环作为一个 [Join](/design-patterns/parallel/await#how-the-join-works) 的唯一分支来运行。启动作业的 Step fork 出一个轮次：第一个轮询 Step 和一个 join Step。每个轮询 Step 把轮次令牌传给下一轮。它看到作业完成时，用 `EndBranch` 报告结果。它的失败恢复分支转到一个 Step，由它用同样的方式报告失败结果。join Step 用 `AnyOf` 同时等待 `ForFirstBranch` 和截止时间的 Timer。
-- join Step 是唯一的决定者。它不需要锁，也没有 Step 输掉竞争或返回 `DeadEnd`。它的 `Execute` 检查是哪个 Condition 触发的。Timer 触发时，它把作业记录为超时并完成，并在同一个决定里用 `CancelSteps` 取消轮询 Step 类型和失败 Step 类型。后面的轮询轮次来自 `GoTo`，不是来自 fork，所以它们不是 join Step 的 sibling。按 Step 类型取消只在同时只有一个活跃轮次时正确。否则 join Step 用 `BranchResults` 读出结果，记录它，然后完成。Timer 胜出之后才报告的结果留在它的轮次里等待处理。它没有害处，也不会阻塞 `GracefulComplete`。
+- join Step 是唯一的决定者。它不需要锁。分支用 `EndBranch` 上报结果。它的 `Execute` 检查是哪个 Condition 触发的。Timer 触发时，它把作业记录为超时并完成，并在同一个决定里用 `CancelSteps` 取消轮询 Step 类型和失败 Step 类型。后面的轮询轮次来自 `GoTo`，不是来自 fork，所以它们不是 join Step 的 sibling。按 Step 类型取消只在同时只有一个活跃轮次时正确。否则 join Step 用 `BranchResults` 读出结果，记录它，然后完成。Timer 胜出之后才报告的结果留在它的轮次里等待处理。它没有害处，也不会阻塞 `GracefulComplete`。
 - <a id="step-input"></a>Step 输入保持小而且大小固定，例如 job ID 和轮次编号。
   累积的状态，例如收集到的结果，放在 Attribute 里，绝不放进不断变大的 Step 输入。
 - <a id="external-calls"></a>在 `Execute` 中检查作业状态。不要在 `WaitFor` 中轮询外部系统。在这个模式中，`WaitFor` 只声明 Timer。

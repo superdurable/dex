@@ -394,6 +394,7 @@ StartJob.execute(request)
         [round -> CheckJobStatus({jobId, round})],
         round -> AwaitJob(round)))
 
+CheckJobStatus.waitFor(context, input) -> until(Timer(interval))
 CheckJobStatus.execute(context, input)            // failure route -> ReportJobFailure
     status = provider.getStatus(input.jobId, cancel = context's cancellation signal)
     if status is finished: return JobResult.endBranch(input.round, status)
@@ -411,7 +412,7 @@ AwaitJob.execute(context, round)
     return gracefulComplete(result)
 ```
 
-- The join Step is the only decider. It needs no lock, and no Step loses a race or returns DeadEnd.
+- The join Step is the only decider. It needs no lock. Branches report with endBranch.
 - Execute checks which Condition fired: the Timer means overdue; otherwise it reads the branch result.
 - The poller's next rounds come from goTo, not from the fork, so they are not siblings of the join Step. Cancel the branch's Step types with cancelSteps. A cancel by Step type is correct while one round is active.
 - A result that the branch reports after the Timer won stays pending in its round. It is harmless and does not block gracefulComplete.

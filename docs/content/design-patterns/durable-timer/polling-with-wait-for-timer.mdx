@@ -48,8 +48,8 @@ Each round of the polling Step runs these steps:
   finished job, it reports the result with `EndBranch`. Its failure route goes
   to a Step that reports a failed result the same way. The join Step waits on
   `AnyOf` with `ForFirstBranch` and a Timer for the deadline.
-- The join Step is the only decider. It needs no lock, and no Step loses a
-  race or returns `DeadEnd`. Its `Execute` checks which Condition fired. When
+- The join Step is the only decider. It needs no lock. Branches report with
+  `EndBranch`. Its `Execute` checks which Condition fired. When
   the Timer fired, it records the job as overdue and completes. It cancels the
   polling Step type and the failure Step type with `CancelSteps` in the same
   decision. Later polling rounds come from `GoTo`, not from the fork, so they
