@@ -27,7 +27,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | External publishing drain | accept by RPC; close with `force_complete_if_channels_empty(output, fallback, channel)`; the controller starts first with `id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING`, a per-message `request_id`, and `ignore_already_started=True`; on `FlowAlreadyStartedError` it publishes to the run that another start owns | [external drain](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py) |
 | Control Long-Running Work (formerly Stop Long-Running Work and Interruptible execution) | `@rpc` methods set batch size and stop Attributes; `execute` reads them before each batch | [control-long-running-work](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/control-long-running-work/record_backfill_flow.py) |
 | Responsive Step completion | `wait_for_step_completion` for one named Step execution | [step completion](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/wait-for-step-completion/wait_for_step_completion_flow.py) |
-| Responsive Attribute match | `wait_for_attribute_match` on a revision Attribute | skeleton in [core patterns](../core/patterns.md#attribute-match) |
+| Responsive Attribute match | `wait_for_attribute_match` on a revision Attribute | skeleton in [core patterns](../core/patterns/channels-and-updates.md#attribute-match) |
 | Responsive Stream | `read_stream` long poll; resume with the token | [stream controller](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/stream/controller.py) |
 | Entity Flow with Attribute Sync (Entity store) | `AttributeMap(..., sync_to_attribute_store=True)`; `@rpc` locks `map.lock(key)` | [entity store](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/entity-store/user_profile_flow.py) |
 | Entity Flow | one long-lived Flow per entity; locked `@rpc` methods; Client reads | [entity flow](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/entity-flow/customer_account_flow.py) |
@@ -141,7 +141,7 @@ class AwaitJob(Step[str]):
 
 The RPCs only validate and publish. The waiting Step consumes the messages,
 appends them to the transcript, and loops back to itself, which restarts the
-inactivity Timer. See [the rules](../core/patterns.md#idle-timer-with-resolution).
+inactivity Timer. See [the rules](../core/patterns/polling-and-timers.md#idle-timer-with-resolution).
 
 ```python
 from datetime import timedelta

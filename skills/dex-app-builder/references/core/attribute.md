@@ -24,7 +24,7 @@ Use Attributes for current state. Use Channels for ordered durable messages. Do 
 - Delete instances that are no longer needed.
 - Group very small records into bounded chunks when per-instance overhead would dominate.
 - Map size and key enumeration inside a handler include its own buffered writes. They are not server-side pagination. An unbounded map is expensive to enumerate, transfer, and decode.
-- For growing collections, use the [sequentially chunked](patterns.md#sequentially-chunked-attributemap) or [hash-partitioned](patterns.md#hash-partitioned-attributemap) layouts.
+- For growing collections, use the [sequentially chunked](patterns/flow-shapes-and-state.md#sequentially-chunked-attributemap) or [hash-partitioned](patterns/flow-shapes-and-state.md#hash-partitioned-attributemap) layouts.
 
 ## Loading
 
@@ -54,7 +54,7 @@ Attribute locks serialize Steps and RPCs that declare the same lock within one F
   | The decided action may still happen once after the stop | No lock. The stop RPC publishes the stop and answers "received". The deciding Execute checks the stop Channel, also when a Timer was selected first, and every later interruptible wait includes the stop Condition. The action carries a stable occurrence ID that the receiver deduplicates. |
   | No action may be decided after the stop RPC returns | The stop RPC and the deciding Step share a lock. The deciding Step commits the decision under the lock only when no stop is committed, and an unlocked Step acts after the commit. |
 
-  Parallel waiters and the per-branch grace follow the [Reminder](patterns.md#reminder) rules.
+  Parallel waiters and the per-branch grace follow the [Reminder](patterns/polling-and-timers.md#reminder) rules.
 
 ### Whole-map coordination
 

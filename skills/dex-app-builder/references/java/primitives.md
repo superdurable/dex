@@ -511,7 +511,7 @@ building blocks:
 | Polling with WaitFor Timer | `waitFor` returns a Timer; `execute` checks once and returns `goTo` to the same Step with the next round | `patterns/pollingwithtimer` |
 | Polling with long-running Step heartbeat | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, Idle Timer (Inactivity tracker) | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
-| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#idle-timer-with-resolution)) | [`patterns/inboundeventloop`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop) |
+| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back; the closing Steps return `StepDecision.forceCompleteIfChannelsEmpty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns/polling-and-timers.md#idle-timer-with-resolution)) | [`patterns/inboundeventloop`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/inboundeventloop) |
 | Execute recovery | `onExecuteFailureProceedTo(Recovery.class)` | `patterns/recovery` |
 | Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of throwing into retry | [`patterns/failfast`](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/failfast) |
 | WaitFor recovery | `waitForFailure(WaitForFailurePolicy.PROCEED)` plus `context.waitForMethodFailed()` | `primitives/proceedonwaitfailure` |
@@ -553,7 +553,7 @@ public StepDecision execute(Context context, Void input) {
 
 ### Polling an external job
 
-Follow the polling rules in [../core/patterns.md](../core/patterns.md). In Java:
+Follow the polling rules in [../core/patterns/polling-and-timers.md](../core/patterns/polling-and-timers.md#polling). In Java:
 one `execute` loops; it calls the provider with a client that honors thread
 interrupts, or preferably gives the call its own timeout when the client
 ignores them, because the Worker slot is released only when the handler

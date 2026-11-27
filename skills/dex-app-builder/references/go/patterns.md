@@ -27,7 +27,7 @@ idiom matters. Examples live under
 | External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty`; the controller starts first with `IDReusePolicy: dex.IDReuseAllowIfNotRunning`, a per-message `RequestID`, and `AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true}`; on `FlowAlreadyStartedError` it publishes with `InvokeRPCWithOptions` and a per-message `RequestID` |
 | Control Long-Running Work (formerly Stop Long-Running Work and Interruptible execution) | [control-long-running-work/record_backfill_flow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/control-long-running-work/record_backfill_flow.go) | RPCs write batch size and stop Attributes; each batch reads them first |
 | Responsive Step completion | [wait-for-step-completion/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/wait-for-step-completion) | `client.WaitForStepCompletion` |
-| Responsive Attribute match | Skeleton in [core patterns](../core/patterns.md#attribute-match) | Revision Attribute under one lock |
+| Responsive Attribute match | Skeleton in [core patterns](../core/patterns/channels-and-updates.md#attribute-match) | Revision Attribute under one lock |
 | Responsive Stream | [primitives/stream/controller.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/stream/controller.go) | `ReadStream` with resume tokens |
 | Entity Flow with Attribute Sync (Entity store) | [entity-store/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-store/workflow.go) | `SyncToAttributeStore`; RPC-only Flow |
 | Entity Flow | [entity-flow/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-flow/workflow.go) | One long-lived Flow per entity; locked RPCs, Client reads |
@@ -198,7 +198,7 @@ func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDec
 
 The RPCs only validate and publish. The waiting Step consumes the messages,
 appends them to the transcript, and loops back to itself, which restarts the
-inactivity Timer. See [the rules](../core/patterns.md#idle-timer-with-resolution).
+inactivity Timer. See [the rules](../core/patterns/polling-and-timers.md#idle-timer-with-resolution).
 
 ```go
 var (
