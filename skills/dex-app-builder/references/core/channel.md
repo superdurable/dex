@@ -2,7 +2,7 @@
 
 A Channel is an ordered, durable, typed message queue scoped to one Flow run. A Step's WaitFor waits on it. One matching wait consumes each message. A canceled Step returns what it consumed; see [Wait and consume](#wait-and-consume).
 
-Use a Channel for queued intent: commands, approvals, and events. To join parallel branches, use a Join: a ChannelMap of branch results that counts the branches and keys each round; see [patterns.md](patterns.md#await-parallel-steps). Use Attributes for current state and Streams for best-effort progress.
+Use a Channel for queued intent: commands, approvals, and events. To join parallel branches, use a Join: a ChannelMap of branch results that counts the branches and keys each round; see [patterns.md](patterns/parallel.md#await-parallel-steps). Use Attributes for current state and Streams for best-effort progress.
 
 A ChannelMap partitions one message contract by a runtime key, such as an approval per tool-call ID. Each instance is its own FIFO queue. Instance keys cannot contain `/`.
 
@@ -31,8 +31,8 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 - A wait consumes when it is satisfied, before Execute runs. If a decision or an RPC cancels the Step before its Execute commits, Dex returns the consumed messages to the front of their Channels or ChannelMap instances, in their original order. Another wait can take them, so a message can reach Execute twice. Make message processing idempotent, for example keyed by a business ID in the message.
 - Dex drops the consumed messages only when the Flow close itself cancels the Step, such as a StopFlow request or a Flow timeout. Drain a Channel before a graceful close when its messages matter, for example with ForceCompleteIfChannelsEmpty. Do not publish work in the same result that force-closes the Flow (ForceComplete, ForceFail, or a closing ForceCompleteIfChannelsEmpty) if the work must survive. The exact cases, and what a canceling commit does with its own publications, are in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#canceled-step-messages).
 - A Channel queue is not conversation history. Keep consumed messages in Attributes when the application must show or rebuild them.
-- Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns.md#drain-channels).
-- Drain only Channels whose late messages must still be handled. A cancel or withdrawal Channel stays undrained once the decision is final: draining it would let a late cancel override the decision. See [Cancel with child Flows](patterns.md#cancel-with-child-flows).
+- Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns/channels-and-updates.md#drain-channels).
+- Drain only Channels whose late messages must still be handled. A cancel or withdrawal Channel stays undrained once the decision is final: draining it would let a late cancel override the decision. See [Cancel with child Flows](patterns/control-structures.md#cancel-with-child-flows).
 
 ## Read pending messages
 

@@ -40,10 +40,12 @@ Pick the route first:
 
 | Request | Route |
 | --- | --- |
-| A Dex product, application, or business process, end to end | **Product route**: the [workflow](#the-workflow) stages, the [product constraints](#product-constraints), and every section from [Mental model](#mental-model) on |
+| A Dex product, application, or business process, end to end | **Product route**: the [workflow](references/product-route.md#the-workflow) stages, the [product constraints](references/product-route.md#product-constraints), and every section from [Mental model](#mental-model) on |
 | Learn, install, set up, or understand Dex, with no concrete process yet | [Getting started](references/getting-started.md) |
 | Implement, debug, test, or operate code that uses the Dex SDK, such as fixing a Flow or adding a Step | **SDK-only route**: skip discovery, the UI and Connector questions, and the product constraints. Start at [Mental model](#mental-model) and keep the application's existing language, structure, and versions |
 | Add or change an official Connector, operation, Trigger, or UI unit | [Connector Contributor](../dex-connector-contributor/SKILL.md) |
+
+On the product route, read [the product route reference](references/product-route.md) before Stage 0; the SDK-only route does not need it.
 
 - A request that arrives through the former `dex-sdk` skill takes the
   SDK-only route. Do not expand it into the product workflow.
@@ -58,98 +60,6 @@ Pick the route first:
 - `dex-developer` is a former name of this guidance. If a direct
   `dex-developer` install is also present, tell the user to remove it and
   install the plugin, then start a new session. Do not delete it yourself.
-
-## The workflow
-
-The product route builds the backend: the Flows, their Dex state, the Workers,
-and the application API that the application's UI or callers use. It has one
-reference per stage. Read only the sections the next decision needs. Record
-decisions in the application's own documentation and do not reread a
-reference once its facts are recorded.
-
-| Stage | Goal | Reference |
-| --- | --- | --- |
-| 0. Workspace | Classify the repository, choose or keep the language, install tools | [Workspace bootstrap](references/workspace-bootstrap.md) |
-| 1. Discovery | Actors, roles, permissions, lifecycle, Flow boundaries, storage, external systems; ask once about UI and Connectors | [Product discovery](references/product-discovery.md) |
-| 2. Backend | Flow design, Dex-first state, Workers, the application API contract when a UI or caller needs one | [Backend implementation](references/backend-implementation.md) |
-| 2a. FDG | Start input, Step groups, explanations, Summary, Display, Actions, diagnostics | [FDG authoring](references/fdg-authoring.md) |
-| 3. Verify and hand off | Source gate, local `dexcli dev` stack, real journeys, packaging, handoff | [Verification and handoff](references/verification-handoff.md) |
-| 3'. Managed Dex App | Repository rules, checks, import, and Live for Dex Cloud | [Managed Dex App](references/managed-dex-app.md) |
-
-The UI and Connectors are optional. Discovery asks the user once about each.
-Load these references only for the options the user chose:
-
-| The user wants | Reference |
-| --- | --- |
-| Their own UI, which most products need | [UI workflow](references/ui-workflow.md) |
-| Dex Web for operations and management, alone or with their own UI | [Dex Web](references/dex-web-v2.md) |
-| A released Connector for an external system | [Connector architecture](references/connector-architecture.md) |
-
-Before Stage 0 picks a language, ask whether the application runs locally only
-or is imported into Dex Cloud as a Managed Dex App. A Managed Dex App starts
-from the example repository's shape instead of Stage 0's bootstrap. Build it
-to its repository rules, and hand
-off with its checks and import steps instead of the local `dexcli dev` steps.
-Import and publishing stay the user's steps.
-
-Keep source readiness separate from configured real execution at every stage.
-Never report compilation as provider or end-to-end success.
-
-## Product constraints
-
-Product route only; the SDK-only route skips this section. These rules add
-to the general rules in [Model before implementation](#model-before-implementation)
-and are stricter than them. They take precedence.
-
-- **One backend language, chosen in Stage 0.** Go, Python, TypeScript, Java,
-  and Rust are equal choices. Stage 0 keeps an existing application's
-  language, uses the language the user names, and otherwise uses TypeScript.
-  The rest of the workflow is the same for every language.
-- **Strict FDG 2.0, with the directives listed for the language.** Use only
-  the `dex:` directives and options that the
-  [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
-  lists for the application's language. Skip a capability it does not list.
-  Never invent syntax, and never ask the user to switch languages for it.
-  Give each local Step its `dex:group` and `dex:explanation` directives.
-- **The UI is the user's choice.** Most products need their own UI. Dex Web
-  can serve operations and management, alone or next to it. Never default to
-  Dex Web alone, and never ask for a Dex Web gap before building the user's
-  UI. When the user also uses Dex Web, leave its Runs, Work Queue, Actions,
-  edits, history, and diagnostics to it unless the user asks for them in
-  their own UI. Locally, `dexcli dev` always serves Dex Web to inspect Flows.
-- **Dex is the default store.** Add a store outside Dex only when Dex's
-  model does not fit an access pattern or scale need, and name one owner per
-  fact. No speculative database, projection, or cache.
-- **Flow boundaries.** Never split work whose parts
-  would exchange RPCs or messages on frequent events, such as every
-  operation, callback, or poll. Each call between Flows, even a read, adds
-  latency and history to both Flows.
-- **No mutation in WaitFor.** `WaitFor` mutates no provider and writes no Dex
-  state except Step execution local values, which record a read error or pass
-  a read value to `Execute`. It may
-  make read-only, idempotent provider calls. Connector write
-  operations run in `Execute`. Each provider effect in `Execute` has an
-  idempotency identity and recovery.
-- **Start identity.** Derive the Flow ID from the business operation. When
-  a caller may retry a start after an unknown outcome, add a stable Request
-  ID with ignore-already-started so the retry attaches to its own run. Set a
-  reuse policy only when the default does not fit the lifecycle. Keep typed
-  error recovery.
-- **Write a short model.** For a non-trivial Flow, write a short model of
-  its Steps, state, and failure handling in the application's own
-  documentation before coding.
-- **Credentials stay outside.** Keep them out of code, Flow state, logs, and
-  definitions. The application reads them from its configuration or
-  environment at run time. With a released Connector, it reads its
-  connections through the project configuration loader of its language's
-  Connector SDK, and locally Dex Web configures them.
-  An operator or hosting platform supplies the deployed configuration. Dex
-  hosts none.
-- **Authorization at the trusted boundary.** A browser permission selection
-  grants nothing. Enforce actor permissions at the trusted server boundary.
-  Use stable, granular Action permissions.
-- Do not mutate another repository or publish or deploy without
-  authorization.
 
 ## Mental model
 
@@ -266,25 +176,25 @@ Before you design a Flow, find its shape below and read the matching section. Th
 
 | Business shape | Pattern | Shape |
 | --- | --- | --- |
-| Wait for a person's or system's decision, with a deadline or escalation | [Decision with Deadline](references/core/patterns.md#decision-with-deadline) (Deferred choice) | One waiting Step races the decision Channels and a Timer with AnyOf, and Execute routes on the Condition that fired. |
-| One event outranks another, such as a withdrawal over a decision | [Arbitrate by business priority](references/core/patterns.md#arbitrate-by-business-priority) | The design keeps the priority rule and defines "the same moment": commit order under a reply window, Channels ready together ranked by declaration order, or a locked round that ranks every admitted event. |
-| Take replies until a resolution arrives or the conversation goes idle | [Idle Timer with Resolution](references/core/patterns.md#idle-timer-with-resolution) (Inbound event loop) | One Step waits on replies, the resolution, and an idle Timer, records the replies, and loops back for a fresh Timer. |
-| Bursts of events per entity, each entity handled in order by one short Flow | [Drain an external Channel](references/core/patterns.md#drain-an-external-channel) | One Flow ID per entity: RPCs publish to a Channel, one Step handles each message and closes with ForceCompleteIfChannelsEmpty, and the caller starts a new run when none is active. |
-| Close or act after a period of inactivity | [Idle Timer](references/core/patterns.md#idle-timer) (Inactivity tracker) | AnyOf(Timer(window), activity Channel); activity loops back for a fresh Timer, and a fired Timer acts. |
-| A collection that grows without bound | [Sequentially chunked AttributeMap](references/core/patterns.md#sequentially-chunked-attributemap) | Appends load only the current chunk, reads load one page, and a long-lived Flow deletes or archives old chunks. |
-| Keyed records with direct lookup | [Hash-partitioned AttributeMap](references/core/patterns.md#hash-partitioned-attributemap) | A stable hash of the key picks one of a fixed number of map instances, and only that instance is locked and loaded. |
+| Wait for a person's or system's decision, with a deadline or escalation | [Decision with Deadline](references/core/patterns/control-structures.md#decision-with-deadline) (Deferred choice) | One waiting Step races the decision Channels and a Timer with AnyOf, and Execute routes on the Condition that fired. |
+| One event outranks another, such as a withdrawal over a decision | [Arbitrate by business priority](references/core/patterns/control-structures.md#arbitrate-by-business-priority) | The design keeps the priority rule and defines "the same moment": commit order under a reply window, Channels ready together ranked by declaration order, or a locked round that ranks every admitted event. |
+| Take replies until a resolution arrives or the conversation goes idle | [Idle Timer with Resolution](references/core/patterns/polling-and-timers.md#idle-timer-with-resolution) (Inbound event loop) | One Step waits on replies, the resolution, and an idle Timer, records the replies, and loops back for a fresh Timer. |
+| Bursts of events per entity, each entity handled in order by one short Flow | [Drain an external Channel](references/core/patterns/channels-and-updates.md#drain-an-external-channel) | One Flow ID per entity: RPCs publish to a Channel, one Step handles each message and closes with ForceCompleteIfChannelsEmpty, and the caller starts a new run when none is active. |
+| Close or act after a period of inactivity | [Idle Timer](references/core/patterns/polling-and-timers.md#idle-timer) (Inactivity tracker) | AnyOf(Timer(window), activity Channel); activity loops back for a fresh Timer, and a fired Timer acts. |
+| A collection that grows without bound | [Sequentially chunked AttributeMap](references/core/patterns/flow-shapes-and-state.md#sequentially-chunked-attributemap) | Appends load only the current chunk, reads load one page, and a long-lived Flow deletes or archives old chunks. |
+| Keyed records with direct lookup | [Hash-partitioned AttributeMap](references/core/patterns/flow-shapes-and-state.md#hash-partitioned-attributemap) | A stable hash of the key picks one of a fixed number of map instances, and only that instance is locked and loaded. |
 | Wait until a deadline that a provider supplies, such as a due date | [Timer](references/core/timer.md) | A read-only, idempotent call reads the deadline in WaitFor, which returns the Timer. |
-| Wait for an external system to become ready or finish | [Polling](references/core/patterns.md#polling) | A bounded WaitFor Timer loop with one provider call per Execute, or one long-running Execute with short calls and heartbeats. |
-| Recurring work, or reminders until the recipient opts out | [Cron schedule](references/core/patterns.md#cron-schedule), [Reminder](references/core/patterns.md#reminder) | Cron starts the run and the next Timer wait together; Reminder races the Timer with the opt-out, then rearms after sending. |
-| A failure that a person must resolve | [Manual recovery](references/core/patterns.md#manual-recovery) | The Execute failure route goes to a Step that waits on retry and skip Channels. |
-| Undo earlier Steps after a Step fails | [Execute failure recovery](references/core/patterns.md#execute-failure-recovery) | The failure route compensates, starting with the failed Step itself. |
+| Wait for an external system to become ready or finish | [Polling](references/core/patterns/polling-and-timers.md#polling) | A bounded WaitFor Timer loop with one provider call per Execute, or one long-running Execute with short calls and heartbeats. |
+| Recurring work, or reminders until the recipient opts out | [Cron schedule](references/core/patterns/polling-and-timers.md#cron-schedule), [Reminder](references/core/patterns/polling-and-timers.md#reminder) | Cron starts the run and the next Timer wait together; Reminder races the Timer with the opt-out, then rearms after sending. |
+| A failure that a person must resolve | [Manual recovery](references/core/patterns/failure-handling.md#manual-recovery) | The Execute failure route goes to a Step that waits on retry and skip Channels. |
+| Undo earlier Steps after a Step fails | [Execute failure recovery](references/core/patterns/failure-handling.md#execute-failure-recovery) | The failure route compensates, starting with the failed Step itself. |
 | Keep trying an unreliable call for up to a time, such as an hour | [Time bounds](references/core/step.md#time-bounds) | The retry total duration plus an Execute failure route to a Step that handles the failure; the duration counts from the first attempt, so the Step computes no deadline or budget guard of its own. |
-| A deadline for the whole process | [Graceful timeout](references/core/patterns.md#graceful-timeout) | The Flow timeout and its timeout handler, not a competing Step. |
-| Independent branches of one lifecycle, then a join | [Parallel Steps](references/core/patterns.md#parallel-steps) | GoToMany; a Join waits for all, the first, or n branches. |
-| Branches take turns on shared multi-Step work | [Critical section](references/core/patterns.md#critical-section) | A handoff Step takes the only token, and every exit of the section returns it. |
+| A deadline for the whole process | [Graceful timeout](references/core/patterns/failure-handling.md#graceful-timeout) | The Flow timeout and its timeout handler, not a competing Step. |
+| Independent branches of one lifecycle, then a join | [Parallel Steps](references/core/patterns/parallel.md#parallel-steps) | GoToMany; a Join waits for all, the first, or n branches. |
+| Branches take turns on shared multi-Step work | [Critical section](references/core/patterns/control-structures.md#critical-section) | A handoff Step takes the only token, and every exit of the section returns it. |
 | Child jobs tracked by their own number: looked up, retried, stopped, or started by others | [Top-level child Flows](references/core/flow.md#child-jobs-with-their-own-identity) | A Step starts each child through the Client with a stable Flow ID and Request ID, and the child reports through an RPC or the parent reconciles its terminal state. |
-| At most N jobs run at once per owner, with a bounded waiting list and a close that drains | [Long-lived parent](references/core/patterns.md#long-lived-parent), [Back pressure](references/core/patterns.md#back-pressure) | One long-lived Flow per owner runs N worker Steps that each take one request, and admission, close, and each take share one lock on the close flag. |
-| Pause, stop, or resize running work through RPCs | [Control Long-Running Work](references/core/patterns.md#control-long-running-work) | RPCs write control Attributes that each iteration reads, applying a default for an unset control at read time. |
+| At most N jobs run at once per owner, with a bounded waiting list and a close that drains | [Long-lived parent](references/core/patterns/parallel.md#long-lived-parent), [Back pressure](references/core/patterns/parallel.md#back-pressure) | One long-lived Flow per owner runs N worker Steps that each take one request, and admission, close, and each take share one lock on the close flag. |
+| Pause, stop, or resize running work through RPCs | [Control Long-Running Work](references/core/patterns/channels-and-updates.md#control-long-running-work) | RPCs write control Attributes that each iteration reads, applying a default for an unset control at read time. |
 
 ## Model before implementation
 
@@ -292,21 +202,21 @@ For non-trivial work, check the runnable examples and [patterns](references/core
 
 ### Must
 
-- **Deadlines that trigger work are durable Timers.** A deadline that must trigger work is a Timer Condition, so the Flow wakes when it passes; a deadline for the whole Flow is the Flow timeout. Never use a Timer-only Step that an RPC cancels. When a deadline spans retrying work, such as a polling loop's rounds, use the [deadline watchdog](references/core/patterns.md#deadline-watchdog).
+- **Deadlines that trigger work are durable Timers.** A deadline that must trigger work is a Timer Condition, so the Flow wakes when it passes; a deadline for the whole Flow is the Flow timeout. Never use a Timer-only Step that an RPC cancels. When a deadline spans retrying work, such as a polling loop's rounds, use the [deadline watchdog](references/core/patterns/polling-and-timers.md#deadline-watchdog).
 - **No identity from the clock.** Never derive an idempotency key or business ID from the current time; each retry reads a different time. Use the Flow ID and the Flow start time from the Context.
 - **Race replies with the deadline.** Race decision Channels and the Timer in one waiting Step, and check which Condition fired in Execute; never infer the Timer from a missing Channel result, an open window, or an unset outcome. A reply can commit after the Timer won, and its RPC still returns success.
-- **An RPC that races a Step's decision follows the business promise.** When a reply races a deadline, or a stop races a decided action such as a reminder, decide by what the caller is promised. If the caller must get a definite answer, the RPC and the deciding Execute share an Attribute lock, as in a [reply window](references/core/patterns.md#close-a-reply-window-with-an-attribute-lock) or a [locked stop](references/core/attribute.md#locks); otherwise the RPC only publishes and takes no lock, and a decided action carries a stable occurrence ID that the receiver deduplicates.
-- **Keep business priority rules between events.** Keep a rule such as "a confirmation wins over a decline at the same moment", and state whether "the same moment" means commit order or Channels ready together when the wait is evaluated. Commit order picks the first admitted reply and is never presented as business rank; AnyOf declaration order ranks ready Channels only, with a ready Timer selected first. To rank every event admitted before the decision, use the locked round of [Arbitrate by business priority](references/core/patterns.md#arbitrate-by-business-priority).
+- **An RPC that races a Step's decision follows the business promise.** When a reply races a deadline, or a stop races a decided action such as a reminder, decide by what the caller is promised. If the caller must get a definite answer, the RPC and the deciding Execute share an Attribute lock, as in a [reply window](references/core/patterns/control-structures.md#close-a-reply-window-with-an-attribute-lock) or a [locked stop](references/core/attribute.md#locks); otherwise the RPC only publishes and takes no lock, and a decided action carries a stable occurrence ID that the receiver deduplicates.
+- **Keep business priority rules between events.** Keep a rule such as "a confirmation wins over a decline at the same moment", and state whether "the same moment" means commit order or Channels ready together when the wait is evaluated. Commit order picks the first admitted reply and is never presented as business rank; AnyOf declaration order ranks ready Channels only, with a ready Timer selected first. To rank every event admitted before the decision, use the locked round of [Arbitrate by business priority](references/core/patterns/control-structures.md#arbitrate-by-business-priority).
 - **Decide once.** After the deciding Execute commits, a later event never changes the decision; answer it as a new event, such as "already decided", or start an undo. Never add a clock or Timer wait for more events once the decision's inputs have arrived.
-- **No provider writes or polling in WaitFor.** WaitFor may run more than once, so it never mutates an external system, including through Connector write operations, and never polls a provider; waiting for an external system uses a [Polling](references/core/patterns.md#polling) shape. Every provider write runs in Execute, idempotent or compensatable, keyed by an ID that is stable across attempts.
+- **No provider writes or polling in WaitFor.** WaitFor may run more than once, so it never mutates an external system, including through Connector write operations, and never polls a provider; waiting for an external system uses a [Polling](references/core/patterns/polling-and-timers.md#polling) shape. Every provider write runs in Execute, idempotent or compensatable, keyed by an ID that is stable across attempts.
 - **No external call under a lock that an RPC takes.** Make no external call, including starting or calling another Flow, in a WaitFor, Execute, or timeout handler that holds a lock an RPC also takes. Dex holds the lock for the whole method call, through retries and backoff, so the RPC fails with a lock conflict meanwhile. Decide and commit under the lock, then make the call in the next, unlocked Step.
 
 - **Frequent concurrent writers publish instead of locking shared state.** Route frequent concurrent writers through an RPC that publishes to a Channel consumed by one writing Step. Never have each RPC lock and rewrite shared state, such as a list, a counter, or an admission deadline; a lock conflict refuses the caller even when it retries.
 - **One active consumer per Channel at a time.** At any moment, at most one waiting Step consumes a given Channel, so which Step receives a message never depends on timing. For an event every waiter must receive, use one ChannelMap key per waiter and publish to each key.
-- **Bound growing collections.** Keep them in a [sequentially chunked AttributeMap](references/core/patterns.md#sequentially-chunked-attributemap), never in one Attribute rewritten on each change; otherwise the value and the Flow's active state keep growing toward their [limits](#default-limits-that-shape-a-design). A long-lived Flow also deletes or archives old chunks.
-- **Branches with their own effects are Steps.** When branches make their own external effects or need their own retries, failure routes, or durable results, run them as parallel Steps: GoToMany with a sibling cancel, or a Join for the first k of n. See [First-win parallel Steps](references/core/patterns.md#first-win-parallel-steps).
+- **Bound growing collections.** Keep them in a [sequentially chunked AttributeMap](references/core/patterns/flow-shapes-and-state.md#sequentially-chunked-attributemap), never in one Attribute rewritten on each change; otherwise the value and the Flow's active state keep growing toward their [limits](#default-limits-that-shape-a-design). A long-lived Flow also deletes or archives old chunks.
+- **Branches with their own effects are Steps.** When branches make their own external effects or need their own retries, failure routes, or durable results, run them as parallel Steps: GoToMany with a sibling cancel, or a Join for the first k of n. See [First-win parallel Steps](references/core/patterns/parallel.md#first-win-parallel-steps).
 - **Silent calls need a higher heartbeat timeout.** A call that can stay silent longer than the heartbeat timeout, which is short by default, gets a higher heartbeat timeout or heartbeats; otherwise every attempt times out and the Step fails when retries run out. Raising only the method timeout keeps the heartbeat deadline. Pass the cancellation signal into each call that accepts one; see [Time bounds](references/core/step.md#time-bounds).
-- **Compensation starts with the failed Step.** A Step whose retries ran out may still have taken effect, for example when the provider applied the change and then timed out. Undo it first with its original reference, and make every undo a no-op for an action that never happened. See [Execute failure recovery](references/core/patterns.md#execute-failure-recovery).
+- **Compensation starts with the failed Step.** A Step whose retries ran out may still have taken effect, for example when the provider applied the change and then timed out. Undo it first with its original reference, and make every undo a no-op for an action that never happened. See [Execute failure recovery](references/core/patterns/failure-handling.md#execute-failure-recovery).
 - **Start first.** Call StartFlow first with a stable Flow ID and a Request ID derived from the complete logical start request; never read before or after a successful start to guard duplicates. To attach matching retries and reject changed details, use an ID reuse policy that rejects reuse with ignore-already-started, which applies only to a matching Request ID; how a policy decides is in the [Facts](#mental-model) above. See [error-handling.md](references/core/error-handling.md#start-first-reconcile-only-after-an-error).
 - **One owning Flow.** Start one domain-named Flow at the API boundary for a multi-step mutation. Never chain dependent starts in the API handler; the process can exit after the first start, and nothing durable owns the rest. See [flow.md](references/core/flow.md#own-downstream-starts-durably).
 - **Child jobs with their own identity are top-level Flows.** SubFlow IDs derive from the parent. A child that people look up, retry, reopen, or stop by its own number is a top-level Flow whose business number is its Flow ID, started by a Step with a stable Request ID. The parent receives its result durably and accepts it idempotently; reopen and run-ID rules are in [flow.md](references/core/flow.md#child-jobs-with-their-own-identity).

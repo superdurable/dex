@@ -22,7 +22,7 @@ ParentStep.execute(context, input)
 
 - The child Flow type must be registered on the Worker, and its start Step input must match the input the parent passes.
 - Use AllOf to wait for every child. Under AnyOf, the other children keep running after the wait ends. Execute can stop them or pass their Flow IDs on.
-- Bound the number of parallel children. Use Channels, a counter Attribute, and back pressure for a long-running parent. See [patterns.md](patterns.md#parallel-subflows).
+- Bound the number of parallel children. Use Channels, a counter Attribute, and back pressure for a long-running parent. See [patterns.md](patterns/parallel.md#parallel-subflows).
 
 ## Identity and reuse
 

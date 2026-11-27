@@ -92,7 +92,7 @@ Prefer immutable or rarely changed values:
 - keep only the active window or a summary in a small mutable Attribute;
 - edit old chunks only when the product really edits history.
 
-Old chunks keep their references and stay warm. A new chunk causes only its own first miss. Use the [sequentially chunked](patterns.md#sequentially-chunked-attributemap) or [hash-partitioned](patterns.md#hash-partitioned-attributemap) layouts.
+Old chunks keep their references and stay warm. A new chunk causes only its own first miss. Use the [sequentially chunked](patterns/flow-shapes-and-state.md#sequentially-chunked-attributemap) or [hash-partitioned](patterns/flow-shapes-and-state.md#hash-partitioned-attributemap) layouts.
 
 ## External queries
 

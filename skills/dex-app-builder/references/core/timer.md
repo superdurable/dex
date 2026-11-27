@@ -10,7 +10,7 @@ A Timer is a durable Dex Server timer used as a WaitFor Condition. It survives W
 | A deadline that races a user action | AnyOf(Timer, Channel) |
 | A recurring schedule | The cron pattern: AnyOf(Timer, trigger Channel, skip Channel) in a loop |
 | A deadline for the whole Flow | The Flow timeout and timeout handler, not a competing Step. See [flow.md](flow.md#flow-timeout). |
-| Waiting for an external system to become ready | A [Polling](patterns.md#polling) shape: a bounded Timer loop that calls the provider once per Execute, or one long-running Execute with heartbeats. |
+| Waiting for an external system to become ready | A [Polling](patterns/polling-and-timers.md#polling) shape: a bounded Timer loop that calls the provider once per Execute, or one long-running Execute with heartbeats. |
 | Delay before the first work | A start Step that waits on a Timer. Dex has no start delay. |
 
 ## Rules
