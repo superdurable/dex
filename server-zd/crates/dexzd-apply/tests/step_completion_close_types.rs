@@ -32,6 +32,9 @@ use dexzd_protocol::dexzd::v1::{
     timer_id,
 };
 
+#[path = "support/due_timers.rs"]
+mod due_timers;
+
 use StepCompletionState::{Completed, EndedWithoutCompletion, NotCompleted};
 
 const FLOW_ID: &str = "order-1";
@@ -135,7 +138,13 @@ impl Harness {
     }
 
     fn apply(&mut self, body: Command) -> ApplyOutcome {
-        self.now_micros += 1000;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.context.flow_hash,
+            self.run_id.as_bytes(),
+            &body,
+            self.now_micros + 1000,
+        );
         let is_start = matches!(body, Command::FlowStart(_));
         let command = FlowCommand {
             flow_id: FLOW_ID.to_owned(),

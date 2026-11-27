@@ -8,11 +8,14 @@
 
 //! Step attempt commands and fired timers.
 
+use dexzd_keyspace::ColumnFamily;
+use dexzd_keyspace::row_keys::timer_key;
 use dexzd_protocol::dex::{FlowErrorType, FlowStatus, FlowTimeoutPolicy, PullRouting};
 use dexzd_protocol::dexzd::v1::{
     RunRecord, StepAttemptFailedCommand, StepAttemptFailureKind, StepExecutionPhase, StepMethod,
-    TimersFiredCommand, flow_command::Command, timer_id,
+    TimerId, TimerRecord, TimersFiredCommand, flow_command::Command, timer_id,
 };
+use prost::Message;
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::ok_reply;
@@ -146,6 +149,7 @@ fn rejected_result_failure(
 }
 
 /// Applies timers that fired. Timers of another run attempt, or already removed, are skipped.
+/// A timer re-armed to fire after the command time keeps its rows and fires later.
 pub(crate) fn apply_timers_fired(
     transaction: &mut FlowTransaction<'_>,
     mut cursor: RunCursor,
@@ -159,6 +163,9 @@ pub(crate) fn apply_timers_fired(
             timer.kind,
             Some(timer_id::Kind::Retention(_) | timer_id::Kind::OutboxRetention(_))
         );
+        if !is_timer_due(transaction, &cursor, timer, scope.now_micros)? {
+            continue;
+        }
         if disarm_timer(transaction, &cursor, timer)?.is_none() {
             continue;
         }
@@ -205,6 +212,22 @@ pub(crate) fn apply_timers_fired(
         ok_reply(),
         HistoryKind::SEMANTIC,
     )?))
+}
+
+/// Returns true when `timer` is stored and fires at or before `now_micros`.
+fn is_timer_due(
+    transaction: &FlowTransaction<'_>,
+    cursor: &RunCursor,
+    timer: &TimerId,
+    now_micros: i64,
+) -> Result<bool, ApplyError> {
+    let key = timer_key(
+        cursor.rows.flow_hash,
+        cursor.run_id(),
+        &timer.encode_to_vec(),
+    );
+    let record: Option<TimerRecord> = transaction.get_message(ColumnFamily::Flow, &key, "timer")?;
+    Ok(record.is_some_and(|record| record.fire_at_micros <= now_micros))
 }
 
 /// The Flow timeout fired (plan section 9.1). FAIL fails with FLOW_TIMEOUT, CANCEL cancels,

@@ -48,6 +48,9 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+#[path = "support/due_timers.rs"]
+mod due_timers;
+
 const SECOND: i64 = 1_000_000;
 const PARENT_RUN: [u8; 16] = [1; 16];
 const FIRST_CHILD_RUN: [u8; 16] = [2; 16];
@@ -145,7 +148,24 @@ impl Harness {
     }
 
     fn apply(&mut self, flow_id: &str, run_id: &[u8], body: Command) -> ApplyOutcome {
-        self.now_micros += 1000;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.hasher.flow_hash(TenantId::DEFAULT, flow_id),
+            run_id,
+            &body,
+            self.now_micros + 1000,
+        );
+        self.apply_at(flow_id, run_id, body, self.now_micros)
+    }
+
+    /// Applies `body` stamped with `proposed_at_micros`, such as a TimersFired proposed early.
+    fn apply_at(
+        &mut self,
+        flow_id: &str,
+        run_id: &[u8],
+        body: Command,
+        proposed_at_micros: i64,
+    ) -> ApplyOutcome {
         let flow_hash = self.hasher.flow_hash(TenantId::DEFAULT, flow_id);
         let context = ApplyContext {
             partition: self.hasher.partition_of(flow_hash),
@@ -157,7 +177,7 @@ impl Harness {
             expected_run_attempt: 0,
             epoch: 1,
             behavior_version: 1,
-            proposed_at_micros: self.now_micros,
+            proposed_at_micros,
             command_id: [0; 16].to_vec(),
             tenant_id: 0,
             is_transactional_rpc_in_flight: false,
@@ -1392,6 +1412,103 @@ fn child_completion_acknowledges_the_parent_child_start_before_the_child_can_be_
     );
     assert_ok(&late_ack);
     assert!(late_ack.writes.is_empty(), "the late OutboxAck is a no-op");
+}
+
+/// The timer service may read the first deadline, then commit TimersFired after a postponement.
+#[test]
+fn a_stale_retention_fire_neither_disarms_nor_fires_the_postponed_retention() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    assert_ok(&harness.deliver_child_start(
+        START_MESSAGE,
+        FIRST_CHILD_RUN,
+        "first",
+        SubFlowReusePolicy::Unspecified,
+    ));
+    harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            }),
+        }),
+    );
+    let child_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CHILD_ID);
+    let partition = harness.hasher.partition_of(child_hash);
+    let retention_timer = TimerId {
+        run_attempt: 0,
+        kind: Some(timer_id::Kind::Retention(RetentionTimerId {})),
+    };
+    let encoded_retention_timer = retention_timer.encode_to_vec();
+    let fire_retention = || {
+        Command::TimersFired(TimersFiredCommand {
+            timers: vec![retention_timer.clone()],
+        })
+    };
+    // The unacknowledged completion report postpones retention.
+    assert_ok(&harness.apply(CHILD_ID, &FIRST_CHILD_RUN, fire_retention()));
+    let postponed_deadline = harness
+        .record(CHILD_ID, FIRST_CHILD_RUN)
+        .retention_deadline_micros;
+    assert!(postponed_deadline > harness.now_micros + SECOND);
+
+    let stale_proposed_at = harness.now_micros + 1000;
+    let stale = harness.apply_at(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        fire_retention(),
+        stale_proposed_at,
+    );
+    assert_ok(&stale);
+    assert!(stale.writes.is_empty(), "the timer is not due yet");
+    assert!(stale.effects.is_empty());
+    let record = harness.record(CHILD_ID, FIRST_CHILD_RUN);
+    assert!(!record.is_purging);
+    assert_eq!(record.retention_deadline_micros, postponed_deadline);
+    let kept_timer = TimerRecord::decode(
+        harness
+            .state
+            .get(
+                ColumnFamily::Flow,
+                &timer_key(child_hash, RunId(FIRST_CHILD_RUN), &encoded_retention_timer),
+            )
+            .unwrap()
+            .expect("the postponed retention timer is kept")
+            .as_slice(),
+    )
+    .unwrap();
+    assert_eq!(kept_timer.fire_at_micros, postponed_deadline);
+    assert!(harness.state.rows.contains_key(&(
+        ColumnFamily::PartitionIndex,
+        timer_index_key(
+            partition,
+            postponed_deadline,
+            child_hash,
+            RunId(FIRST_CHILD_RUN),
+            &encoded_retention_timer,
+        ),
+    )));
+
+    let report = harness
+        .outbox(CHILD_ID, FIRST_CHILD_RUN)
+        .pop()
+        .expect("pending completion report");
+    assert_ok(&harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::OutboxAck(OutboxAckCommand {
+            message_ids: vec![report.message_id],
+        }),
+    ));
+    let purging = harness.apply(CHILD_ID, &FIRST_CHILD_RUN, fire_retention());
+    assert!(harness.now_micros >= postponed_deadline);
+    assert!(purging.effects.iter().any(|effect| matches!(
+        effect,
+        ApplyEffect::RunPurgeRequested { run_id } if *run_id == RunId(FIRST_CHILD_RUN)
+    )));
+    assert!(harness.record(CHILD_ID, FIRST_CHILD_RUN).is_purging);
 }
 
 #[test]

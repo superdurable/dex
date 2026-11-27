@@ -506,6 +506,9 @@ async fn retry_backoff_rejects_writing_rpcs_and_retains_the_snapshot_after_resta
         harness.store.clone(),
     );
     restarted
+        .committer
+        .resume_command_numbers_after(&harness.committer);
+    restarted
         .applier
         .uses_real_apply
         .store(true, Ordering::SeqCst);

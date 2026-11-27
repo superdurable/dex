@@ -8,6 +8,8 @@
 
 //! History, checkpoints, the window, and time travel over an in-memory state.
 
+#[path = "support/due_timers.rs"]
+mod due_timers;
 #[path = "support/prune_cursors.rs"]
 mod prune_cursors;
 
@@ -168,7 +170,13 @@ impl Harness {
     }
 
     fn command(&mut self, body: Command) -> FlowCommand {
-        self.now_micros += 1000;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.context.flow_hash,
+            &self.run_id,
+            &body,
+            self.now_micros + 1000,
+        );
         FlowCommand {
             flow_id: self.flow_id.clone(),
             run_id: if matches!(body, Command::FlowStart(_)) {

@@ -13,8 +13,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use dexzd_apply::ApplyEffect;
-use dexzd_keyspace::{PartitionId, RunId};
-use dexzd_protocol::dexzd::v1::TimerId;
+use dexzd_keyspace::row_keys::{timer_index_key, timer_key};
+use dexzd_keyspace::{ColumnFamily, PartitionId, RunId};
+use dexzd_protocol::dexzd::v1::{TimerId, TimerRecord};
+use prost::Message;
 
 use super::timer_tests::{
     fired_commands, seed_timer, sleep_until_micros, timers_fired_override, wait_timer,
@@ -492,6 +494,97 @@ async fn a_timer_armed_after_a_pass_takes_its_snapshot_fires_in_the_next_pass() 
     assert!(second_pass.is_none(), "the second pass fires a timer");
     assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 1);
     harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_timer_re_armed_later_after_a_pass_takes_its_snapshot_fires_once_at_its_new_time() {
+    const FLOW_ID: &str = "re-armed-after-snapshot";
+    // No override: the real apply must leave the re-armed timer in place.
+    let harness = EffectHarness::new();
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    let partition = harness.partition_of(FLOW_ID);
+    let run = harness.run_location(FLOW_ID, run_id);
+    let wake = Arc::new(PartitionTimerWake::new(
+        Arc::clone(&harness.clock) as Arc<dyn WallClock>
+    ));
+    let mut service = PartitionTimerService::new(
+        Arc::clone(harness.effect_context()),
+        partition,
+        Arc::clone(&wake),
+    );
+    let first_fire_at = harness.clock.now_unix_micros() - MILLI_MICROS;
+    let later_fire_at = harness.clock.now_unix_micros() + 30 * SECOND_MICROS;
+    seed_timer(&harness, FLOW_ID, run_id, &wait_timer(0), first_fire_at);
+    let racing_wake = Arc::clone(&wake);
+    *harness
+        .flow_effect_operations
+        .committed_reader_hook
+        .lock()
+        .expect("lock") = Some(Box::new(move |state| {
+        let first_index_key = timer_index_key(
+            partition,
+            first_fire_at,
+            run.flow_hash,
+            run.run_id,
+            &wait_timer(0).encode_to_vec(),
+        );
+        state
+            .rows
+            .remove(&(ColumnFamily::PartitionIndex, first_index_key));
+        write_timer_rows(state, partition, run, &wait_timer(0), later_fire_at);
+        racing_wake.note_armed(later_fire_at);
+    }));
+
+    let first_pass = service
+        .fire_due_timers()
+        .await
+        .expect("the first pass runs");
+    assert!(
+        first_pass.is_none(),
+        "the first pass fires its stale snapshot"
+    );
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 1);
+    assert_eq!(
+        stored_fire_at(&harness, run, &wait_timer(0)),
+        Some(later_fire_at)
+    );
+    let second_pass = service
+        .fire_due_timers()
+        .await
+        .expect("the second pass runs")
+        .expect("nothing is due");
+    assert!(
+        second_pass >= tokio::time::Instant::now() + Duration::from_secs(29),
+        "the stale candidate is not retried"
+    );
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(0)).len(), 1);
+
+    sleep_until_micros(&harness, later_fire_at).await;
+    let third_pass = service
+        .fire_due_timers()
+        .await
+        .expect("the third pass runs");
+    assert!(third_pass.is_none(), "the re-armed timer fires");
+    let fires = fires_of(&harness, run_id, &wait_timer(0));
+    assert_eq!(fires.len(), 2);
+    assert!(fires[1] >= later_fire_at);
+    assert_eq!(stored_fire_at(&harness, run, &wait_timer(0)), None);
+    harness.shutdown().await;
+}
+
+/// Returns the fire time of the timer row that apply stores for `timer`, if any.
+fn stored_fire_at(harness: &EffectHarness, run: RunLocation, timer: &TimerId) -> Option<i64> {
+    let key = timer_key(run.flow_hash, run.run_id, &timer.encode_to_vec());
+    harness
+        .flow_effect_operations
+        .snapshot()
+        .rows
+        .get(&(ColumnFamily::Flow, key))
+        .map(|bytes| {
+            TimerRecord::decode(bytes.as_slice())
+                .expect("timer row decodes")
+                .fire_at_micros
+        })
 }
 
 #[tokio::test(start_paused = true)]

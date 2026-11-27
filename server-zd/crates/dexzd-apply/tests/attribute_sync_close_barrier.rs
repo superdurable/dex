@@ -46,6 +46,9 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+#[path = "support/due_timers.rs"]
+mod due_timers;
+
 const SECOND: i64 = 1_000_000;
 const FLOW_ID: &str = "order-1";
 const PRIMARY: &str = "primary";
@@ -148,7 +151,13 @@ impl Harness {
     }
 
     fn command(&mut self, body: Command) -> FlowCommand {
-        self.now_micros += 1000;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.context.flow_hash,
+            &self.run_id,
+            &body,
+            self.now_micros + 1000,
+        );
         FlowCommand {
             flow_id: FLOW_ID.to_owned(),
             run_id: if matches!(body, Command::FlowStart(_)) {

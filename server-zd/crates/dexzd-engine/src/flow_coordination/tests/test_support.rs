@@ -208,6 +208,14 @@ impl FakeCommitter {
     pub(crate) fn pending_count(&self) -> usize {
         self.pending.lock().unwrap().len()
     }
+
+    /// Stamps later commands after every command of `previous`, as a restarted owner does.
+    pub(crate) fn resume_command_numbers_after(&self, previous: &FakeCommitter) {
+        self.next_command_number.fetch_max(
+            previous.next_command_number.load(Ordering::SeqCst),
+            Ordering::SeqCst,
+        );
+    }
 }
 
 impl FlowCommandCommitter for FakeCommitter {

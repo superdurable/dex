@@ -39,6 +39,8 @@ use prost::Message;
 
 #[path = "wait_conditions/canceled_step_messages.rs"]
 mod canceled_step_messages;
+#[path = "support/due_timers.rs"]
+mod due_timers;
 #[path = "wait_conditions/graceful_completion_condition.rs"]
 mod graceful_completion_condition;
 
@@ -137,7 +139,13 @@ impl Harness {
 
     /// Applies a command twice against the same state, checks both results match, commits.
     fn apply(&mut self, body: Command) -> ApplyOutcome {
-        self.now_micros += 1000;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.context.flow_hash,
+            &self.run_id,
+            &body,
+            self.now_micros + 1000,
+        );
         let command = FlowCommand {
             flow_id: self.flow_id.clone(),
             run_id: if matches!(body, Command::FlowStart(_)) {

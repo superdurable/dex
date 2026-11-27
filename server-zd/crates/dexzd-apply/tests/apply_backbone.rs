@@ -54,6 +54,8 @@ mod attempt_handout;
 mod close_results;
 #[path = "apply_backbone/dispatch_queue.rs"]
 mod dispatch_queue;
+#[path = "support/due_timers.rs"]
+mod due_timers;
 #[path = "apply_backbone/flow_count_limits.rs"]
 mod flow_count_limits;
 #[path = "apply_backbone/retry_snapshots.rs"]
@@ -202,7 +204,13 @@ impl Harness {
     }
 
     fn command(&mut self, body: Command) -> FlowCommand {
-        self.now_micros += 1000;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.context.flow_hash,
+            &self.run_id,
+            &body,
+            self.now_micros + 1000,
+        );
         FlowCommand {
             flow_id: self.flow_id.clone(),
             run_id: if matches!(body, Command::FlowStart(_)) {

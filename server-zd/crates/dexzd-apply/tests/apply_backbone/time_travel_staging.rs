@@ -845,7 +845,14 @@ fn an_abandoned_staging_is_deleted_after_ten_idle_minutes() {
 #[test]
 fn run_purge_deletes_the_staging() {
     let mut harness = Harness::new("order-1");
-    harness.start(start_request("start"));
+    // Retention ends before the staging turns idle, so the purge still finds it.
+    harness.start_with_settings(
+        start_request("start"),
+        RunSettings {
+            retention_after_close_micros: MINUTE,
+            ..settings()
+        },
+    );
     harness.apply_stage(harness.stage_chunk(b"abandoned", 0, false));
     harness.apply(Command::FlowStop(FlowStopCommand {
         request: Some(StopFlowRequest {

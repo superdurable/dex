@@ -8,6 +8,8 @@
 
 //! The time travel window counted in history events, with per-run window sizes.
 
+#[path = "support/due_timers.rs"]
+mod due_timers;
 #[path = "support/prune_cursors.rs"]
 mod prune_cursors;
 
@@ -177,7 +179,13 @@ impl Harness {
     }
 
     fn flow_command(&mut self, body: Command) -> FlowCommand {
-        self.now_micros += SECOND;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.context.flow_hash,
+            self.run_id.as_bytes(),
+            &body,
+            self.now_micros + SECOND,
+        );
         let is_start = matches!(body, Command::FlowStart(_));
         FlowCommand {
             flow_id: FLOW_ID.to_owned(),

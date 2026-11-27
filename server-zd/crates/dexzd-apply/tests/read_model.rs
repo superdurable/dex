@@ -53,6 +53,9 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+#[path = "support/due_timers.rs"]
+mod due_timers;
+
 #[derive(Default)]
 struct MemoryState {
     rows: BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>,
@@ -153,7 +156,13 @@ impl Harness {
     }
 
     fn apply(&mut self, body: Command) -> ApplyOutcome {
-        self.now_micros += 1000;
+        self.now_micros = due_timers::command_time_when_timers_are_due(
+            &self.state.rows,
+            self.context.flow_hash,
+            self.run_id.as_bytes(),
+            &body,
+            self.now_micros + 1000,
+        );
         let is_start = matches!(body, Command::FlowStart(_));
         let command = FlowCommand {
             flow_id: self.flow_id.clone(),
