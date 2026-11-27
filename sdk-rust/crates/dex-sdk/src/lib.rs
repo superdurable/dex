@@ -112,7 +112,7 @@ pub use value::Value;
 pub use wait::{
     Condition, ConditionCombination, GracefulCompletionConditionUnsupportedError, Wait,
 };
-pub use wait_options::{WaitForAttributeOptions, WaitForStepCompletionOptions};
+pub use wait_options::{WaitForAttributeOptions, WaitForFlowOptions, WaitForStepCompletionOptions};
 pub use worker::Worker;
 pub use worker_options::{PullWorkerOptions, WorkerOptions};
 pub use worker_pull::PullSlotStreamState;
