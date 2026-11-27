@@ -1,4 +1,4 @@
 ---
 section: Changed
 ---
-- A partition rebuild at node start or failover looks for Flow runs whose purge had started only among runs whose deletion time is at or before the partition's last command time. It no longer reads every closed Flow run that retention keeps, so partitions with many closed runs rebuild faster.
+- When a partition has a positive last command timestamp, rebuilding it at node start or failover looks for interrupted purges only among Flow runs whose deletion time is at or before that timestamp. This speeds up rebuilds for partitions with many closed runs still in retention.

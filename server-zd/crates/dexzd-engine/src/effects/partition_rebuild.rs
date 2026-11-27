@@ -338,7 +338,7 @@ fn rebuild_run_purges(
 
 /// Returns the partition's command-time watermark, or `None` when the partition has none.
 ///
-/// A missing PartitionMeta row and a zero timestamp both return `None`.
+/// A missing PartitionMeta row and a non-positive timestamp both return `None`.
 fn last_command_timestamp_micros(
     reader: &dyn FlowStateReader,
     partition: PartitionId,

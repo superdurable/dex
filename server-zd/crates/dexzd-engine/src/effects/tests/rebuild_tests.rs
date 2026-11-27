@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use dexzd_apply::FlowStateReader;
+use dexzd_clock::WallClock;
 use dexzd_keyspace::row_keys::{
     hard_delete_pending_key, outbox_key, run_item_index_key, run_singleton_key,
 };
@@ -592,11 +593,7 @@ struct PurgeRebuildReads {
     run_purges: usize,
 }
 
-/// Closes `kept_run_count` week-retention runs and one 10-second-retention run marked purging,
-/// stores the command-time watermark that `watermark_of` derives from the purging run's
-/// deadline in every partition (`None` stores no PartitionMeta), and rebuilds a restarted node.
-///
-/// Returns the Retention index rows the rebuild read and the RunPurge commands it proposed.
+/// Seeds the watermark directly to exercise precise rebuild boundaries independently of command timing.
 async fn rebuild_with_one_purging_run(
     kept_run_count: usize,
     watermark_of: impl FnOnce(i64) -> Option<i64>,
@@ -618,15 +615,21 @@ async fn rebuild_with_one_purging_run(
         .run_record("purging", purging_run)
         .retention_deadline_micros;
     if let Some(watermark) = watermark_of(deadline) {
+        let purging_partition = first.partition_of("purging");
         let mut state = first.durable.state.lock().expect("lock");
         for partition in 0..first.hasher.partition_count() {
             let partition = PartitionId(u16::try_from(partition).expect("fits"));
+            let last_command_timestamp_micros = if partition == purging_partition {
+                watermark
+            } else {
+                watermark - SECOND_MICROS
+            };
             state.put_message(
                 ColumnFamily::PartitionMeta,
                 partition_meta_key(partition).to_vec(),
                 &PartitionMeta {
                     partition: u32::from(partition.0),
-                    last_command_timestamp_micros: watermark,
+                    last_command_timestamp_micros,
                     ..PartitionMeta::default()
                 },
             );
@@ -636,6 +639,8 @@ async fn rebuild_with_one_purging_run(
     first.shutdown().await;
 
     let second = restart(&durable);
+    second.clock.move_back(10 * SECOND_MICROS);
+    assert!(second.clock.now_unix_micros() < deadline);
     second.rebuild_all_partitions().await;
     second.settle().await;
     let reads = PurgeRebuildReads {
@@ -687,7 +692,7 @@ async fn a_rebuild_reads_no_retention_row_due_one_microsecond_after_the_watermar
 
 #[tokio::test(start_paused = true)]
 async fn a_rebuild_without_a_watermark_scans_the_whole_retention_index() {
-    for watermark in [None, Some(0)] {
+    for watermark in [None, Some(0), Some(-1)] {
         let reads = rebuild_with_one_purging_run(3, |_| watermark).await;
         assert_eq!(
             reads,
