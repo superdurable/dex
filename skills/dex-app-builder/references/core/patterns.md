@@ -270,7 +270,7 @@ CloseIntake.waitFor -> Until(CloseRequests.ForOne())
 CloseIntake.execute -> gracefulComplete()
 ```
 
-- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter.
+- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter. A waiting list held in one Channel must fit the Server's per-Channel message limit; split it or raise the limit.
 - Each worker owns the request it consumed. Under the `intakeClosed` lock it only commits its next move: to `HandleChild`, which starts the child without the lock and finishes even after the close, or, after the close, to `ReturnRequest`, which sends the returned request back without the lock through an idempotent path keyed by the request. The RPCs take that lock, so the locked Execute calls no other system or Flow. A queued request is never silently dropped or handed back twice.
 - The runnable long-lived parent examples show the basic variant: a later Step starts each child, and a stop RPC ends the workers. They have no closable intake, shared admission lock, or returned-request reply.
 - After the close, Channel Conditions still win over the graceful completion Condition, so workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion Condition and end with DeadEnd. Running children finish first, and the Flow completes when the last branch ends.
@@ -324,7 +324,7 @@ The parent's first Step publishes its start input to Requests, so nothing is los
 Separate admission from processing and make admission durable.
 
 - The Client starts a short submit Flow instead of retrying an RPC in memory.
-- When the parent's RPC returns false (buffer full), the submit Step returns an error so its retry policy backs off durably. An already-started error is handled the same way. This retry backs off a full admission inside Dex; it is not polling an external system.
+- When the parent's RPC returns false (buffer full), the submit Step returns an error so its retry policy backs off durably; each retry sends a new RPC request ID, which is the SDK default. An already-started error is handled the same way. This retry backs off a full admission inside Dex; it is not polling an external system.
 - On acceptance, the submit Flow completes with the parent ID.
 - Submissions survive submitter and Worker restarts.
 

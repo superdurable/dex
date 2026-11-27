@@ -38,8 +38,10 @@ declarations do not contain.
 - Create one `Registry`, one `BlobCache`, one `Worker`, and one `Client` per
   process. The Worker and the Client share the same Registry and BlobCache.
 - When a Step needs the Client (for example to start another top-level Flow),
-  inject a holder that is set after bootstrap. Do not import the Client from
-  a module that the Flow module also imports.
+  pass a Client provider, such as `() => Client`, to the Flow constructor. It
+  may resolve the Client after bootstrap; the Flow calls it only inside Step
+  and RPC methods. Flow and Step modules never import the Client, or a getter
+  that reads it from a module-level variable.
 - `@rpc` is a TC39 standard (stage 3) decorator. Keep
   `experimentalDecorators` off. When the runtime cannot transform decorators,
   such as Node.js type stripping, use `declareRPCMethod` instead

@@ -56,6 +56,10 @@ second time, including its Channel publications. Make RPC handlers safe to
 repeat; [Send a command at most once](/concepts/client#inbound-commands) gives
 the pattern. A caller can instead pass the same request ID on every attempt,
 where its SDK accepts one. Dex then saves the RPC's changes at most once.
+A transactional or locking RPC answers a repeated request ID with its recorded
+reply. That includes a refusal it returned, such as `false`. A business retry
+after a refusal, such as offering again later, is a new logical call. Give it a
+new request ID.
 [RPC request IDs](/reference/server/runtime-data#rpc-request-ids) covers which
 repeats still run the handler and how long Dex keeps request IDs.
 
