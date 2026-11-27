@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/google/uuid v1.6.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex/sdk-go v1.45.6
 	github.com/superdurable/dex/web v0.0.0
@@ -17,8 +18,6 @@ require (
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 )
-
-require github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

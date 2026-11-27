@@ -68,6 +68,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         self.actions = []
         self.rpc_lock_errors = []
         self.lock_handlers = []
+        self.unreadable_step_options = []
         self.declared_lock_missing_severity = "warning"
         self.view_rpcs = []
         self.start_input = None
@@ -104,6 +105,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
         self.analyze_flow_handlers(flow_class)
+        self.report_unreadable_step_options()
         self.record_deferred_method_external_calls()
         self.check_declared_locks()
         if len(self.flow_classes) > 1:
@@ -639,6 +641,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                 expression, frame = self.resolved_value(statement.value, self.current_frame)
                 if expression is not statement.value:
                     self.analyze_step_options(node_id, expression, frame)
+                self.analyze_returned_step_locks(node_id, statement.value, expression, frame)
         self.current_frame = EvaluationFrame()
 
     def analyze_step_options(self, owner_id, expression, frame):
@@ -646,10 +649,21 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         self.current_frame = frame
         for source in self.option_sources(expression):
             self.analyze_failure(owner_id, source)
-            self.analyze_locks(owner_id, ast.walk(source), {
-                "wait_for_lock_attributes": "wait_for",
-                "execute_lock_attributes": "execute",
-            })
+        self.current_frame = step_frame
+
+    # Step locks come only from a StepOptions call that get_step_options returns; any other options value is reported.
+    def analyze_returned_step_locks(self, owner_id, returned, expression, frame):
+        if isinstance(expression, ast.Constant) and expression.value is None:
+            return
+        # A builder chain, such as StepOptions(...).on_execute_failure_proceed_to(...), starts at its StepOptions call.
+        while isinstance(expression, ast.Call) and isinstance(expression.func, ast.Attribute) and isinstance(expression.func.value, ast.Call):
+            expression = expression.func.value
+        if not isinstance(expression, ast.Call) or not self.is_dex_reference(expression.func, "StepOptions"):
+            self.unreadable_step_options.append((owner_id, returned))
+            return
+        step_frame = self.current_frame
+        self.current_frame = frame
+        self.analyze_locks(owner_id, [expression], {"wait_for_lock_attributes": "wait_for", "execute_lock_attributes": "execute"})
         self.current_frame = step_frame
 
     def option_sources(self, expression):
@@ -1582,10 +1596,12 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         for expression in expressions:
             if not isinstance(expression, ast.Call):
                 continue
-            # Only Dex StepOptions and rpc calls register locks; other calls with these keywords are not reported.
+            # Only Dex StepOptions and rpc calls register locks; other calls with these keywords add no lock.
             is_registration_call = self.is_dex_reference(expression.func, "StepOptions") or self.is_dex_reference(expression.func, "rpc")
+            if not is_registration_call:
+                continue
             unpacked = next((keyword for keyword in expression.keywords if keyword.arg is None), None)
-            if unpacked is not None and is_registration_call:
+            if unpacked is not None:
                 self.report_unresolved_registration_options(owner_id, unpacked.value)
             for keyword in expression.keywords:
                 phase = phases.get(keyword.arg)
@@ -1598,7 +1614,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                     is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
                     resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
                     if not resource_id:
-                        if is_registration_call and not (isinstance(lock, ast.Constant) and lock.value is None):
+                        if not (isinstance(lock, ast.Constant) and lock.value is None):
                             self.report_unresolved_registration_lock(owner_id, keyword.arg, listed_lock)
                         continue
                     key = (resource_id, phase)
@@ -1622,6 +1638,18 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
             f"{owner} lists {self.unparse(lock)} in {field}, but dexcli cannot resolve it to an Attribute lock of this Flow; lock checks such as locked_method_external_call skip it",
             self.span(lock),
         )
+
+    # Unreadable Step options matter only when an RPC takes a lock, which the Step might share.
+    def report_unreadable_step_options(self):
+        if not any(edge["kind"] == "resource_lock" and edge.get("metadata", {}).get("phase") == "rpc" for edge in self.graph["edges"]):
+            return
+        for owner_id, returned in self.unreadable_step_options:
+            _, _, name = owner_id.partition(":")
+            self.warning(
+                "registration_lock_unresolved",
+                f"Step {name} get_step_options returns {self.unparse(returned)}, which is not a StepOptions call dexcli can read; lock checks such as locked_method_external_call skip its locks",
+                self.span(returned),
+            )
 
     def report_unresolved_registration_options(self, owner_id, options):
         kind, _, name = owner_id.partition(":")

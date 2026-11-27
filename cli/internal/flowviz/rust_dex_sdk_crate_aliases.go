@@ -72,23 +72,9 @@ func rustOwningPackageManifest(directory string) (string, map[string]any) {
 	}
 }
 
-// rustNormalDependencies returns [dependencies] and every [target.<cfg>.dependencies] table, which build the package's code.
+// rustNormalDependencies returns the [dependencies] table; a [target.<cfg>] rename may not apply, so it is ignored.
 func rustNormalDependencies(manifest map[string]any) map[string]any {
-	dependencies := make(map[string]any)
-	if table, isTable := manifest["dependencies"].(map[string]any); isTable {
-		for name, dependency := range table {
-			dependencies[name] = dependency
-		}
-	}
-	targets, _ := manifest["target"].(map[string]any)
-	for _, target := range targets {
-		targetTable, _ := target.(map[string]any)
-		if table, isTable := targetTable["dependencies"].(map[string]any); isTable {
-			for name, dependency := range table {
-				dependencies[name] = dependency
-			}
-		}
-	}
+	dependencies, _ := manifest["dependencies"].(map[string]any)
 	return dependencies
 }
 

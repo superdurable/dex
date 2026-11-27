@@ -56,6 +56,7 @@ const pureLibraryFunctions = new Set(["parseInt","parseFloat","isNaN","isFinite"
 // Source files the locked-method check may type-check besides the Flow source; declarations elsewhere stay unresolved.
 const projectSourceExtensions = [".ts",".tsx",".mts",".cts"];
 const maximumProjectFiles = 200;
+const excludedProjectDirectories = new Set(["node_modules","venv",".venv","site-packages"]);
 
 // projectRootDirectory returns the nearest directory above sourcePath with a package.json or tsconfig.json, else the source directory.
 function projectRootDirectory(sourcePath) {
@@ -2995,13 +2996,18 @@ class TypeScriptAnalyzer {
       const sourcePath = path.resolve(this.path);
       const projectRoot = projectRootDirectory(sourcePath);
       const isLibraryFile = fileName => path.dirname(path.resolve(fileName)) === libraryDirectory && path.basename(fileName).startsWith("lib.");
-      const realProjectRoot = fs.realpathSync(projectRoot);
-      // The real path decides, so a symbolic link cannot reach code outside the project or in node_modules.
+      // A file under a symbolic link or an installed-package directory stays unresolved, so its logical path is its real path.
       const isProjectFile = fileName => {
         const resolved = path.resolve(fileName);
         if (!projectSourceExtensions.some(extension => resolved.endsWith(extension)) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return false;
-        const relative = path.relative(realProjectRoot,fs.realpathSync(resolved));
-        return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative) && !relative.split(path.sep).includes("node_modules");
+        const relative = path.relative(projectRoot,resolved);
+        if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+        let current = projectRoot;
+        for (const component of relative.split(path.sep)) {
+          current = path.join(current,component);
+          if (excludedProjectDirectories.has(component) || fs.lstatSync(current).isSymbolicLink()) return false;
+        }
+        return true;
       };
       this.projectAnalyzers = new Map([[sourcePath,this]]);
       const host = {
@@ -3035,10 +3041,16 @@ class TypeScriptAnalyzer {
   // A custom codec may decode the input into an object with methods that do I/O.
   hasDataInputCodec(declaration) {
     const ts = this.ts;
-    const member = declaration.members.find(candidate => ts.isPropertyDeclaration(candidate) && candidate.name && this.propertyName(candidate.name) === "inputCodec");
-    if (!member) return true;
-    const codec = this.unwrap(member.initializer);
-    const codecName = codec && (ts.isCallExpression(codec) ? this.dexName(codec.expression) : this.dexName(codec));
+    // A base class, a getter, or a constructor may supply a codec dexcli cannot read.
+    if (declaration.heritageClauses?.some(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)) return false;
+    if (/\binputCodec\b/.test(this.constructorOf(declaration)?.getText(this.tree) ?? "")) return false;
+    const members = declaration.members.filter(candidate => candidate.name && this.propertyName(candidate.name) === "inputCodec");
+    if (members.length === 0) return true;
+    if (members.length !== 1 || !ts.isPropertyDeclaration(members[0])) return false;
+    // Only an SDK codec without configuration, such as stringCodec or jsonCodec(), decodes plain data.
+    const codec = this.unwrap(members[0].initializer);
+    const isUnconfiguredCall = codec && ts.isCallExpression(codec) && codec.arguments.length === 0;
+    const codecName = codec && (isUnconfiguredCall ? this.dexName(codec.expression) : ts.isCallExpression(codec) ? undefined : this.dexName(codec));
     return typeof codecName === "string" && codecName !== "*" && /Codec$/.test(codecName);
   }
 
@@ -3348,7 +3360,7 @@ class TypeScriptAnalyzer {
     return origin;
   }
 
-  // isLiteralDataValue reports whether a value is a literal, or a same-file const built only from literals, which holds no service.
+  // isLiteralDataValue reports whether a value is a literal written inline, which holds no service; a named binding never counts.
   isLiteralDataValue(expression,depth) {
     const ts = this.ts;
     const value = this.unwrap(expression);
@@ -3361,44 +3373,6 @@ class TypeScriptAnalyzer {
       return value.properties.every(property => ts.isPropertyAssignment(property) ? this.isLiteralDataValue(property.initializer,depth + 1) :
         ts.isShorthandPropertyAssignment(property) ? this.isLiteralDataValue(property.name,depth + 1) :
         ts.isSpreadAssignment(property) && this.isLiteralDataValue(property.expression,depth + 1));
-    }
-    if (!ts.isIdentifier(value)) return false;
-    const declaration = this.sourceDeclarationOf(value);
-    if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer || declaration.getSourceFile() !== this.tree) return false;
-    const isConst = ts.isVariableDeclarationList(declaration.parent) && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
-    return isConst && this.isReadOnlyBinding(declaration) && this.isLiteralDataValue(declaration.initializer,depth + 1);
-  }
-
-  // isReadOnlyBinding reports whether every use of a same-file variable only reads it: no method call, write, or escape.
-  isReadOnlyBinding(declaration) {
-    const ts = this.ts;
-    let isReadOnly = true;
-    const visit = node => {
-      if (!isReadOnly) return;
-      if (ts.isIdentifier(node) && node !== declaration.name && node.text === declaration.name.text && this.sourceDeclarationOf(node) === declaration) {
-        isReadOnly = this.isReadOnlyUse(node);
-        return;
-      }
-      ts.forEachChild(node,visit);
-    };
-    visit(this.tree);
-    return isReadOnly;
-  }
-
-  // isReadOnlyUse allows a fallback branch, a comparison, or a property read that is neither written nor called.
-  isReadOnlyUse(identifier) {
-    const ts = this.ts;
-    let use = identifier;
-    while (use.parent && (ts.isParenthesizedExpression(use.parent) || ts.isNonNullExpression(use.parent))) use = use.parent;
-    const parent = use.parent;
-    if (!parent) return false;
-    if (ts.isConditionalExpression(parent)) return parent.condition !== use;
-    if (ts.isBinaryExpression(parent)) return fallbackOperatorKinds(ts).has(parent.operatorToken.kind) || [ts.SyntaxKind.EqualsEqualsEqualsToken,ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(parent.operatorToken.kind);
-    if (ts.isPropertyAccessExpression(parent) && parent.expression === use) {
-      const outer = parent.parent;
-      if (outer && (ts.isCallExpression(outer) && outer.expression === parent)) return false;
-      if (outer && ts.isBinaryExpression(outer) && outer.left === parent && outer.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && outer.operatorToken.kind <= ts.SyntaxKind.LastAssignment) return false;
-      return !(outer && (ts.isPrefixUnaryExpression(outer) || ts.isPostfixUnaryExpression(outer) || ts.isDeleteExpression(outer)));
     }
     return false;
   }

@@ -529,6 +529,14 @@ func TestRustLockedMethodDexSDKAliasBoundaries(t *testing.T) {
 			imports: "use dex_sdk::*;\nuse crate::services as dex;", call: "dex::send(&input);",
 			member: "[dependencies]\ndex = { package = 'dex-sdk', version = \"1\" }\ndex-sdk = \"1\"\n", callee: "dex::send",
 		},
+		"block use shadows the renamed dependency": {
+			imports: "use dex_sdk::*;\nuse crate::models::*;", call: "{\n            use crate::services as dex;\n            dex::send(&input);\n        }",
+			member: "[dependencies]\ndex = { package = \"dex-sdk\", version = \"1\" }\n", callee: "dex::send",
+		},
+		"target-only rename is not applied": {
+			imports: "use dex_sdk::*;\nuse crate::models::*;", call: "dex::send(&input);",
+			member: "[dependencies]\ndex-sdk = \"1\"\n\n[target.'cfg(unix)'.dependencies]\ndex = { package = \"dex-sdk\", version = \"1\" }\n", callee: "dex::send",
+		},
 		"workspace rename that the member does not inherit": {
 			imports: "use dex_sdk::*;\nuse crate::models::*;", call: "dex::send(&input);", workspace: workspaceRoot,
 			member: "[dependencies]\ndex-sdk = \"1\"\ndex = { path = \"../other\" }\n", callee: "dex::send",

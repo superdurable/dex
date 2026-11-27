@@ -49,8 +49,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_default();
     let mut graph = RustFlowGraph::new(path);
     match syn::parse_file(source) {
-        Ok(file) => RustFlowSource::new(source, &file.items, dex_sdk_crate_aliases)
-            .analyze(requested_flow, &mut graph),
+        Ok(file) => {
+            // Any use or item that binds the alias, even inside a block, may shadow the Cargo rename.
+            let mut local_names = LocalNameCollector::default();
+            local_names.visit_file(&file);
+            let dex_sdk_crate_aliases = dex_sdk_crate_aliases
+                .into_iter()
+                .filter(|alias| !local_names.names.contains(alias))
+                .collect();
+            RustFlowSource::new(source, &file.items, dex_sdk_crate_aliases)
+                .analyze(requested_flow, &mut graph);
+        }
         Err(error) => graph.diagnostic(
             "error",
             "rust_parse_failed",
@@ -60,6 +69,40 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     serde_json::to_writer(stdout().lock(), &graph.analysis)?;
     Ok(())
+}
+
+/// Collects every name a `use` binds and every item name, anywhere in the file.
+#[derive(Default)]
+struct LocalNameCollector {
+    names: BTreeSet<String>,
+}
+
+impl<'ast> Visit<'ast> for LocalNameCollector {
+    fn visit_use_name(&mut self, name: &'ast syn::UseName) {
+        self.names.insert(name.ident.to_string());
+    }
+
+    fn visit_use_rename(&mut self, rename: &'ast syn::UseRename) {
+        self.names.insert(rename.rename.to_string());
+    }
+
+    fn visit_item(&mut self, item: &'ast Item) {
+        let name = match item {
+            Item::Mod(module) => Some(&module.ident),
+            Item::Struct(declaration) => Some(&declaration.ident),
+            Item::Enum(declaration) => Some(&declaration.ident),
+            Item::Fn(function) => Some(&function.sig.ident),
+            Item::Const(constant) => Some(&constant.ident),
+            Item::Static(value) => Some(&value.ident),
+            Item::Type(alias) => Some(&alias.ident),
+            Item::Trait(declaration) => Some(&declaration.ident),
+            _ => None,
+        };
+        if let Some(name) = name {
+            self.names.insert(name.to_string());
+        }
+        visit::visit_item(self, item);
+    }
 }
 
 struct RustFlowGraph {

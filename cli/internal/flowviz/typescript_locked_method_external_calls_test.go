@@ -143,6 +143,8 @@ type typeScriptLockedMethodCase struct {
 	sendInputCodec string
 	// linkedOutsideFiles are written under node_modules outside the project and linked from the given path.
 	linkedOutsideFiles map[string]string
+	// linkedProjectFiles maps a link path next to workflow.ts to a project file it points to.
+	linkedProjectFiles map[string]string
 }
 
 const typeScriptReminderStateSource = `import { jsonCodec } from "@superdurable/dex";
@@ -154,9 +156,9 @@ interface ReminderState {
 const emptyState: ReminderState = {sent: []};
 const reminderState = new Attribute("ReminderState", jsonCodec<ReminderState>());`
 
-const typeScriptFallbackExecuteBody = `const current = reminderState.get(context) ?? emptyState;
+const typeScriptFallbackExecuteBody = `const current = reminderState.get(context) ?? {sent: []};
     const other = reminderState.get(context) || {sent: []};
-    const chosen = input === "" ? current : emptyState;
+    const chosen = input === "" ? current : {sent: []};
     counter.set(context, current.sent.filter(Boolean).length + other.sent.slice(0).length + chosen.sent.map(String).length);`
 
 const typeScriptTicketsModule = `export interface Ticket {
@@ -327,6 +329,39 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls item.send" + typeScriptLockedMessageSuffix},
 		},
+		"fallback branch is a written array through an alias": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const local: Mailer[] = [];\n    const alias = input ? local : local;\n    alias.push(this.flow.mailer);\n    const chosen = reminderState.get(context) ?? local;\n    const item = chosen[0] as Mailer;\n    void item.send(input);",
+				extraSource: typeScriptReminderStateSource,
+			},
+			messages: []string{"and calls item.send" + typeScriptLockedMessageSuffix},
+		},
+		"Step input decoded by a configured SDK codec": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void (input as unknown as Mailer).send(\"hello\");",
+				extraSource:    "import { jsonCodec as configuredJsonCodec } from \"@superdurable/dex\";",
+				sendInputCodec: "configuredJsonCodec<string>({decode: () => ({send: async (url: string) => { await fetch(url); }})} as never)",
+			},
+			messages: []string{"(input as unknown as Mailer).send" + typeScriptLockedMessageSuffix},
+		},
+		"Step input decoded by an unconfigured SDK codec": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, input.trim().length);",
+				extraSource:    "import { jsonCodec as plainJsonCodec } from \"@superdurable/dex\";",
+				sendInputCodec: "plainJsonCodec<string>()",
+			},
+			isExecuteClean: true,
+		},
+		"symbolic link inside the project is not followed": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void parse(input);",
+				extraSource:        "import { parse } from \"./shim.js\";",
+				projectFiles:       map[string]string{"real.ts": "export function parse(text: string): string { return text.trim(); }\n"},
+				linkedProjectFiles: map[string]string{"shim.ts": "real.ts"},
+			},
+			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+		},
 		"Step input decoded by a custom codec": {
 			source: typeScriptLockedMethodCase{
 				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void (input as unknown as Mailer).send(\"hello\");",
@@ -428,6 +463,9 @@ func analyzeTypeScriptLockedMethodSource(t *testing.T, source typeScriptLockedMe
 	for relativePath, contents := range source.linkedOutsideFiles {
 		writeTestFile(t, filepath.Join(outsideDirectory, relativePath), contents)
 		require.NoError(t, os.Symlink(filepath.Join(outsideDirectory, relativePath), filepath.Join(sourceDirectory, relativePath)))
+	}
+	for linkPath, targetPath := range source.linkedProjectFiles {
+		require.NoError(t, os.Symlink(filepath.Join(sourceDirectory, targetPath), filepath.Join(sourceDirectory, linkPath)))
 	}
 	contents := replacer.Replace(typeScriptLockedMethodSource)
 	if source.sendInputCodec != "" {

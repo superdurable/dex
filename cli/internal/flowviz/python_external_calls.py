@@ -621,12 +621,17 @@ class ExternalCallAnalyzer:
         return self.instance_field_kind(declaration, attribute.attr)
 
     # A class attribute is data or an SDK value only when its class-body assignment builds it from allowed calls.
+    # Any other binding of the name, such as a rebinding or del, keeps it opaque.
     def class_attribute_kind(self, declaration, name):
-        for statement in declaration.body:
-            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target] if isinstance(statement, ast.AnnAssign) and statement.value is not None else []
-            if any(isinstance(target, ast.Name) and target.id == name for target in targets):
-                return self.default_value_kind(statement.value)
-        return OPAQUE
+        if self.has_dynamic_attributes or name in self.foreign_attribute_stores:
+            return OPAQUE
+        bindings = self.scope_bindings.get(declaration, {}).get(name, [])
+        statement = self.parents.get(bindings[0]) if len(bindings) == 1 else None
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)) or statement.value is None or self.parents.get(statement) is not declaration:
+            return OPAQUE
+        if isinstance(statement, ast.Assign) and statement.targets != [bindings[0]]:
+            return OPAQUE
+        return self.default_value_kind(statement.value)
 
     # A Step or Flow field is data only when its stored value resolves; a Flow reference keeps its methods.
     def dex_field_kind(self, attribute):
@@ -723,7 +728,7 @@ class ExternalCallAnalyzer:
     # Project modules are parsed, never imported or run, so following them executes no project code.
     def project_module_call(self, callee, target, arguments, keywords, scope):
         analyzer, kind, node = target
-        if kind in ("function", "class") and not all(analyzer.is_behavior_preserving_decorator(decorator) for decorator in node.decorator_list):
+        if kind in ("function", "class") and not all(analyzer.is_followed_project_decorator(decorator) for decorator in node.decorator_list):
             # A decorator may replace the function or class with code that does I/O.
             return callee, OPAQUE, True
         if kind == "function":
@@ -746,12 +751,11 @@ class ExternalCallAnalyzer:
             return external, DATA if external is None else OPAQUE, is_exact
         return callee, OPAQUE, True
 
-    # Step method decorators that keep behavior, and pure standard-library or Dex SDK decorators such as dataclass.
-    def is_behavior_preserving_decorator(self, decorator):
+    # The Step method decorators, plus dataclasses.dataclass, whose generated methods the constructor check reads.
+    def is_followed_project_decorator(self, decorator):
         if self.is_followed_step_method_decorator(decorator):
             return True
-        qualified = self.qualified_import_name(decorator.func if isinstance(decorator, ast.Call) else decorator)
-        return qualified is not None and self.is_allowed_qualified_value(qualified)
+        return self.qualified_import_name(decorator.func if isinstance(decorator, ast.Call) else decorator) == "dataclasses.dataclass"
 
     # A project-module value is a Dex SDK value or data only when the module builds it from allowed calls.
     def project_module_value_kind(self, qualified):
@@ -780,21 +784,32 @@ class ExternalCallAnalyzer:
                     return None
                 if climbed < level - 1:
                     base = os.path.dirname(base)
-            parts = [part for part in module[level:].split(".") if part] + rest.split(".")
-            shortest_module = 0
-            root = base
+            module_path = self.project_module_path(base, [part for part in module[level:].split(".") if part])
+            names = rest.split(".")
         else:
             parts = qualified.split(".")
-            shortest_module = 1
-            root = self.project_boundary()["import_root"]
-        for length in range(len(parts) - 1, shortest_module - 1, -1):
-            module_path = self.project_module_path(root, parts[:length])
-            if module_path is None:
-                continue
-            analyzer = self.project_module_analyzer(module_path)
-            if analyzer is None:
-                return None
-            return analyzer.project_module_binding(parts[length:], reexport_depth)
+            module_path = self.project_module_path(self.project_boundary()["import_root"], parts[:1])
+            names = parts[1:]
+        if module_path is None or not names:
+            return None
+        return self.project_member_target(module_path, names, reexport_depth)
+
+    # Resolves names[0] in a module as Python does for from-imports: a package binding first, then a submodule.
+    # A package that binds the name and also has a submodule of that name is ambiguous, so it stays unresolved.
+    def project_member_target(self, module_path, names, reexport_depth):
+        analyzer = self.project_module_analyzer(module_path)
+        if analyzer is None:
+            return None
+        is_bound = names[0] in analyzer.scope_bindings.get(analyzer.tree, {})
+        submodule = None
+        if os.path.basename(module_path) == "__init__.py" and len(names) > 1:
+            submodule = self.project_module_path(os.path.dirname(module_path), names[:1])
+        if is_bound and submodule is not None:
+            return None
+        if is_bound:
+            return analyzer.project_module_binding(names, reexport_depth)
+        if submodule is not None:
+            return self.project_member_target(submodule, names[1:], reexport_depth)
         return None
 
     def project_module_binding(self, names, reexport_depth):
@@ -827,29 +842,35 @@ class ExternalCallAnalyzer:
             import_root = source_directory
             while os.path.isfile(os.path.join(import_root, "__init__.py")) and os.path.dirname(import_root) != import_root:
                 import_root = os.path.dirname(import_root)
-            boundary = {"import_root": import_root, "real_root": os.path.realpath(import_root)}
+            boundary = {"import_root": import_root}
             self.project_module_analyzers[""] = boundary
         return boundary
 
-    # Python prefers a package directory over a same-named module file; the real path must stay inside the import root.
+    # Python prefers a package directory over a same-named module file.
+    # A module outside the import root, under an installed-package directory, or reached through a symbolic link stays unresolved.
     def project_module_path(self, root, parts):
         if any(not part.isidentifier() for part in parts):
             return None
-        real_root = self.project_boundary()["real_root"]
+        import_root = os.path.abspath(self.project_boundary()["import_root"])
         for candidate in (os.path.join(root, *parts, "__init__.py"), os.path.join(root, *parts) + ".py"):
             if not os.path.isfile(candidate):
                 continue
-            real_path = os.path.realpath(candidate)
-            relative = os.path.relpath(real_path, real_root)
-            if relative.startswith(os.pardir) or any(part in PYTHON_INSTALLED_PACKAGE_DIRECTORIES for part in relative.split(os.sep)):
+            relative = os.path.relpath(os.path.abspath(candidate), import_root)
+            components = relative.split(os.sep)
+            if relative.startswith(os.pardir) or any(component in PYTHON_INSTALLED_PACKAGE_DIRECTORIES for component in components):
                 return None
-            return real_path
+            path = import_root
+            for component in components:
+                path = os.path.join(path, component)
+                if os.path.islink(path):
+                    return None
+            return path
         return None
 
     def project_module_analyzer(self, module_path):
         analyzers = self.project_module_analyzers
         self.project_boundary()
-        analyzers.setdefault(os.path.realpath(self.path), self)
+        analyzers.setdefault(os.path.abspath(self.path), self)
         if module_path in analyzers:
             return analyzers[module_path]
         analyzers[module_path] = None
