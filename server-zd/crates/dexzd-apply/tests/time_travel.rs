@@ -3195,6 +3195,119 @@ fn reset_reports_a_timer_as_skipped_only_when_the_restored_state_has_the_skip() 
 }
 
 #[test]
+fn a_restored_overdue_timer_is_armed_at_the_travel_time() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    wait_on_timer(&mut harness);
+    let waiting_time = harness
+        .history_record(harness.last_seq())
+        .expect("the wait is recorded")
+        .timestamp_micros;
+    let [(_, scheduled_fire_at)] = wait_condition_timers(&harness)[..] else {
+        panic!("the wait arms one timer");
+    };
+    let reported_fire_at_seconds = charge_timer_firing_seconds(&harness);
+
+    harness.now_micros = scheduled_fire_at + 60 * SECOND;
+    let (attempt, outcome) = harness.travel_to(reset_to_time(waiting_time));
+    let traveled_at = harness.now_micros;
+    assert_eq!(
+        wait_condition_timers(&harness),
+        vec![(attempt, traveled_at)]
+    );
+    let armed_fire_times: Vec<i64> = outcome
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            ApplyEffect::TimerArmed { fire_at_micros } => Some(*fire_at_micros),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        armed_fire_times,
+        vec![traveled_at],
+        "no timer moves the timer service's read cursor below the travel time"
+    );
+    assert_eq!(
+        charge_timer_firing_seconds(&harness),
+        reported_fire_at_seconds,
+        "the wait still reports the scheduled fire time"
+    );
+
+    harness.apply(Command::TimersFired(TimersFiredCommand {
+        timers: vec![TimerId {
+            run_attempt: attempt,
+            kind: Some(timer_id::Kind::WaitCondition(WaitConditionTimerId {
+                step_execution_id: "ChargeStep-1".to_owned(),
+                timer_index: 0,
+            })),
+        }],
+    }));
+    assert_eq!(
+        charge_timer_statuses(&harness),
+        [InternalTimerStatus::Fired as i32]
+    );
+}
+
+#[test]
+fn a_restored_timer_that_is_not_due_keeps_its_fire_time() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    wait_on_timer(&mut harness);
+    let waiting_time = harness
+        .history_record(harness.last_seq())
+        .expect("the wait is recorded")
+        .timestamp_micros;
+    let [(_, scheduled_fire_at)] = wait_condition_timers(&harness)[..] else {
+        panic!("the wait arms one timer");
+    };
+
+    harness.now_micros += 10 * SECOND;
+    let (attempt, outcome) = harness.travel_to(reset_to_time(waiting_time));
+    assert!(harness.now_micros < scheduled_fire_at);
+    assert_eq!(
+        wait_condition_timers(&harness),
+        vec![(attempt, scheduled_fire_at)]
+    );
+    assert!(outcome.effects.contains(&ApplyEffect::TimerArmed {
+        fire_at_micros: scheduled_fire_at,
+    }));
+}
+
+/// Returns the run attempt and fire time of each WaitFor timer in the timer index.
+fn wait_condition_timers(harness: &Harness) -> Vec<(u32, i64)> {
+    let run_id = harness.run();
+    harness
+        .state
+        .rows
+        .keys()
+        .filter(|(column_family, _)| *column_family == ColumnFamily::PartitionIndex)
+        .filter_map(|(_, key)| decode_timer_index_key(key))
+        .filter(|entry| entry.run_id == run_id)
+        .filter_map(|entry| {
+            let timer = TimerId::decode(entry.encoded_timer_id.as_slice()).expect("timer decodes");
+            matches!(timer.kind, Some(timer_id::Kind::WaitCondition(_)))
+                .then_some((timer.run_attempt, entry.fire_at_micros))
+        })
+        .collect()
+}
+
+/// Returns the fire time, in seconds, that ChargeStep-1 reports for its timers.
+fn charge_timer_firing_seconds(harness: &Harness) -> Vec<i64> {
+    let state = get_flow_state(&harness.state, harness.context.flow_hash, harness.run())
+        .expect("the Flow state reads");
+    state
+        .active_step_executions
+        .iter()
+        .find(|step| step.step_execution_id == "ChargeStep-1")
+        .expect("ChargeStep-1 is active")
+        .timers
+        .iter()
+        .map(|timer| timer.firing_unix_timestamp_seconds)
+        .collect()
+}
+
+#[test]
 fn an_unexpected_reapply_rejection_is_an_invariant_violation() {
     let mut harness = Harness::new();
     harness.start(start_request());

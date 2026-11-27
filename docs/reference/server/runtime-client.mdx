@@ -588,6 +588,17 @@ as a running timeout handler. Changed in 0.1.33: before, the restored timeout
 kept the original deadline from the run's start, so it could fire right after
 the time travel.
 
+A restored Step timer keeps its fire time while that time is still ahead. A
+timer whose fire time passed before the time travel fires right after it. The
+Flow state still reports the originally scheduled time, such as a timer's
+**firing_unix_timestamp_seconds** and a retry backoff's
+**backoff_fires_at_time**. When one `WaitFor` with
+**WAITING_CONDITION_TYPE_ANY_COMPLETED** restores several such timers, they
+fire together. Dex then picks the timer that completes the wait in a fixed
+order, not by original fire time, so it can differ from the timer that
+completed the wait before. Changed in 0.1.38: before, overdue timers kept their
+original fire times, so the earliest one completed such a wait.
+
 By default, the window keeps about the newest 50,000 history events of each
 run on **serve**, and 5,000 on **dev**. The server key is
 **history.windowEvents**, and a Flow can set its own size in its Flow
@@ -706,7 +717,9 @@ The new run copies the state at the point:
 
 - its Attributes, except hard-delete Attributes;
 - its pending Channel messages, Step executions, Step counters, and waits;
-- the Step timers, which keep their fire times;
+- the Step timers, which keep their fire times, except that a timer whose
+  fire time has passed fires right after the clone fork, as after a
+  [time travel](#time-travel);
 - every value that this state holds, including values that history offload
   moved to object storage.
 

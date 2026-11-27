@@ -7,11 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! CloneForkFlow stagings and the FlowCloneFork command in apply: the staging cap, the checks
-//! that bind a staging to its command, ID reuse conflicts, and copied hard-delete Attributes.
+//! that bind a staging to its command, ID reuse conflicts, copied hard-delete Attributes, and
+//! copied timers.
 
 use super::*;
 use dexzd_apply::{CloneForkComputation, CloneForkComputationRequest, ComputedCloneFork};
-use dexzd_protocol::dex::{CloneForkFlowRequest, IdReusePolicy};
+use dexzd_protocol::dex::{CloneForkFlowRequest, IdReusePolicy, TimerCondition};
 use dexzd_protocol::dexzd::v1::{
     FlowCloneForkCommand, FlowCloneForkStageCommand, FlowCloneForkStagedChunk,
     FlowCloneForkStagingExpireCommand, FlowCloneForkStagingIndexRecord, FlowDirectoryRecord,
@@ -315,6 +316,96 @@ fn copied_hard_delete_attributes_are_written_with_their_new_objects() {
         panic!("the copied Attribute names its new object");
     };
     assert_eq!(object.object_id, "object-of-the-clone");
+}
+
+#[test]
+fn a_copied_overdue_timer_is_armed_at_the_clone_fork_time() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let invocation = StepInvocationKey {
+        step_execution_id: "StartStep-1".to_owned(),
+        method: StepMethod::WaitFor as i32,
+    };
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: vec![9; 16],
+            pull_routing: None,
+        }),
+    ));
+    assert_ok(&harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::WaitFor(
+                InvokeWaitForMethodResponse {
+                    waiting_condition: Some(WaitingCondition {
+                        waiting_condition_type: WaitingConditionType::AnyCompleted as i32,
+                        timer_conditions: vec![TimerCondition {
+                            condition_id: "t0".to_owned(),
+                            duration_seconds: 60,
+                            firing_unix_timestamp_seconds: 0,
+                        }],
+                        ..WaitingCondition::default()
+                    }),
+                    ..InvokeWaitForMethodResponse::default()
+                },
+            )),
+            ..StepMethodCompletedCommand::default()
+        }),
+    ));
+
+    harness.now_micros += 120 * SECOND;
+    let request = clone_request("overdue-timer");
+    let computed = harness.compute_parent_copy(&request);
+    harness.stage_copy(&computed, &[1; 16]);
+    let applied =
+        harness.apply_clone_fork(harness.clone_fork_command(request, &[1; 16], CLONE_RUN));
+    assert!(
+        matches!(
+            applied.reply.reply,
+            Some(command_reply::Reply::StartFlow(_))
+        ),
+        "{:?}",
+        applied.reply
+    );
+    let cloned_at = harness.now_micros;
+    let armed_fire_times: Vec<i64> = applied
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            ApplyEffect::TimerArmed { fire_at_micros } => Some(*fire_at_micros),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        armed_fire_times,
+        vec![cloned_at],
+        "no timer moves the timer service's read cursor below the clone fork time"
+    );
+    let clone_hash = harness.hasher.flow_hash(TenantId::DEFAULT, CLONE_FLOW);
+    let (start, end) = prefix_range(&run_table_prefix(
+        clone_hash,
+        RunId(CLONE_RUN),
+        RunTable::Timer,
+    ));
+    let timer_fire_times: Vec<i64> = harness
+        .state
+        .scan(ColumnFamily::Flow, &start, &end, usize::MAX)
+        .expect("memory reads")
+        .into_iter()
+        .map(|(_, value)| {
+            TimerRecord::decode(value.as_slice())
+                .expect("timer rows decode")
+                .fire_at_micros
+        })
+        .collect();
+    assert_eq!(timer_fire_times, vec![cloned_at]);
 }
 
 /// A CURRENT point over the memory budget is rejected after reading about one page of the state,

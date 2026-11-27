@@ -271,8 +271,8 @@ fn replace_attempt_rows(
 ///
 /// It skips hard-delete Attribute rows and the keys in `hard_delete_keys`.
 ///
-/// Timers are armed again, a Flow timeout restarting now; invocations follow
-/// [`replace_attempt_rows`].
+/// Timers are armed again, a Flow timeout restarting now and an overdue timer firing now;
+/// invocations follow [`replace_attempt_rows`].
 pub(in crate::history) fn write_restored_rows(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -302,7 +302,8 @@ pub(in crate::history) fn write_restored_rows(
                     if matches!(timer_id.kind, Some(timer_id::Kind::FlowTimeout(_))) {
                         restart_flow_timeout(&mut cursor.record, scope.now_micros)
                     } else {
-                        timer.fire_at_micros
+                        // An earlier fire time would rewind the timer service's read cursor.
+                        timer.fire_at_micros.max(scope.now_micros)
                     };
                 arm_timer(transaction, cursor, &timer_id, fire_at_micros);
             }
