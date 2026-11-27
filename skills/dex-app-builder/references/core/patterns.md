@@ -367,9 +367,29 @@ CheckJobStatus.execute(context, input)
 
 - Prefer "not ready yet" as a normal decision: GoTo the same Step. Returning it as an error mixes not-ready with real failures and spends the retry budget.
 - Bound the loop with a round limit, the Flow timeout, or a watchdog Timer. A round number in the input bounds the number of checks, not elapsed time: calls, retries, and queueing add time to each round. A durable deadline that polling retries cannot delay uses the Flow timeout or a deadline watchdog.
-- Never compute the remaining time from a stored timestamp and the clock: a round that is retrying would delay the deadline.
+- A Timer in the polling Step's WaitFor waits only between rounds, so a round that is retrying delays it, even when its duration comes from a stored deadline. A deadline that must fire while a round retries uses the deadline watchdog.
+- Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
+- WaitFor only declares the Timer. The provider call runs in Execute.
+- The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
+- For an interval of a few seconds or less, use the heartbeat shape.
+- Pass the cancellation signal to provider calls that accept it. Prefer giving a blocking call that cannot observe cancellation its own timeout: a stuck call keeps its Worker slot until it returns, while the method timeout still ends the attempt and Dex schedules later attempts by the retry policy.
 
-Deadline watchdog, for a deadline shorter than the Flow:
+Never:
+
+- Call the provider in WaitFor.
+- Loop without any bound.
+- Grow the Step input each round.
+- Start a new Flow for each round or page.
+
+#### Deadline watchdog
+
+Use it for a deadline shorter than the Flow that spans a polling loop's rounds, or other work that can retry, and must fire even while a round retries.
+
+1. The decision that handles the starting event schedules the polling Step and a watchdog Step together.
+2. The watchdog's WaitFor returns Timer(deadline).
+3. The polling Step calls the provider and holds no lock, so the watchdog never waits for a call or its retries. A finished job, or the polling Step's failure route, goes to a short result Step.
+4. The result Step and the watchdog's Execute share one Attribute lock and make no external call. Each writes the terminal state only while it is open.
+5. The winner writes the terminal state once, cancels the still-active other Step by Step type in its committed decision, and completes or goes to the existing close branch. The loser returns DeadEnd.
 
 ```text
 StartJob.execute(request)
@@ -393,22 +413,10 @@ WatchDeadline.execute(jobId)       [lock JobOutcome]
     return gracefulComplete(overdue).cancelSteps(CheckJobStatus)
 ```
 
-- This extends the polling skeleton above only when a deadline spans rounds. The provider call stays in the unlocked polling Step, so the watchdog never waits for a call or its retries. The short result Step and the watchdog share the lock, and each writes the terminal state only while it is open.
-- The winner writes the terminal state once and completes, or goes to the existing close branch; the loser returns DeadEnd. With one poller and one watchdog, the winner cancels the still-active other Step by Step type in its committed decision. After the completion request, the Flow starts closing once its remaining Steps end. With several watchdogs of one type, wake each through its own completion Channel.
+- This extends the polling skeleton above only when a deadline spans rounds.
+- The cancel by Step type assumes one poller and one watchdog. After the completion request, the Flow starts closing once its remaining Steps end. With several watchdogs of one type, wake each through its own completion Channel.
 - Later rounds come from goTo, not from the fork, so a sibling cancel does not reach the watchdog.
 - The Timer starts when the watchdog's WaitFor result commits, and Execute can start late after it fires; see [Timer firing time](https://docs.superdurable.io/reference/server/runtime-data#timer-firing-time).
-- Keep the input small and fixed in size, such as the job ID and round number. Keep accumulated state in Attributes, never in a growing input.
-- WaitFor only declares the Timer. The provider call runs in Execute.
-- The retry policy covers transient errors and Worker crashes. Route exhausted retries with the execute failure route.
-- For an interval of a few seconds or less, use the heartbeat shape.
-- Pass the cancellation signal to provider calls that accept it. Prefer giving a blocking call that cannot observe cancellation its own timeout: a stuck call keeps its Worker slot until it returns, while the method timeout still ends the attempt and Dex schedules later attempts by the retry policy.
-
-Never:
-
-- Call the provider in WaitFor.
-- Loop without any bound.
-- Grow the Step input each round.
-- Start a new Flow for each round or page.
 
 ### Polling with long-running Step heartbeat
 
@@ -511,6 +519,8 @@ Track.execute -> if the Timer fired: goTo(ProcessInactivity)
                  else: goTo(Track)          // a fresh Timer after each activity
 rpc recordActivity -> Activity.publish()
 ```
+
+After each activity, the next WaitFor starts a full Timer(window). Computing the rest of the window from a stored timestamp also works; a fresh Timer is less code and skippable in tests.
 
 Keep the deadline in the Flow where the activity happens. A separate Flow that needs a message on every operation is the wrong boundary.
 
