@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use dexzd_engine::LocalStoreConfig;
 
@@ -43,6 +44,45 @@ fn commit_and_local_store_tunables_parse_and_reach_the_engine_node() {
     assert_eq!(options.write_buffer_bytes, 128 * 1024 * 1024);
     assert_eq!(options.max_background_jobs, 6);
     assert_eq!(options.max_subcompactions, 4);
+}
+
+#[test]
+fn timer_full_scan_interval_parses_and_reaches_the_effect_runner() {
+    let parsed = Config::parse_yaml(
+        "cluster:\n  nodeId: node-a\nobjectStore:\n  bucket: dex-test\nlocalStorage:\n  directory: /tmp/dexzd\ntimers:\n  fullScanInterval: 0s\n",
+    )
+    .expect("parse the timer full scan interval");
+    parsed.validate().expect("zero disables the full scan");
+    let components = ComponentConfigs::from_config(&parsed, false).expect("component config");
+    assert_eq!(components.effects.timer_full_scan_interval, Duration::ZERO);
+
+    let parsed = Config::parse_yaml(
+        "cluster:\n  nodeId: node-a\nobjectStore:\n  bucket: dex-test\nlocalStorage:\n  directory: /tmp/dexzd\ntimers:\n  fullScanInterval: 15m\n",
+    )
+    .expect("parse the timer full scan interval");
+    parsed.validate().expect("valid full scan interval");
+    let components = ComponentConfigs::from_config(&parsed, false).expect("component config");
+    assert_eq!(
+        components.effects.timer_full_scan_interval,
+        Duration::from_secs(15 * 60)
+    );
+
+    let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    assert_eq!(
+        defaults.effects.timer_full_scan_interval,
+        Duration::from_secs(60 * 60)
+    );
+
+    for invalid in [
+        "timers:\n  fullScanInterval: soon\n",
+        "timers:\n  fullScanInterval: -1s\n",
+        "timers:\n  fullScanIntervalSeconds: 60\n",
+    ] {
+        assert!(
+            Config::parse_yaml(invalid).is_err(),
+            "{invalid} must not parse"
+        );
+    }
 }
 
 #[test]

@@ -102,10 +102,14 @@ pub struct EffectsConfig {
     /// Default 60 seconds. The timer service looks this far ahead for the next timer to fire,
     /// and rereads the Timer index at least this often.
     pub timer_lookahead: Duration,
-    /// Default 5 minutes. When idle, a timer service starts one due scan from its partition's
-    /// Timer index prefix at this interval, in case a timer was armed without notifying it. Due
-    /// rows beyond one pass's load threshold are read in later passes. Zero starts every pass
-    /// from the prefix.
+    /// Default 1 hour, `timers.fullScanInterval`; zero disables. When idle, a timer service
+    /// starts one due scan from its partition's Timer index prefix at this interval, in case a
+    /// timer was armed without notifying it. Due rows beyond one pass's load threshold are read
+    /// in later passes. The first pass of a full scan checks the due rows it reads below the
+    /// previous read cursor, except rows with a retry delay and rows covered by an arm
+    /// notification that the same pass consumed. It tracks at most 16 of the remaining rows and
+    /// counts the other remaining rows in one WARN line. A tracked row for which the service observes no covering
+    /// arm notification within 10 seconds is logged at ERROR.
     pub timer_full_scan_interval: Duration,
     /// Default 1024. Number of timer index rows read per page of a partition. A pass keeps
     /// paging past rows in retry backoff until it has read this many other rows.
@@ -163,7 +167,7 @@ impl Default for EffectsConfig {
             default_max_value_bytes: 16 * 1024 * 1024,
             hydrate_before_dispatch: false,
             timer_lookahead: Duration::from_secs(60),
-            timer_full_scan_interval: Duration::from_secs(5 * 60),
+            timer_full_scan_interval: Duration::from_secs(60 * 60),
             timer_load_limit: 1024,
             fired_timer_retry_delay: Duration::from_secs(1),
             locked_invocation_retry_interval: Duration::from_secs(1),

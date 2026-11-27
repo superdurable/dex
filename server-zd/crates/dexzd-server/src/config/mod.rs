@@ -36,7 +36,7 @@ pub use engine_config::{
 pub use result_loss_config::{ResultLossShare, WorkerResultLossConfig};
 pub use service_config::{
     ApiConfig, FlowDefinitionsConfig, LifecycleConfig, MatchingConfig, MetricsConfig,
-    SearchBackend, SearchConfig, StreamStoreBackend, StreamStoreConfig,
+    SearchBackend, SearchConfig, StreamStoreBackend, StreamStoreConfig, TimersConfig,
 };
 pub(crate) use source_config::SINGLE_NODE_PARTITION_COUNT;
 pub use source_config::{ConfigError, SingleNodeProfile};
@@ -86,6 +86,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     /// Pull Worker matching budgets and capacities. Defaults to ten-second dispatch and five-second sticky waits.
     pub matching: MatchingConfig,
+    /// Partition timer services. Defaults to one full scan of each partition's timers an hour.
+    pub timers: TimersConfig,
     /// Stream storage and trimming. Defaults to disabled storage.
     pub stream_store: StreamStoreConfig,
     /// Search backend and query budgets. Defaults to builtin search.

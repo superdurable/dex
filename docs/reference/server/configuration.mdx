@@ -1052,6 +1052,45 @@ flowDefinitions:
   maxDefinitionBytes: 8388608
 ~~~
 
+## Timers {#timers}
+
+Since 0.1.38. Each partition's timer service reads due timers from a read
+position that moves forward with time. Every timer the server writes also
+sends the service an arm notification. A notified timer that is due before the
+read position moves the position back.
+
+A periodic full scan is insurance against a timer written without an arm
+notification. At each interval, one pass of the service reads from the
+partition's first timer instead of its read position. It fires every due timer
+it reads the normal way. Normally it finds no timer that the read position
+skipped. A process restart and a partition rebuild also read from the first
+timer.
+
+The first pass of a full scan also checks the due timers it reads below the
+old read position. Timers with a retry delay are left out, because an earlier
+pass already read them. So are timers covered by an arm notification that the
+same pass consumed. The service tracks at most 16 of the remaining timers at a
+time, and one WARN line counts the remaining timers it does not track. A
+tracked timer for which the service observes no covering arm notification
+within 10 seconds gets an ERROR line, "a full timer scan found a due timer
+below the previous read cursor and observed no covering arm notification
+within the grace period". The line has the partition, run ID, timer ID, fire
+time, and old read position. The ERROR reports an observation; a notification
+that is only late can also produce it.
+Timers read by later passes of the same scan, past the first pass's load
+limit, fire without this check.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **timers.fullScanInterval** | 1h | Time between two full scans of each partition's timers. 0 turns the full scan off. |
+
+A full scan selects only timers that are already due when it reads them.
+
+~~~yaml
+timers:
+  fullScanInterval: 1h
+~~~
+
 ## Performance tuning {#performance-tuning}
 
 The defaults suit most nodes. Change these keys only when a load test shows a

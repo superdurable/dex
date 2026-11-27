@@ -22,7 +22,8 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 
 use crate::effects::state_reads::{
-    RunLocation, TimerIndexEntry, parse_timer_index_key, read_run_record, timer_index_start_key,
+    RunLocation, TimerIndexEntry, parse_timer_index_key, read_run_record,
+    timer_index_key_fire_at_micros, timer_index_start_key,
 };
 use crate::effects::{EffectContext, EffectError};
 use crate::flow_coordination::{CommitUrgency, FlowAddress};
@@ -135,6 +136,33 @@ pub(super) struct PartitionTimerService {
     scan_start_key: Vec<u8>,
     /// When a pass last read the Timer index from the partition's first timer.
     last_full_scan_at: Instant,
+    /// Due rows a full scan found below the read cursor, at most
+    /// [`MAX_UNNOTIFIED_TIMER_ROWS`], awaiting a covering arm notification.
+    unnotified_timer_rows: Vec<UnnotifiedTimerRow>,
+}
+
+/// Most rows remembered, and so logged, as found by a full scan without an arm notification.
+const MAX_UNNOTIFIED_TIMER_ROWS: usize = 16;
+
+/// How long an arm notification may trail its committed timer row before the row counts as
+/// unnotified.
+const UNNOTIFIED_TIMER_ROW_GRACE: Duration = Duration::from_secs(10);
+
+/// What one pass's read cursor rewind consumed.
+struct ScanStartRewind {
+    /// Earliest fire time armed since the previous pass began; `i64::MAX` when none.
+    earliest_armed_micros: i64,
+    /// The read cursor that a full scan reset; `None` when the pass is not a full scan.
+    full_scan_previous_start_key: Option<Vec<u8>>,
+}
+
+/// A due row a full scan found below the previous read cursor without a covering notification.
+struct UnnotifiedTimerRow {
+    entry: TimerIndexEntry,
+    /// The fire time the read cursor stood at before the full scan reset it.
+    previous_cursor_fire_at_micros: i64,
+    /// When the row is logged unless an arm notification covering it arrives first.
+    log_at: Instant,
 }
 
 /// The Timer index keys one due scan covered; a key in it and not returned left the index.
@@ -175,6 +203,7 @@ impl PartitionTimerService {
             retry_after: BTreeMap::new(),
             scan_start_key: partition_index_prefix(partition, IndexKind::Timer),
             last_full_scan_at: Instant::now(),
+            unnotified_timer_rows: Vec::new(),
         }
     }
 
@@ -215,13 +244,24 @@ impl PartitionTimerService {
     /// Fires every due timer. Returns when to look again, or `None` to look again at once.
     pub(super) async fn fire_due_timers(&mut self) -> Result<Option<Instant>, EffectError> {
         self.wake.plan_pass_running();
-        self.rewind_scan_start_key();
+        // Sampled before the rewind consumes notifications, so a later one is never judged late.
+        let notifications_checked_at = Instant::now();
+        let rewind = self.rewind_scan_start_key();
         let now_micros = self.context.clock.now_unix_micros();
         let lookahead_micros =
             i64::try_from(self.context.config.timer_lookahead.as_micros()).unwrap_or(i64::MAX);
         let horizon_micros = now_micros.saturating_add(lookahead_micros);
         let now = Instant::now();
+        self.log_unnotified_timer_rows(rewind.earliest_armed_micros, notifications_checked_at);
         let scan = self.load_timers(now_micros, horizon_micros, now)?;
+        if let Some(previous_start_key) = &rewind.full_scan_previous_start_key {
+            self.note_unnotified_timer_rows(
+                &scan.due_entries,
+                previous_start_key,
+                rewind.earliest_armed_micros,
+                Instant::now(),
+            );
+        }
         let entries = scan.due_entries;
         let is_waiting = |retry_after: &BTreeMap<Vec<u8>, (Instant, Duration)>, key: &Vec<u8>| {
             retry_after
@@ -299,30 +339,77 @@ impl PartitionTimerService {
         {
             wake_at = wake_at.min(full_scan_at);
         }
+        if let Some(log_at) = self
+            .unnotified_timer_rows
+            .iter()
+            .map(|row| row.log_at)
+            .min()
+        {
+            wake_at = wake_at.min(log_at);
+        }
         self.wake.plan_wake_at(wake_at);
         Ok(Some(wake_at))
     }
 
     /// Lowers the read cursor to the earliest newly armed timer, or resets it for a full scan.
-    fn rewind_scan_start_key(&mut self) {
+    ///
+    /// Returns the earliest armed fire time it consumed, and the replaced cursor when it reset
+    /// the cursor for a full scan.
+    fn rewind_scan_start_key(&mut self) -> ScanStartRewind {
         let earliest_armed_micros = self
             .wake
             .earliest_armed_micros
             .swap(i64::MAX, Ordering::SeqCst);
         let now = Instant::now();
-        if now.duration_since(self.last_full_scan_at)
-            >= self.context.config.timer_full_scan_interval
+        let full_scan_interval = self.context.config.timer_full_scan_interval;
+        if !full_scan_interval.is_zero()
+            && now.duration_since(self.last_full_scan_at) >= full_scan_interval
         {
             self.last_full_scan_at = now;
-            self.scan_start_key = partition_index_prefix(self.partition, IndexKind::Timer);
-            return;
+            let previous_start_key = std::mem::replace(
+                &mut self.scan_start_key,
+                partition_index_prefix(self.partition, IndexKind::Timer),
+            );
+            return ScanStartRewind {
+                earliest_armed_micros,
+                full_scan_previous_start_key: Some(previous_start_key),
+            };
         }
-        if earliest_armed_micros == i64::MAX {
-            return;
+        if earliest_armed_micros != i64::MAX {
+            let armed_start_key = timer_index_start_key(self.partition, earliest_armed_micros);
+            if armed_start_key < self.scan_start_key {
+                self.scan_start_key = armed_start_key;
+            }
         }
-        let armed_start_key = timer_index_start_key(self.partition, earliest_armed_micros);
-        if armed_start_key < self.scan_start_key {
-            self.scan_start_key = armed_start_key;
+        ScanStartRewind {
+            earliest_armed_micros,
+            full_scan_previous_start_key: None,
+        }
+    }
+
+    /// Forgets remembered rows a consumed arm notification covers; logs the rest at ERROR once
+    /// their grace passes.
+    fn log_unnotified_timer_rows(
+        &mut self,
+        earliest_armed_micros: i64,
+        notifications_checked_at: Instant,
+    ) {
+        for row in std::mem::take(&mut self.unnotified_timer_rows) {
+            if row.entry.fire_at_micros >= earliest_armed_micros {
+                continue;
+            }
+            if row.log_at > notifications_checked_at {
+                self.unnotified_timer_rows.push(row);
+                continue;
+            }
+            tracing::error!(
+                partition = %self.partition,
+                run_id = %row.entry.run.run_id,
+                timer_id = ?row.entry.timer_id,
+                fire_at_micros = row.entry.fire_at_micros,
+                previous_cursor_fire_at_micros = row.previous_cursor_fire_at_micros,
+                "a full timer scan found a due timer below the previous read cursor and observed no covering arm notification within the grace period"
+            );
         }
     }
 
@@ -410,6 +497,48 @@ impl PartitionTimerService {
             due_entries: entries,
             next_fire_micros,
         })
+    }
+
+    /// Remembers due rows a full scan read below `previous_start_key` that no retry delay or
+    /// consumed notification explains.
+    fn note_unnotified_timer_rows(
+        &mut self,
+        due_entries: &[(Vec<u8>, TimerIndexEntry)],
+        previous_start_key: &[u8],
+        earliest_armed_micros: i64,
+        found_at: Instant,
+    ) {
+        let armed_start_key = timer_index_start_key(self.partition, earliest_armed_micros);
+        let unnotified_end = previous_start_key.min(armed_start_key.as_slice());
+        let previous_cursor_fire_at_micros =
+            timer_index_key_fire_at_micros(self.partition, previous_start_key);
+        let mut untracked_rows = 0_usize;
+        for (key, entry) in due_entries
+            .iter()
+            .take_while(|(key, _)| key.as_slice() < unnotified_end)
+        {
+            // An earlier pass read a row that has a retry delay.
+            if self.retry_after.contains_key(key) {
+                continue;
+            }
+            if self.unnotified_timer_rows.len() >= MAX_UNNOTIFIED_TIMER_ROWS {
+                untracked_rows += 1;
+                continue;
+            }
+            self.unnotified_timer_rows.push(UnnotifiedTimerRow {
+                entry: entry.clone(),
+                previous_cursor_fire_at_micros,
+                log_at: found_at + UNNOTIFIED_TIMER_ROW_GRACE,
+            });
+        }
+        if untracked_rows > 0 {
+            tracing::warn!(
+                partition = %self.partition,
+                untracked_rows,
+                previous_cursor_fire_at_micros,
+                "a full timer scan found more due timers below the previous read cursor than it tracks for a covering arm notification"
+            );
+        }
     }
 
     async fn propose_timers_fired(

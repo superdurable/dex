@@ -131,6 +131,30 @@ impl Default for MatchingConfig {
     }
 }
 
+/// Controls the partition timer services.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimersConfig {
+    /// Defaults to 1 h; 0 disables. At this interval, each partition's timer service starts one
+    /// pass from its first timer instead of its read position. The pass fires every due timer
+    /// it reads the normal way. It is insurance against a timer written without an arm
+    /// notification, and normally finds nothing. The first pass of a scan checks the due timers
+    /// it reads below the previous read position, except timers with a retry delay and timers
+    /// covered by an arm notification that the same pass consumed. It tracks at most 16 of the
+    /// remaining timers and counts the other remaining timers in one WARN line. A tracked timer is logged at ERROR when the
+    /// service observes no covering arm notification within 10 seconds.
+    #[serde(with = "humantime_serde")]
+    pub full_scan_interval: Duration,
+}
+
+impl Default for TimersConfig {
+    fn default() -> Self {
+        Self {
+            full_scan_interval: Duration::from_secs(60 * 60),
+        }
+    }
+}
+
 /// Limits the Flow Definition Graph documents that UploadFlowDefinitions stores.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
