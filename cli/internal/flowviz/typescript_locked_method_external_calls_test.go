@@ -201,7 +201,7 @@ function ticketIds(tickets: readonly Ticket[]): string[] {
 
 const typeScriptPureExecuteBody = `const names: string[] = [input.trim().toUpperCase(), String(counter.get(context)), context.flowId.toLowerCase()];
     names.sort((left, right) => left.localeCompare(right));
-    console.log(JSON.stringify({names, at: new Date().toISOString(), max: Math.max(1, names.length)}));
+    void JSON.stringify({names, at: new Date().toISOString(), max: Math.max(1, names.length)});
     const lengths = new Map<string, number>(names.map(name => [name, name.length]));
     const label = new Intl.NumberFormat("en-US").format(lengths.size);
     counter.set(context, lengths.size + formatReminder(label).length + this.countWords(input));
@@ -256,6 +256,8 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 		messages []string
 		// isExecuteClean requires a checked SendReminderStep execute with no possible external call.
 		isExecuteClean bool
+		// uncertainMessages lists every locked_method_uncertain_call message fragment, in report order.
+		uncertainMessages []string
 	}{
 		"execute calls an injected service while holding an RPC lock": {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);"},
@@ -301,8 +303,8 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			messages: []string{"and calls readFileSync" + typeScriptLockedMessageSuffix},
 		},
 		"map receives an imported callback": {
-			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void [input].map(sendMail);"},
-			messages: []string{"and calls sendMail" + typeScriptLockedMessageSuffix},
+			source:            typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void [input].map(sendMail);"},
+			uncertainMessages: []string{"and calls sendMail. dexcli cannot determine whether this call performs I/O."},
 		},
 		"then receives an injected method": {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void Promise.resolve(input).then(this.flow.mailer.send);"},
@@ -372,6 +374,37 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
 		},
+		"fallback branch is a package import": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? defaultState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptReminderStateSource + "\nimport { defaultState } from \"reminder-defaults\";",
+			},
+			uncertainMessages: []string{"and calls current.sent.filter. dexcli cannot determine whether this call performs I/O."},
+		},
+		"module registry filled with a Dex Client": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "void clients.worker.stopFlow(input);",
+				extraSource: "const clients: Record<string, Client> = {};\nexport function configureClients(client: Client): void {\n  clients.worker = client;\n}",
+			},
+			messages: []string{"and calls clients.worker.stopFlow" + typeScriptLockedMessageSuffix},
+		},
+		"any array filled with an injected service": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const services: any[] = [];\n    services.push(this.flow.mailer);\n    void services[0].send(input);",
+			},
+			messages: []string{"and calls services[0].send" + typeScriptLockedMessageSuffix},
+		},
+		"module adapter typed any calls fetch": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "void mailGateway.send(input);",
+				extraSource: "const mailGateway: any = {\n  send(to: string) {\n    return fetch(\"https://example.com/mail\", {method: \"POST\", body: to});\n  },\n};",
+			},
+			messages: []string{"and calls mailGateway.send" + typeScriptLockedMessageSuffix},
+		},
 		"fallback branch is a narrow data type holding an injected service": {
 			source: typeScriptLockedMethodCase{
 				rpcLock: "ending.lock()", executeLock: "ending.lock()",
@@ -393,6 +426,22 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				extraSource: typeScriptNamedFallbackSource,
 			},
 			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch typed any in a let binding": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "let current = reminderState.get(context) ?? untypedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch reaches an injected service": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? this.flow.mailer;\n    void current.send(input);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			messages: []string{"and calls current.send" + typeScriptLockedMessageSuffix},
 		},
 		"fallback branch is a written array through an alias": {
 			source: typeScriptLockedMethodCase{
@@ -425,7 +474,7 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				projectFiles:       map[string]string{"real.ts": "export function parse(text: string): string { return text.trim(); }\n"},
 				linkedProjectFiles: map[string]string{"shim.ts": "real.ts"},
 			},
-			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+			uncertainMessages: []string{"and calls parse. dexcli cannot determine whether this call performs I/O."},
 		},
 		"Step input decoded by a custom codec": {
 			source: typeScriptLockedMethodCase{
@@ -441,7 +490,60 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				extraSource:        "import { parse } from \"./shim.js\";",
 				linkedOutsideFiles: map[string]string{"shim.ts": "export function parse(text: string): string { return text.trim(); }\n"},
 			},
-			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+			uncertainMessages: []string{"and calls parse. dexcli cannot determine whether this call performs I/O."},
+		},
+		"package function that may be pure": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, uniq([input]).length);",
+				extraSource: "import { uniq } from \"lodash\";",
+			},
+			uncertainMessages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls uniq. dexcli cannot determine whether this call performs I/O. Dex fails the RPC while the lock is held. Move any call that reaches an external system to the next, unlocked Step."},
+		},
+		"helper logs before fetch": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "announce(input);\n    announce(input);",
+				extraSource: "function announce(text: string): void {\n  console.log(text);\n  void fetch(\"https://example.com/\" + text);\n}",
+			},
+			messages: []string{"and calls announce (calls fetch) (and 1 more)" + typeScriptLockedMessageSuffix},
+		},
+		"call of a returned callback is dynamic": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "getCallback()(input);",
+				extraSource: "import { getCallback } from \"callbacks\";",
+			},
+			messages: []string{"and calls getCallback() (and 1 uncertain)" + typeScriptLockedMessageSuffix},
+		},
+		"package member called with a dot is uncertain": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, lodash.uniq([input]).length);",
+				extraSource: "import * as lodash from \"lodash\";",
+			},
+			uncertainMessages: []string{"and calls lodash.uniq. dexcli cannot determine whether this call performs I/O."},
+		},
+		"package member called with a literal key is uncertain": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, lodash[\"uniq\"]([input]).length);",
+				extraSource: "import * as lodash from \"lodash\";",
+			},
+			uncertainMessages: []string{"and calls lodash[\"uniq\"]. dexcli cannot determine whether this call performs I/O."},
+		},
+		"package member called with a computed key is dynamic": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, lodash[input]([input]).length);",
+				extraSource: "import * as lodash from \"lodash\";",
+			},
+			messages: []string{"and calls lodash[input]" + typeScriptLockedMessageSuffix},
+		},
+		"console output is uncertain": {
+			source:            typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "console.log(input);"},
+			uncertainMessages: []string{"and calls console.log. dexcli cannot determine whether this call performs I/O."},
+		},
+		"injected service and an uncertain call": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "console.log(uniq([input]));\n    void this.flow.mailer.send(input);",
+				extraSource: "import { uniq } from \"lodash\";",
+			},
+			messages: []string{"and calls this.flow.mailer.send (and 2 uncertain)" + typeScriptLockedMessageSuffix},
 		},
 		"project file helper calls fetch": {
 			source: typeScriptLockedMethodCase{
@@ -455,18 +557,7 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 		testCase := testCases[name]
 		t.Run(name, func(t *testing.T) {
 			graph := analyzeTypeScriptLockedMethodSource(t, testCase.source)
-			var messages []string
-			for _, diagnostic := range graph.Diagnostics {
-				if diagnostic.Code == "locked_method_external_call" {
-					require.Equal(t, "warning", diagnostic.Severity)
-					require.NotNil(t, diagnostic.Span)
-					messages = append(messages, diagnostic.Message)
-				}
-			}
-			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
-			for index, fragment := range testCase.messages {
-				require.Contains(t, messages[index], fragment)
-			}
+			requireLockedMethodDiagnostics(t, graph, testCase.messages, testCase.uncertainMessages)
 			if testCase.isExecuteClean {
 				executeIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
 					return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"

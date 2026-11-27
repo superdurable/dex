@@ -11,6 +11,7 @@ package flowviz
 import (
 	"go/ast"
 	"go/types"
+	"slices"
 	"strings"
 )
 
@@ -90,7 +91,7 @@ func (finder *goExternalCallFinder) record(stepLockEdges []Edge) {
 // unreadableBody is the unresolved call reported for a Step method whose body dexcli cannot read.
 func (finder *goExternalCallFinder) unreadableBody(nodeID string, phase string) possibleExternalCall {
 	node := finder.analyzer.node(nodeID)
-	return possibleExternalCall{Callee: stepMethodLabel(phase) + " of " + node.Name + ", whose body dexcli cannot read", Span: node.Span}
+	return possibleExternalCall{Callee: stepMethodLabel(phase) + " of " + node.Name + ", whose body dexcli cannot read", Span: node.Span, Certainty: externalCallUncertain}
 }
 
 // isDexSDKStepMethod reports whether the Step's method comes from an SDK default, such as dex.StepDefaults.
@@ -124,21 +125,22 @@ type goExternalCallScan struct {
 	// calleeIdentifiers are identifiers already classified as a call's callee.
 	calleeIdentifiers map[*ast.Ident]bool
 	selectors         map[*ast.Ident]*ast.SelectorExpr
+	body              ast.Node
 }
 
 // bodyExternalCalls returns the possible external calls in body, and whether the result is exact.
-// When firstOnly is set it stops at the first call found.
+// When firstOnly is set it stops at the first definite call; uncertain calls before it are kept.
 func (finder *goExternalCallFinder) bodyExternalCalls(body ast.Node, depth int, firstOnly bool) ([]possibleExternalCall, bool) {
 	scan := &goExternalCallScan{
 		finder: finder, depth: depth, firstOnly: firstOnly, calls: make([]possibleExternalCall, 0), isExact: true,
-		calleeIdentifiers: make(map[*ast.Ident]bool), selectors: make(map[*ast.Ident]*ast.SelectorExpr),
+		calleeIdentifiers: make(map[*ast.Ident]bool), selectors: make(map[*ast.Ident]*ast.SelectorExpr), body: body,
 	}
 	ast.Inspect(body, scan.visit)
 	return scan.calls, scan.isExact
 }
 
 func (scan *goExternalCallScan) visit(node ast.Node) bool {
-	if scan.firstOnly && len(scan.calls) > 0 {
+	if scan.firstOnly && slices.ContainsFunc(scan.calls, func(call possibleExternalCall) bool { return !call.isUncertain() }) {
 		return false
 	}
 	switch current := node.(type) {
@@ -162,7 +164,7 @@ func (scan *goExternalCallScan) visit(node ast.Node) bool {
 }
 
 func (scan *goExternalCallScan) add(node ast.Node, calleeExpression ast.Expr, function *types.Func) {
-	external, isExact := scan.finder.classify(scan.finder.analyzer.expressionString(calleeExpression), function, scan.depth)
+	external, isExact := scan.finder.classify(scan.finder.analyzer.expressionString(calleeExpression), function, scan.depth, scan.isFieldReceiver(calleeExpression))
 	scan.isExact = scan.isExact && isExact
 	if external == nil {
 		return
@@ -171,10 +173,84 @@ func (scan *goExternalCallScan) add(node ast.Node, calleeExpression ast.Expr, fu
 	scan.calls = append(scan.calls, *external)
 }
 
+// isFieldReceiver reports whether a method callee runs on a struct field, such as step.gateway.Send, or on a local
+// variable ever assigned from one, such as gateway := step.gateway; a field holds an injected service.
+func (scan *goExternalCallScan) isFieldReceiver(calleeExpression ast.Expr) bool {
+	selector, isSelector := ast.Unparen(calleeExpression).(*ast.SelectorExpr)
+	if !isSelector {
+		return false
+	}
+	return scan.isFieldValue(selector.X, 0)
+}
+
+func (scan *goExternalCallScan) isFieldValue(expression ast.Expr, depth int) bool {
+	typeInfo := scan.finder.analyzer.typeInfo
+	switch value := ast.Unparen(expression).(type) {
+	case *ast.SelectorExpr:
+		selection := typeInfo.Selections[value]
+		return selection != nil && selection.Kind() == types.FieldVal
+	case *ast.Ident:
+		variable, isVariable := typeInfo.Uses[value].(*types.Var)
+		if !isVariable || depth > goMaximumHelperDepth || scan.body == nil {
+			return false
+		}
+		// Any assignment from a field marks the variable as an injected service, wherever it sits in the function.
+		return slices.ContainsFunc(scan.localAssignments(variable), func(right ast.Expr) bool { return right != nil && scan.isFieldValue(right, depth+1) })
+	}
+	return false
+}
+
+// localAssignments returns every value assigned to variable in the scanned body; a nil entry is an assignment dexcli cannot pair.
+func (scan *goExternalCallScan) localAssignments(variable *types.Var) []ast.Expr {
+	typeInfo := scan.finder.analyzer.typeInfo
+	var assigned []ast.Expr
+	isVariable := func(expression ast.Expr) bool {
+		identifier, isIdentifier := ast.Unparen(expression).(*ast.Ident)
+		return isIdentifier && (typeInfo.Defs[identifier] == variable || typeInfo.Uses[identifier] == variable)
+	}
+	ast.Inspect(scan.body, func(node ast.Node) bool {
+		switch statement := node.(type) {
+		case *ast.AssignStmt:
+			for index, left := range statement.Lhs {
+				if !isVariable(left) {
+					continue
+				}
+				if len(statement.Lhs) == len(statement.Rhs) {
+					assigned = append(assigned, statement.Rhs[index])
+				} else {
+					assigned = append(assigned, nil)
+				}
+			}
+		case *ast.ValueSpec:
+			for index, name := range statement.Names {
+				if typeInfo.Defs[name] != variable {
+					continue
+				}
+				if len(statement.Names) == len(statement.Values) {
+					assigned = append(assigned, statement.Values[index])
+				} else {
+					assigned = append(assigned, nil)
+				}
+			}
+		}
+		return true
+	})
+	return assigned
+}
+
 // inspectCall classifies the callee of call; a function literal callee is walked as part of the body.
 func (scan *goExternalCallScan) inspectCall(call *ast.CallExpr) {
 	typeAndValue := scan.finder.analyzer.typeInfo.Types[call.Fun]
-	if typeAndValue.IsType() || typeAndValue.IsBuiltin() {
+	if typeAndValue.IsBuiltin() {
+		// The print and println built-ins write to standard error, which reaches no external system.
+		if identifier, isIdentifier := ast.Unparen(call.Fun).(*ast.Ident); isIdentifier {
+			if builtin, isBuiltin := scan.finder.analyzer.typeInfo.Uses[identifier].(*types.Builtin); isBuiltin && (builtin.Name() == "print" || builtin.Name() == "println") {
+				scan.calls = append(scan.calls, possibleExternalCall{Callee: builtin.Name(), Span: scan.finder.analyzer.span(call), Certainty: externalCallUncertain})
+			}
+		}
+		return
+	}
+	if typeAndValue.IsType() {
 		return
 	}
 	callee := unwrapCallFun(ast.Unparen(call.Fun))
@@ -200,7 +276,8 @@ func (scan *goExternalCallScan) inspectCall(call *ast.CallExpr) {
 
 // classify returns the possible external call for a callee, or nil, and whether the result is exact.
 // A nil function is a dynamic call through a function value.
-func (finder *goExternalCallFinder) classify(callee string, function *types.Func, depth int) (*possibleExternalCall, bool) {
+// A call into another package that may be pure is uncertain, unless isFieldReceiver marks an injected service.
+func (finder *goExternalCallFinder) classify(callee string, function *types.Func, depth int, isFieldReceiver bool) (*possibleExternalCall, bool) {
 	if function == nil {
 		return &possibleExternalCall{Callee: callee}, true
 	}
@@ -223,12 +300,36 @@ func (finder *goExternalCallFinder) classify(callee string, function *types.Func
 		if inner == nil {
 			return nil, isExact
 		}
-		return &possibleExternalCall{Callee: callee + " (calls " + inner.Callee + ")"}, isExact
+		return &possibleExternalCall{Callee: callee + " (calls " + inner.Callee + ")", Certainty: inner.Certainty}, isExact
 	}
 	if isGoPureStandardLibraryFunction(function) {
 		return nil, true
 	}
+	_, isModulePackage := finder.analyzer.modules[function.Pkg().Path()]
+	if goPrintFunctions[function.Pkg().Path()+"."+function.Name()] || (!isFieldReceiver && isModulePackage && !isGoKnownInputOutputModule(function.Pkg().Path())) {
+		return &possibleExternalCall{Callee: callee, Certainty: externalCallUncertain}, true
+	}
 	return &possibleExternalCall{Callee: callee}, true
+}
+
+// goPrintFunctions write to standard output, which reaches no external system.
+var goPrintFunctions = map[string]bool{"fmt.Print": true, "fmt.Printf": true, "fmt.Println": true}
+
+// goKnownInputOutputModulePrefixes are third-party modules that do network or database I/O.
+var goKnownInputOutputModulePrefixes = []string{
+	"cloud.google.com/go/", "github.com/aws/aws-sdk-go", "github.com/go-redis/", "github.com/go-sql-driver/mysql",
+	"github.com/jackc/pgx", "github.com/lib/pq", "github.com/nats-io/", "github.com/redis/go-redis", "github.com/segmentio/kafka-go",
+	"github.com/slack-go/", "github.com/stripe/", "github.com/twilio/", "go.mongodb.org/mongo-driver", "google.golang.org/grpc",
+}
+
+// isGoKnownInputOutputModule reports whether a package of a Go module, not the standard library, is known to do I/O.
+func isGoKnownInputOutputModule(path string) bool {
+	for _, prefix := range goKnownInputOutputModulePrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // helperExternalCall returns the first possible external call of a same-package helper, and whether it is exact.
@@ -240,13 +341,15 @@ func (finder *goExternalCallFinder) helperExternalCall(function *types.Func, dec
 		return nil, false
 	}
 	if depth+1 > goMaximumHelperDepth {
-		return &possibleExternalCall{Callee: "a helper chain deeper than dexcli follows"}, false
+		return &possibleExternalCall{Callee: "a helper chain deeper than dexcli follows", Certainty: externalCallUncertain}, false
 	}
 	finder.inProgress[function] = true
 	calls, isExact := finder.bodyExternalCalls(declaration.Body, depth+1, true)
 	delete(finder.inProgress, function)
 	var result *possibleExternalCall
-	if len(calls) > 0 {
+	if index := slices.IndexFunc(calls, func(call possibleExternalCall) bool { return !call.isUncertain() }); index >= 0 {
+		result = &calls[index]
+	} else if len(calls) > 0 {
 		result = &calls[0]
 	}
 	if isExact {

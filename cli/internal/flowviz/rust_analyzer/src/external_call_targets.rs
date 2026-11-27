@@ -625,6 +625,10 @@ impl RustFlowSource<'_> {
                     };
                 }
                 "serde" | "tracing" | "log" => return PathTarget::PureStandardLibrary,
+                // A known I/O crate counts like standard-library I/O, a definite external call.
+                name if is_known_input_output_crate(name, segments.get(1).map(String::as_str)) => {
+                    return PathTarget::ExternalStandardLibrary;
+                }
                 name if scope.generics.contains(name) => return PathTarget::External,
                 name => {
                     if let Some(full_path) = self.use_paths.get(name) {
@@ -909,6 +913,31 @@ fn standard_library_target(module_path: &[String]) -> PathTarget {
         }
         Some(_) => PathTarget::ExternalStandardLibrary,
     }
+}
+
+/// Reports whether a crate path does network, file, or process I/O; other crates may be pure.
+fn is_known_input_output_crate(crate_name: &str, module: Option<&str>) -> bool {
+    const INPUT_OUTPUT_CRATES: &[&str] = &[
+        "async_std",
+        "diesel",
+        "hyper",
+        "lapin",
+        "lettre",
+        "mongodb",
+        "postgres",
+        "rdkafka",
+        "redis",
+        "reqwest",
+        "rusqlite",
+        "sqlx",
+        "tokio_postgres",
+        "ureq",
+    ];
+    const TOKIO_INPUT_OUTPUT_MODULES: &[&str] = &["fs", "io", "net", "process", "signal", "time"];
+    INPUT_OUTPUT_CRATES.contains(&crate_name)
+        || crate_name.starts_with("aws_sdk_")
+        || (crate_name == "tokio"
+            && module.is_some_and(|name| TOKIO_INPUT_OUTPUT_MODULES.contains(&name)))
 }
 
 fn dex_sdk_target(segments: &[String]) -> PathTarget {

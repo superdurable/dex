@@ -8,6 +8,12 @@
 
 import type { FlowDefinitionEntry } from '@/lib/types';
 
+/** Returns the style class suffix of a severity: error, info, or warning for any other value. */
+function diagnosticSeverityClass(severity: unknown): 'error' | 'info' | 'warning' {
+  if (severity === 'error' || severity === 'info') return severity;
+  return 'warning';
+}
+
 /** The diagnostics of one definition file, one compact line each, or nothing when it has none. */
 export function FlowDefinitionDiagnostics({ definition }: { definition: FlowDefinitionEntry }) {
   // The server rejects malformed diagnostics; a reader that skips them still never crashes on one.
@@ -18,7 +24,7 @@ export function FlowDefinitionDiagnostics({ definition }: { definition: FlowDefi
     <div aria-label="Definition diagnostics" className="flow-definition-diagnostics" role="list">
       {diagnostics.map((diagnostic, index) => (
         <div
-          className={`flow-definition-diagnostic is-${diagnostic.severity === 'error' ? 'error' : 'warning'}`}
+          className={`flow-definition-diagnostic is-${diagnosticSeverityClass(diagnostic.severity)}`}
           key={`${diagnostic.code}-${index}`}
           role="listitem"
         >

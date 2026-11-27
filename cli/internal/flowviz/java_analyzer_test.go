@@ -92,6 +92,8 @@ func TestJavaLockedMethodExternalCall(t *testing.T) {
 		markers int
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
+		// uncertainMessages lists every locked_method_uncertain_call message fragment, in report order.
+		uncertainMessages []string
 	}{
 		{flow: "InjectedServiceFlow", markers: 1, messages: []string{
 			"Execute of Send holds lock status, which RPC stop also takes, and calls mailer.send; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step.",
@@ -99,7 +101,16 @@ func TestJavaLockedMethodExternalCall(t *testing.T) {
 		{flow: "MovedCallFlow", markers: 1},
 		{flow: "StepOnlyLockFlow"},
 		{flow: "PureFlow", markers: 1},
-		{flow: "SiblingMethodFlow", markers: 1, messages: []string{"and calls new Ticket(input, List.of()).render;"}},
+		{flow: "PrintThenSendFlow", markers: 2, messages: []string{
+			"Execute of Announce holds lock status, which RPC stop also takes, and calls announce (calls mailer.send) (and 1 more);",
+			"Execute of Fetch holds lock status, which RPC stop also takes, and calls client.newCall (and 1 more definite, 4 uncertain);",
+		}},
+		{flow: "UncertainCallFlow", markers: 2,
+			messages: []string{"Execute of Notify holds lock status, which RPC stop also takes, and calls mailer.send (and 1 uncertain);"},
+			uncertainMessages: []string{
+				"Execute of Format holds lock status, which RPC stop also takes, and calls TextFormatting.title (and 1 more uncertain call). dexcli cannot determine whether these calls perform I/O.",
+			}},
+		{flow: "SiblingMethodFlow", markers: 1, uncertainMessages: []string{"and calls new Ticket(input, List.of()).render. dexcli cannot determine whether this call performs I/O."}},
 		{flow: "OverloadFlow", markers: 1, messages: []string{"and calls dispatch (calls mailer.send);"}},
 		{flow: "SDKValueFlow", markers: 1, messages: []string{"and calls context.pendingChannelMessages(services).get(0).getValue().send;"}},
 		{flow: "JdkInputOutputFlow", markers: 3, messages: []string{
@@ -127,18 +138,7 @@ func TestJavaLockedMethodExternalCall(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 			require.Len(t, graph.methodExternalCalls, test.markers, "%+v", graph.methodExternalCalls)
-			var messages []string
-			for _, diagnostic := range graph.Diagnostics {
-				if diagnostic.Code == "locked_method_external_call" {
-					require.Equal(t, "warning", diagnostic.Severity)
-					require.NotNil(t, diagnostic.Span)
-					messages = append(messages, diagnostic.Message)
-				}
-			}
-			require.Len(t, messages, len(test.messages), "%+v", graph.Diagnostics)
-			for index, fragment := range test.messages {
-				require.Contains(t, messages[index], fragment)
-			}
+			requireLockedMethodDiagnostics(t, graph, test.messages, test.uncertainMessages)
 		})
 	}
 }

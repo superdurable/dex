@@ -1149,6 +1149,15 @@ class FlowvizJavaAnalyzer {
 
     private record ExternalCallResult(Map<String, Object> call, boolean isExact) {}
 
+    /** Marks a possible external call that may be pure, such as another package's static method or console output. */
+    private static final String UNCERTAIN = "uncertain";
+
+    /** Third-party packages of HTTP, cloud, database, and RPC clients; their calls are definite external calls. */
+    private static final List<String> KNOWN_INPUT_OUTPUT_PACKAGES = List.of(
+            "okhttp3.OkHttpClient", "okhttp3.Call", "org.apache.http.impl.client.", "org.apache.hc.client5.http.impl.", "software.amazon.awssdk.", "com.amazonaws.",
+            "com.google.cloud.", "io.grpc.", "redis.clients.", "io.lettuce.", "com.mongodb.", "org.springframework.web.client.",
+            "org.springframework.web.reactive.function.client.", "org.apache.kafka.", "com.rabbitmq.", "com.twilio.", "com.stripe.");
+
     /** Fills methodExternalCalls for Step methods with an allowlist; see locked_method_external_calls.go. */
     private final class ExternalCallFinder {
         final List<Map<String, Object>> markers = new ArrayList<>();
@@ -1178,7 +1187,7 @@ class FlowvizJavaAnalyzer {
                 if (!sharesRPCLock(pending.stepID(), pending.phase())) continue;
                 if (pending.reason() != null) {
                     markers.add(object("nodeId", pending.stepID(), "phase", pending.phase(),
-                            "calls", List.of(object("callee", pending.reason()))));
+                            "calls", List.of(object("callee", pending.reason(), "certainty", UNCERTAIN))));
                     continue;
                 }
                 var scan = new ExternalCallScan(pending.scope(), 0, false);
@@ -1216,13 +1225,15 @@ class FlowvizJavaAnalyzer {
             if (cached != null) return new ExternalCallResult(cached.orElse(null), true);
             if (inProgress.contains(method)) return new ExternalCallResult(null, false);
             if (depth + 1 > MAXIMUM_HELPER_DEPTH) {
-                return new ExternalCallResult(object("callee", "a helper chain deeper than dexcli follows"), false);
+                return new ExternalCallResult(object("callee", "a helper chain deeper than dexcli follows", "certainty", UNCERTAIN), false);
             }
             inProgress.add(method);
             var scan = new ExternalCallScan(new MethodScope(owner, method), depth + 1, true);
             scan.scan(method.getBody(), null);
             inProgress.remove(method);
-            var result = scan.calls.isEmpty() ? null : scan.calls.get(0);
+            // The first definite call wins; an uncertain one is kept only when the helper makes no definite call.
+            var result = scan.calls.stream().filter(call -> !call.containsKey("certainty")).findFirst()
+                    .orElse(scan.calls.isEmpty() ? null : scan.calls.get(0));
             if (scan.isExact) exactResults.put(method, Optional.ofNullable(result));
             return new ExternalCallResult(result, scan.isExact);
         }
@@ -1504,7 +1515,7 @@ class FlowvizJavaAnalyzer {
         }
 
         @Override public Void scan(Tree tree, Void unused) {
-            if (firstOnly && !calls.isEmpty()) return null;
+            if (firstOnly && calls.stream().anyMatch(call -> !call.containsKey("certainty"))) return null;
             return super.scan(tree, unused);
         }
 
@@ -1573,24 +1584,67 @@ class FlowvizJavaAnalyzer {
             return new ExternalCallResult(object("callee", callee, "span", span(site)), true);
         }
 
+        private ExternalCallResult uncertain(String callee, Tree site) {
+            return new ExternalCallResult(object("callee", callee, "span", span(site), "certainty", UNCERTAIN), true);
+        }
+
+        /** Marks a definite result uncertain; a result with no call or an existing certainty is unchanged. */
+        private ExternalCallResult asUncertain(ExternalCallResult result) {
+            if (result == null || result.call() == null || result.call().containsKey("certainty")) return result;
+            var call = new LinkedHashMap<>(result.call());
+            call.put("certainty", UNCERTAIN);
+            return new ExternalCallResult(call, result.isExact());
+        }
+
         private ExternalCallResult helperCall(String callee, Declaration owner, MethodTree method, Tree site) {
             // An interface or abstract method runs whatever implementation is injected.
             if (method.getBody() == null) return external(callee, site);
             var inner = finder.helperExternalCall(owner, method, depth);
             if (inner.call() == null) return new ExternalCallResult(null, inner.isExact());
             return new ExternalCallResult(object("callee", callee + " (calls " + inner.call().get("callee") + ")",
-                    "span", span(site)), inner.isExact());
+                    "span", span(site), "certainty", inner.call().get("certainty")), inner.isExact());
+        }
+
+        /** Reports whether a receiver comes from another package's type or static call, not from a field or parameter. */
+        private boolean isUncertainReceiver(ExpressionTree receiver, int steps) {
+            var current = unwrap(receiver);
+            while (current instanceof MemberSelectTree || current instanceof MethodInvocationTree) {
+                if (scope.owner.field(current) != null || steps++ > MAXIMUM_HELPER_DEPTH * 4) return false;
+                current = unwrap(current instanceof MemberSelectTree member ? member.getExpression() : ((MethodInvocationTree) current).getMethodSelect());
+            }
+            if (current instanceof NewClassTree created) return !isDefiniteInputOutputTypeName(finder.resolveType(created.getIdentifier(), scope.owner).name());
+            if (!(current instanceof IdentifierTree identifier)) return false;
+            var name = identifier.getName().toString();
+            if (name.equals("this") || name.equals("super") || scope.owner.field(identifier) != null) return false;
+            var variable = scope.variable(identifier);
+            if (variable != null) {
+                if (variable.getType() != null && isDefiniteInputOutputTypeName(finder.resolveType(variable.getType(), scope.owner).name())) return false;
+                return variable.getInitializer() != null && isUncertainReceiver(variable.getInitializer(), steps + 1);
+            }
+            var type = finder.resolveTypeName(name, scope.owner);
+            return (type.kind() == ValueKind.UNKNOWN || type.kind() == ValueKind.SAME_PACKAGE_DATA) && !isDefiniteInputOutputTypeName(type.name());
+        }
+
+        private static boolean isJdkTypeName(String name) {
+            return name.startsWith("java.") || name.startsWith("javax.");
+        }
+
+        /** Reports whether a type is a JDK type or a known third-party I/O client, whose calls stay definite. */
+        private static boolean isDefiniteInputOutputTypeName(String name) {
+            return isJdkTypeName(name) || KNOWN_INPUT_OUTPUT_PACKAGES.stream().anyMatch(name::startsWith);
         }
 
         /** Checks every candidate declaration of an overloaded call and returns the first possible external call. */
         private ExternalCallResult candidatesCall(String callee, List<SameFileMethod> candidates, Tree site) {
             var isAllExact = true;
+            Map<String, Object> uncertainCall = null;
             for (var candidate : candidates) {
                 var result = helperCall(callee, candidate.owner(), candidate.method(), site);
                 isAllExact = isAllExact && result.isExact();
-                if (result.call() != null) return new ExternalCallResult(result.call(), isAllExact);
+                if (result.call() != null && !result.call().containsKey("certainty")) return new ExternalCallResult(result.call(), isAllExact);
+                if (uncertainCall == null) uncertainCall = result.call();
             }
-            return new ExternalCallResult(null, isAllExact);
+            return new ExternalCallResult(uncertainCall, isAllExact);
         }
 
         private ExternalCallResult classifyCall(MethodInvocationTree call) {
@@ -1606,10 +1660,20 @@ class FlowvizJavaAnalyzer {
                 var inherited = enclosingInheritedSupertype(name, arguments.size());
                 if (inherited != null) return classifyMemberCall(inherited, name, arguments, callee, call);
                 var imported = staticImportOwner(name);
-                if (imported != null) return classifyMemberCall(imported.asTypeName(), name, arguments, callee, call);
-                return external(callee, call);
+                if (imported != null) {
+                    var result = classifyMemberCall(imported.asTypeName(), name, arguments, callee, call);
+                    return isDefiniteInputOutputTypeName(imported.name()) ? result : asUncertain(result);
+                }
+                return uncertain(callee, call);
             }
-            return classifyMemberCall(typeOf(receiver), name, arguments, callee, call);
+            var receiverType = typeOf(receiver);
+            var result = classifyMemberCall(receiverType, name, arguments, callee, call);
+            // Console output reaches no external system.
+            var receiverText = unwrap(receiver).toString();
+            if (receiverText.equals("System.out") || receiverText.equals("System.err")) return asUncertain(result);
+            var isOtherPackageType = receiverType.kind() == ValueKind.UNKNOWN || receiverType.kind() == ValueKind.SAME_PACKAGE_DATA;
+            if (isOtherPackageType && !isDefiniteInputOutputTypeName(receiverType.name()) && isUncertainReceiver(receiver, 0)) return asUncertain(result);
+            return result;
         }
 
         private ValueType enclosingInheritedSupertype(String name, int argumentCount) {
@@ -1725,7 +1789,8 @@ class FlowvizJavaAnalyzer {
             return switch (type.kind()) {
                 case SAME_FILE -> candidatesCall(callee, sameFileConstructors(type.declaration(), created.getArguments()), created);
                 case SDK, PURE -> null;
-                case SAME_PACKAGE_DATA -> isSamePackageImplicitConstructor(type) ? null : external(callee, created);
+                case SAME_PACKAGE_DATA -> isSamePackageImplicitConstructor(type) ? null : uncertain(callee, created);
+                case UNKNOWN -> isJdkTypeName(type.name()) ? external(callee, created) : uncertain(callee, created);
                 default -> external(callee, created);
             };
         }

@@ -182,6 +182,8 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 		source rustLockedMethodCase
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
+		// uncertainMessages lists every locked_method_uncertain_call message fragment, in report order.
+		uncertainMessages []string
 		// executeMarker is SendReminderStep.execute's marker: rustMarkerAbsent, rustMarkerClean, or rustMarkerCalls.
 		executeMarker string
 	}{
@@ -224,8 +226,8 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::payload::Payload",
 				executeBody: "let value = input.get();",
 			},
-			messages:      []string{"and calls input.get;"},
-			executeMarker: rustMarkerCalls,
+			uncertainMessages: []string{"and calls input.get. dexcli cannot determine whether this call performs I/O."},
+			executeMarker:     rustMarkerCalls,
 		},
 		"derived Default whose field Default does I/O": {
 			source: rustLockedMethodCase{
@@ -242,8 +244,8 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				executeBody: "let copy = Wrapper::default().clone();",
 				extraSource: "#[derive(Clone, Default)]\nstruct Wrapper {\n    payload: crate::payload::Payload,\n    shared: Arc<String>,\n}",
 			},
-			messages:      []string{"(calls crate::payload::Payload::"},
-			executeMarker: rustMarkerCalls,
+			uncertainMessages: []string{"(calls crate::payload::Payload::"},
+			executeMarker:     rustMarkerCalls,
 		},
 		"Step input and Attribute values of another file's type with pure field methods": {
 			source: rustLockedMethodCase{
@@ -265,8 +267,8 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
 				executeBody: "let receipt = input.submit();",
 			},
-			messages:      []string{"and calls input.submit;"},
-			executeMarker: rustMarkerCalls,
+			uncertainMessages: []string{"and calls input.submit. dexcli cannot determine whether this call performs I/O."},
+			executeMarker:     rustMarkerCalls,
 		},
 		"combinator closures over an AttributeMap value read as data": {
 			source: rustLockedMethodCase{
@@ -299,8 +301,8 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let entries: Vec<_> = Vec::new();\n        entries.iter().for_each(|entry| entry.flush());",
 			},
-			messages:      []string{"and calls entry.flush;"},
-			executeMarker: rustMarkerCalls,
+			uncertainMessages: []string{"and calls entry.flush. dexcli cannot determine whether this call performs I/O."},
+			executeMarker:     rustMarkerCalls,
 		},
 		"derived Default of a same-file type": {
 			source: rustLockedMethodCase{
@@ -315,7 +317,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let label = crate::labels::reminder_label(&input);\n        self.client.stop_flow(&input, None).map_err(HandlerError::from_error)?;",
 			},
-			messages:      []string{"and calls self.client.stop_flow (and 1 more);"},
+			messages:      []string{"and calls self.client.stop_flow (and 1 uncertain);"},
 			executeMarker: rustMarkerCalls,
 		},
 		"helper calls std::net": {
@@ -362,8 +364,8 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let records: Vec<crate::records::Record> = Vec::new();\n        let sent = records.first().unwrap().send();",
 			},
-			messages:      []string{"and calls records.first().unwrap().send;"},
-			executeMarker: rustMarkerCalls,
+			uncertainMessages: []string{"and calls records.first().unwrap().send. dexcli cannot determine whether this call performs I/O."},
+			executeMarker:     rustMarkerCalls,
 		},
 		"injected service call inside format": {
 			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: `let summary = format!("{:?}", self.mailer.send(&input));`},
@@ -387,7 +389,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 		},
 		"standard library sleep and println": {
 			source:        rustLockedMethodCase{rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeBody: "std::thread::sleep(Duration::from_secs(1));\n        println!(\"slept\");"},
-			messages:      []string{"and calls std::thread::sleep (and 1 more);"},
+			messages:      []string{"and calls std::thread::sleep (and 1 uncertain);"},
 			executeMarker: rustMarkerCalls,
 		},
 		"no RPC lock": {
@@ -399,18 +401,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 		testCase := testCases[name]
 		t.Run(name, func(t *testing.T) {
 			graph := analyzeRustLockedMethodSource(t, testCase.source)
-			var messages []string
-			for _, diagnostic := range graph.Diagnostics {
-				if diagnostic.Code == "locked_method_external_call" {
-					require.Equal(t, "warning", diagnostic.Severity)
-					require.NotNil(t, diagnostic.Span)
-					messages = append(messages, diagnostic.Message)
-				}
-			}
-			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
-			for index, fragment := range testCase.messages {
-				require.Contains(t, messages[index], fragment)
-			}
+			requireLockedMethodDiagnostics(t, graph, testCase.messages, testCase.uncertainMessages)
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 			markerIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
 				return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"
@@ -580,6 +571,54 @@ func TestRustLockedMethodDexSDKAliasBoundaries(t *testing.T) {
 				return
 			}
 			require.True(t, slices.ContainsFunc(calls, func(call possibleExternalCall) bool { return call.Callee == testCase.callee }), "%+v", calls)
+		})
+	}
+}
+
+func TestRustLockedMethodCertainty(t *testing.T) {
+	const imports = "use dex_sdk::*;\nuse crate::gateway::SmsGateway;\nuse crate::time::parse_local_time;"
+	testCases := map[string]struct {
+		body      string
+		warnings  []string
+		uncertain []string
+	}{
+		"concrete field type from another module is an injected service": {
+			body:     "self.gateway.send(&input);\n        let _ = parse_local_time(&input);",
+			warnings: []string{"and calls self.gateway.send (and 1 uncertain); Dex fails that RPC"},
+		},
+		"helper from another module is uncertain": {
+			body:      "let _ = parse_local_time(&input);",
+			uncertain: []string{"and calls parse_local_time. dexcli cannot determine whether this call performs I/O."},
+		},
+		"UFCS call of a standard trait method is a static call": {
+			body: "let _ = <String as Clone>::clone(&input);\n        let _ = <String as From<&str>>::from(input.as_str());",
+		},
+		"UFCS call naming a supertrait of a trait object field is definite": {
+			body:     "<dyn Gateway + Send + Sync as Mailer>::send(self.trait_gateway.as_ref(), &input);",
+			warnings: []string{"and calls <dyn Gateway + Send + Sync as Mailer>::send; Dex fails that RPC"},
+		},
+		"function pointer field is a dynamic call": {
+			body:     "(self.callback)(&input);",
+			warnings: []string{"and calls (self.callback); Dex fails that RPC"},
+		},
+		"printing is uncertain": {
+			body:      "println!(\"{input}\");",
+			uncertain: []string{"and calls println!. dexcli cannot determine whether this call performs I/O."},
+		},
+	}
+	for _, name := range slices.Sorted(maps.Keys(testCases)) {
+		testCase := testCases[name]
+		t.Run(name, func(t *testing.T) {
+			source := strings.NewReplacer(
+				"DEX_IMPORTS", imports,
+				"pub struct SendReminderStep;", "pub struct SendReminderStep {\n    gateway: SmsGateway,\n    callback: fn(&str),\n    trait_gateway: Box<dyn Gateway + Send + Sync>,\n}\n\npub trait Mailer {\n    fn send(&self, input: &str);\n}\n\npub trait Gateway: Mailer {\n    fn send(&self, input: &str);\n}",
+				"        if input.is_empty() {\n            return Ok(StepDecision::dead_end());\n        }\n", "        "+testCase.body+"\n",
+			).Replace(rustDexSDKImportFormSource)
+			sourcePath := filepath.Join(t.TempDir(), "flow.rs")
+			require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
+			graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow"})
+			require.NoError(t, err)
+			requireLockedMethodDiagnostics(t, graph, testCase.warnings, testCase.uncertain)
 		})
 	}
 }

@@ -38,6 +38,9 @@ import java.util.ResourceBundle;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import com.example.text.TextFormatting;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
 
 class InjectedServiceFlow implements Flow<String> {
     static final Attribute<String> status = Attribute.define("status", String.class);
@@ -517,6 +520,84 @@ class MapInstanceFlow implements Flow<String> {
 
         public StepDecision execute(Context context, String input) {
             mailer.send(input);
+            return StepDecision.gracefulComplete(input);
+        }
+    }
+}
+
+class UncertainCallFlow implements Flow<String> {
+    static final Attribute<String> status = Attribute.define("status", String.class);
+    private final Mailer mailer;
+
+    UncertainCallFlow(Mailer mailer) { this.mailer = mailer; }
+
+    public StepList<String> getSteps() { return StepList.startStep(new Format()).otherSteps(new Notify()); }
+    public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(status); }
+
+    @RPC(lockAttributes = {"status"})
+    public void stop(Context context, String reason) { status.set(context, reason); }
+
+    // dex:group group-id:format group-label:"Format"
+    // dex:explanation text:"Format the status with another package's helper and print it."
+    class Format implements Step<String> {
+        public StepOptions getStepOptions() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+        public StepDecision execute(Context context, String input) {
+            System.out.println(TextFormatting.title(input));
+            return StepDecision.goTo(Notify.class, input);
+        }
+    }
+
+    // dex:group group-id:format group-label:"Format"
+    // dex:explanation text:"Format the status and send it to the injected mailer."
+    class Notify implements Step<String> {
+        public StepOptions getStepOptions() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+        public StepDecision execute(Context context, String input) {
+            mailer.send(TextFormatting.title(input));
+            return StepDecision.gracefulComplete(input);
+        }
+    }
+}
+
+class PrintThenSendFlow implements Flow<String> {
+    static final Attribute<String> status = Attribute.define("status", String.class);
+    private final Mailer mailer;
+
+    PrintThenSendFlow(Mailer mailer) { this.mailer = mailer; }
+
+    public StepList<String> getSteps() { return StepList.startStep(new Announce()).otherSteps(new Fetch()); }
+    public PersistenceSchema getPersistenceSchema() { return PersistenceSchema.of(status); }
+
+    @RPC(lockAttributes = {"status"})
+    public void stop(Context context, String reason) { status.set(context, reason); }
+
+    private void announce(String text) {
+        System.out.println(text);
+        mailer.send(text);
+    }
+
+    // dex:group group-id:announce group-label:"Announce"
+    // dex:explanation text:"Print, then send through the injected mailer, twice."
+    class Announce implements Step<String> {
+        public StepOptions getStepOptions() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+        public StepDecision execute(Context context, String input) {
+            announce(input);
+            announce(input);
+            return StepDecision.goTo(Fetch.class, input);
+        }
+    }
+
+    // dex:group group-id:announce group-label:"Announce"
+    // dex:explanation text:"Fetch a page with an OkHttp client."
+    class Fetch implements Step<String> {
+        public StepOptions getStepOptions() { return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(status)).build(); }
+
+        public StepDecision execute(Context context, String input) throws Exception {
+            OkHttpClient client = new OkHttpClient();
+            Request request = new Request.Builder().url(input).build();
+            client.newCall(request).execute();
             return StepDecision.gracefulComplete(input);
         }
     }

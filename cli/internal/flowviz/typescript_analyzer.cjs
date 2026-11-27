@@ -40,7 +40,7 @@ const pureLibraryContainers = new Set([
   "Symbol","SymbolConstructor","Array","ReadonlyArray","ArrayConstructor","Map","ReadonlyMap","MapConstructor",
   "Set","ReadonlySet","SetConstructor","WeakMap","WeakMapConstructor","WeakSet","WeakSetConstructor",
   "Object","ObjectConstructor","Math","JSON","Date","DateConstructor","RegExp","RegExpConstructor",
-  "RegExpMatchArray","RegExpExecArray","Promise","PromiseLike","PromiseConstructor","Console","Intl",
+  "RegExpMatchArray","RegExpExecArray","Promise","PromiseLike","PromiseConstructor","Intl",
   "Iterator","IteratorObject","IterableIterator","ArrayIterator","MapIterator","SetIterator","StringIterator",
   "RegExpStringIterator","Generator","ArrayBuffer","ArrayBufferConstructor","DataView","DataViewConstructor",
   "URL","URLSearchParams","TextEncoder","TextDecoder",
@@ -53,6 +53,14 @@ const pureNodeExports = new Map([
   ["util",new Set(["format","isDeepStrictEqual"])],
 ]);
 const pureLibraryFunctions = new Set(["parseInt","parseFloat","isNaN","isFinite","encodeURI","encodeURIComponent","decodeURI","decodeURIComponent","structuredClone"]);
+// Marks a possible external call that may be pure, such as a package function or console output.
+const externalCallUncertain = "uncertain";
+// Packages whose calls do network, file, or process I/O; calls into other packages are uncertain.
+const knownInputOutputModules = new Set([
+  "fs","fs/promises","http","https","http2","net","tls","dgram","dns","child_process","worker_threads","timers","timers/promises",
+  "axios","node-fetch","undici","got","pg","mysql2","mongodb","ioredis","redis","@aws-sdk","@google-cloud","openai","@anthropic-ai/sdk",
+  "nodemailer","twilio","stripe","@slack/web-api","kafkajs","amqplib","ws",
+]);
 // Source files the locked-method check may type-check besides the Flow source; declarations elsewhere stay unresolved.
 const projectSourceExtensions = [".ts",".tsx",".mts",".cts"];
 const maximumProjectFiles = 200;
@@ -2971,12 +2979,12 @@ class TypeScriptAnalyzer {
         if (!sharedPhases.has(`${nodeID} ${phase}`)) continue;
         const method = this.method(instance.declaration,methodName);
         if (!method) {
-          if (phase === "execute") this.methodExternalCalls.push({nodeId:nodeID,phase,calls:[{callee:`execute of ${stepName}, which is not defined in this file`}]});
+          if (phase === "execute") this.methodExternalCalls.push({nodeId:nodeID,phase,calls:[{callee:`execute of ${stepName}, which is not defined in this file`,certainty:externalCallUncertain}]});
           continue;
         }
         let calls;
-        if (problem) calls = [{callee:`code dexcli could not type-check (${problem})`,span:this.span(method)}];
-        else if (!method.body) calls = [{callee:`${methodName}, which has no body in this file`,span:this.span(method)}];
+        if (problem) calls = [{callee:`code dexcli could not type-check (${problem})`,span:this.span(method),certainty:externalCallUncertain}];
+        else if (!method.body) calls = [{callee:`${methodName}, which has no body in this file`,span:this.span(method),certainty:externalCallUncertain}];
         else {
           this.stepInputParameter = this.hasDataInputCodec(instance.declaration) ? method.parameters[1] : undefined;
           calls = this.bodyExternalCalls([method.body],0,false).calls;
@@ -3105,13 +3113,14 @@ class TypeScriptAnalyzer {
   bodyExternalCalls(nodes,depth,firstOnly) {
     const scan = {calls:[],isExact:true};
     const visit = node => {
-      if (!node || (firstOnly && scan.calls.length) || this.ts.isTypeNode(node)) return;
+      // A helper scan keeps looking past uncertain calls, so a later definite call still gives the warning.
+      if (!node || (firstOnly && scan.calls.some(call => call.certainty !== externalCallUncertain)) || this.ts.isTypeNode(node)) return;
       let found;
       if (this.ts.isCallExpression(node) || this.ts.isNewExpression(node) || this.ts.isTaggedTemplateExpression(node)) found = this.classifyInvocation(node,depth);
       else if (this.ts.isIdentifier(node) || this.ts.isPropertyAccessExpression(node)) found = this.classifyFunctionValue(node,depth);
       if (found) {
         scan.isExact = scan.isExact && found.isExact;
-        if (found.external) scan.calls.push({callee:found.external,span:this.span(node)});
+        if (found.external) scan.calls.push({callee:found.external,span:this.span(node),...(found.isUncertain ? {certainty:externalCallUncertain} : {})});
       }
       if (this.ts.isCallExpression(node) || this.ts.isNewExpression(node)) scan.calls.push(...this.callbackArgumentExternalCalls(node));
       this.ts.forEachChild(node,visit);
@@ -3166,7 +3175,7 @@ class TypeScriptAnalyzer {
       const parameter = declaration.parameters[index] || (declaration.parameters.at(-1)?.dotDotDotToken ? declaration.parameters.at(-1) : undefined);
       if (!parameter?.type || !this.typeNodeHasFunction(parameter.type,parameter.getSourceFile())) continue;
       if (this.isCheckedCallback(argument)) continue;
-      calls.push({callee:this.collapsedText(argument),span:this.span(argument)});
+      calls.push({callee:this.collapsedText(argument),span:this.span(argument),...(this.isUncertainCallee(argument,0) ? {certainty:externalCallUncertain} : {})});
     }
     return calls;
   }
@@ -3231,10 +3240,16 @@ class TypeScriptAnalyzer {
     const ts = this.ts;
     const allowed = {external:"",isExact:true};
     const external = {external:calleeText,isExact:true};
-    if (!declaration) return external;
+    if (!declaration) return {...external,isUncertain:this.isUncertainCallee(callee,0)};
     const sourceFile = declaration.getSourceFile();
-    if (this.program.isSourceFileDefaultLibrary(sourceFile)) return this.isPureLibraryDeclaration(declaration) ? allowed : external;
-    if (sourceFile !== this.tree) return this.projectFileExternalCall(calleeText,declaration,depth);
+    if (this.program.isSourceFileDefaultLibrary(sourceFile)) {
+      if (this.isPureLibraryDeclaration(declaration)) return allowed;
+      return {...external,isUncertain:this.isLibraryContainerMember(declaration,"Console")};
+    }
+    if (sourceFile !== this.tree) {
+      const result = this.projectFileExternalCall(calleeText,declaration,depth);
+      return result.external === calleeText ? {...result,isUncertain:result.isUncertain || this.isUncertainCallee(callee,0)} : result;
+    }
     declaration = this.implementationOf(declaration);
     if (!declaration) return external;
     if (ts.isConstructorDeclaration(declaration)) return this.classConstructionExternalCall(calleeText,declaration.parent,depth);
@@ -3280,14 +3295,15 @@ class TypeScriptAnalyzer {
     const base = this.extendsClause(declaration);
     if (!constructor && base) {
       const baseDeclaration = this.sourceDeclarationOf(this.unwrap(base.expression));
-      if (!baseDeclaration || !ts.isClassDeclaration(baseDeclaration)) return {external:calleeText,isExact:true};
+      // A base class from a package may construct without I/O.
+      if (!baseDeclaration || !ts.isClassDeclaration(baseDeclaration)) return {external:calleeText,isExact:true,isUncertain:true};
     }
     const nodes = declaration.members.filter(member => ts.isPropertyDeclaration(member) && !this.isStatic(member) && member.initializer).map(member => member.initializer);
     if (constructor) nodes.push(constructor.body);
     const result = this.helperExternalCall(calleeText,declaration,nodes,depth);
     if (result.external || constructor || !base) return result;
     const baseResult = this.classConstructionExternalCall(calleeText,this.sourceDeclarationOf(this.unwrap(base.expression)),depth + 1);
-    return {external:baseResult.external,isExact:result.isExact && baseResult.isExact};
+    return {external:baseResult.external,isExact:result.isExact && baseResult.isExact,isUncertain:baseResult.isUncertain};
   }
 
   // helperExternalCall follows a same-file helper and reports its first possible external call, as "helper (calls inner)".
@@ -3296,16 +3312,17 @@ class TypeScriptAnalyzer {
     let isExact = true;
     if (this.exactHelperResults.has(key)) inner = this.exactHelperResults.get(key);
     else if (this.helpersInProgress.has(key)) return {external:"",isExact:false};
-    else if (depth + 1 > maximumHelperDepth) return {external:`${calleeText} (calls a helper chain deeper than dexcli follows)`,isExact:false};
+    else if (depth + 1 > maximumHelperDepth) return {external:`${calleeText} (calls a helper chain deeper than dexcli follows)`,isExact:false,isUncertain:true};
     else {
       this.helpersInProgress.add(key);
       const scan = this.bodyExternalCalls(nodes,depth + 1,true);
       this.helpersInProgress.delete(key);
-      inner = scan.calls[0]?.callee || "";
+      inner = scan.calls.find(call => call.certainty !== externalCallUncertain) || scan.calls[0];
       isExact = scan.isExact;
       if (isExact) this.exactHelperResults.set(key,inner);
     }
-    return {external:inner ? `${calleeText} (calls ${inner})` : "",isExact};
+    if (!inner) return {external:"",isExact};
+    return {external:`${calleeText} (calls ${inner.callee})`,isExact,isUncertain:inner.certainty === externalCallUncertain};
   }
 
   // dexInvocationExport returns the Dex SDK export or pure Node export a callee calls or calls a method of, or undefined.
@@ -3507,6 +3524,82 @@ class TypeScriptAnalyzer {
       return undefined;
     }
     return symbol?.valueDeclaration || symbol?.declarations?.[0];
+  }
+
+  // isUncertainCallee reports whether a callee comes from a package or unfollowed import that may be pure.
+  // A callee on this, a parameter, or a value of unknown origin counts as definite, such as an injected service.
+  // isReceiver marks an object whose method is called; it may come from an imported factory call.
+  // A method on a fallback of literals, provably data consts, Dex data, or uncertain imports is uncertain.
+  isUncertainCallee(callee,depth,isReceiver = false,isConstBinding = true) {
+    const ts = this.ts;
+    let root = this.unwrap(callee);
+    // Calling a call result or an indexed value is a dynamic call through a function value, which is definite.
+    // obj["name"] with a string literal key is a member access like obj.name; only a computed key is dynamic.
+    const isLiteralMember = !!root && ts.isElementAccessExpression(root) && ts.isStringLiteralLike(root.argumentExpression);
+    if (!root || (!isReceiver && (ts.isCallExpression(root) || (ts.isElementAccessExpression(root) && !isLiteralMember)))) return false;
+    const isMemberCall = ts.isPropertyAccessExpression(root) || isLiteralMember;
+    while (root && (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root) || ts.isCallExpression(root))) root = this.unwrap(root.expression);
+    if (root && isConstBinding && (isReceiver || isMemberCall) && this.isLocalValueExpression(root)) return this.isLocalDataOrigin(root,depth + 1);
+    if (!root || !ts.isIdentifier(root) || depth > maximumHelperDepth) return false;
+    let symbol;
+    try {
+      symbol = this.checker.getSymbolAtLocation(root);
+    } catch {
+      return false;
+    }
+    const declaration = symbol?.declarations?.[0];
+    if (!declaration) return false;
+    let importDeclaration = declaration;
+    while (importDeclaration && !ts.isImportDeclaration(importDeclaration) && !ts.isSourceFile(importDeclaration)) importDeclaration = importDeclaration.parent;
+    if (importDeclaration && ts.isImportDeclaration(importDeclaration) && ts.isStringLiteral(importDeclaration.moduleSpecifier)) {
+      const moduleName = importDeclaration.moduleSpecifier.text.replace(/^node:/,"");
+      if (moduleName.startsWith(".")) return true;
+      return ![...knownInputOutputModules].some(known => moduleName === known || moduleName.startsWith(`${known}/`));
+    }
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+      return this.isUncertainCallee(declaration.initializer,depth + 1,isReceiver || isMemberCall,isConstBinding && this.isConstVariable(declaration));
+    }
+    return false;
+  }
+
+  isConstVariable(declaration) {
+    const ts = this.ts;
+    return ts.isVariableDeclarationList(declaration.parent) && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+  }
+
+  // isLocalValueExpression reports whether a receiver root is a fallback, which isLocalDataOrigin traces.
+  isLocalValueExpression(value) {
+    const ts = this.ts;
+    return ts.isConditionalExpression(value) || (ts.isBinaryExpression(value) && fallbackOperatorKinds(ts).has(value.operatorToken.kind));
+  }
+
+  // isLocalDataOrigin reports whether every branch is an inline literal, a provably data const, Dex data, or uncertain import.
+  isLocalDataOrigin(expression,depth) {
+    const ts = this.ts;
+    const value = this.unwrap(expression);
+    if (!value || depth > maximumHelperDepth) return false;
+    if (this.isLiteralDataValue(value,0)) return true;
+    const origin = this.dexValueOrigin(value,0);
+    if (origin) return !dexExternalExports.has(origin);
+    if (ts.isBinaryExpression(value) && fallbackOperatorKinds(ts).has(value.operatorToken.kind)) return [value.left,value.right].every(part => this.isLocalDataOrigin(part,depth + 1));
+    if (ts.isConditionalExpression(value)) return [value.whenTrue,value.whenFalse].every(part => this.isLocalDataOrigin(part,depth + 1));
+    if (ts.isIdentifier(value)) {
+      const declaration = this.sourceDeclarationOf(value);
+      if (declaration && ts.isVariableDeclaration(declaration) && declaration.getSourceFile() === this.tree) {
+        // Only a const fallback is traced; other bindings, such as an empty registry, may be filled later.
+        const initializer = declaration.initializer && this.unwrap(declaration.initializer);
+        return this.isConstVariable(declaration) && !!initializer && this.isLocalValueExpression(initializer) && this.isLocalDataOrigin(initializer,depth + 1);
+      }
+    }
+    return this.isUncertainCallee(value,depth + 1,true);
+  }
+
+  // isLibraryContainerMember reports whether a default-library declaration is a member of the named interface or namespace.
+  isLibraryContainerMember(declaration,containerName) {
+    for (let current = declaration.parent; current && !this.ts.isSourceFile(current); current = current.parent) {
+      if ((this.ts.isInterfaceDeclaration(current) || this.ts.isModuleDeclaration(current)) && current.name?.text === containerName) return true;
+    }
+    return false;
   }
 
   // isPureLibraryDeclaration reports whether a default-library declaration belongs to an allowlisted container or function.

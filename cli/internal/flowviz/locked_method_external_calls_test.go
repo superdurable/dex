@@ -135,6 +135,10 @@ type goLockedMethodCase struct {
 	// deliverExecute, when set, replaces the whole DeliverStep Execute method.
 	deliverExecute string
 	extraSource    string
+	// sourceReplacements are old and new text pairs applied to the source before the placeholders.
+	sourceReplacements []string
+	// packageFiles are other files of the reminders module, by path relative to its root.
+	packageFiles map[string]string
 }
 
 const goDefaultDeliverExecute = `func (step DeliverStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
@@ -159,7 +163,52 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 		source goLockedMethodCase
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
+		// uncertainMessages lists every locked_method_uncertain_call message fragment, in report order.
+		uncertainMessages []string
 	}{
+		"printing is uncertain": {
+			source:            goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "fmt.Println(input)"},
+			uncertainMessages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls fmt.Println. dexcli cannot determine whether this call performs I/O. Dex fails the RPC while the lock is held. Move any call that reaches an external system to the next, unlocked Step."},
+		},
+		"helper prints before network I/O": {
+			source: goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "notifyCustomer(input)\n\tnotifyCustomer(input)",
+				extraSource: "func notifyCustomer(input string) {\n\tfmt.Println(input)\n\t_, _ = http.Get(\"https://example.com/\" + input)\n}",
+			},
+			messages: []string{"and calls notifyCustomer (calls http.Get) (and 1 more); Dex fails that RPC"},
+		},
+		"builtin println is uncertain": {
+			source:            goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "println(input)"},
+			uncertainMessages: []string{"and calls println. dexcli cannot determine whether this call performs I/O."},
+		},
+		"concrete field of another package and its local alias": {
+			source: goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)",
+				executeBody: "sender := step.gateway\n\t_ = sender.Send(input)\n\t_ = gateway.Format(input)",
+				sourceReplacements: []string{
+					"\"github.com/superdurable/dex/sdk-go/dex\"\n)", "\"github.com/superdurable/dex/sdk-go/dex\"\n\t\"reminders/gateway\"\n)",
+					"type SendReminderStep struct {\n\tdex.StepDefaults\n\tmailer Mailer\n}", "type SendReminderStep struct {\n\tdex.StepDefaults\n\tmailer  Mailer\n\tgateway *gateway.Gateway\n}",
+				},
+				packageFiles: map[string]string{"gateway/gateway.go": "package gateway\n\nimport \"net/http\"\n\ntype Gateway struct{}\n\nfunc (*Gateway) Send(to string) error {\n\t_, err := http.Get(\"https://example.com/\" + to)\n\treturn err\n}\n\nfunc Format(text string) string { return text }\n"},
+			},
+			messages: []string{"and calls sender.Send (and 1 uncertain); Dex fails that RPC"},
+		},
+		"field alias rebound after the call": {
+			source: goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)",
+				executeBody: "sender := step.gateway\n\t_ = sender.Send(input)\n\tsender = &gateway.Gateway{}\n\t_ = sender",
+				sourceReplacements: []string{
+					"\"github.com/superdurable/dex/sdk-go/dex\"\n)", "\"github.com/superdurable/dex/sdk-go/dex\"\n\t\"reminders/gateway\"\n)",
+					"type SendReminderStep struct {\n\tdex.StepDefaults\n\tmailer Mailer\n}", "type SendReminderStep struct {\n\tdex.StepDefaults\n\tmailer  Mailer\n\tgateway *gateway.Gateway\n}",
+				},
+				packageFiles: map[string]string{"gateway/gateway.go": "package gateway\n\nimport \"net/http\"\n\ntype Gateway struct{}\n\nfunc (*Gateway) Send(to string) error {\n\t_, err := http.Get(\"https://example.com/\" + to)\n\treturn err\n}\n"},
+			},
+			messages: []string{"and calls sender.Send; Dex fails that RPC"},
+		},
+		"injected service and an uncertain call": {
+			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "fmt.Println(input)\n\t_ = step.mailer.Send(input)\n\tfmt.Println(input)"},
+			messages: []string{"and calls step.mailer.Send (and 2 uncertain); Dex fails that RPC"},
+		},
 		"execute calls an injected service while holding an RPC lock": {
 			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "_ = step.mailer.Send(input)"},
 			messages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls step.mailer.Send; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step."},
@@ -203,14 +252,14 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 				rpcLock: "dex.LockAttribute(ending)", deliverLock: "dex.LockAttribute(ending)",
 				deliverExecute: "func (step DeliverStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error)",
 			},
-			messages: []string{"and calls Execute of DeliverStep, whose body dexcli cannot read;"},
+			uncertainMessages: []string{"and calls Execute of DeliverStep, whose body dexcli cannot read. dexcli cannot determine whether this call performs I/O."},
 		},
 		"bodyless same-package helper": {
 			source: goLockedMethodCase{
 				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "linkedHelper(input)",
 				extraSource: "func linkedHelper(input string)",
 			},
-			messages: []string{"and calls linkedHelper;"},
+			uncertainMessages: []string{"and calls linkedHelper. dexcli cannot determine whether this call performs I/O."},
 		},
 		"standard library sleep": {
 			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "time.Sleep(time.Second)"},
@@ -224,18 +273,7 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 		testCase := testCases[name]
 		t.Run(name, func(t *testing.T) {
 			graph := analyzeGoLockedMethodSource(t, testCase.source)
-			var messages []string
-			for _, diagnostic := range graph.Diagnostics {
-				if diagnostic.Code == "locked_method_external_call" {
-					require.Equal(t, "warning", diagnostic.Severity)
-					require.NotNil(t, diagnostic.Span)
-					messages = append(messages, diagnostic.Message)
-				}
-			}
-			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
-			for index, fragment := range testCase.messages {
-				require.Contains(t, messages[index], fragment)
-			}
+			requireLockedMethodDiagnostics(t, graph, testCase.messages, testCase.uncertainMessages)
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 		})
 	}
@@ -314,6 +352,45 @@ func requireStepLocksOnlyUndrawn(t *testing.T, graph *Graph) {
 	require.True(t, slices.ContainsFunc(graph.undrawnLockEdges, isStepLock), "%+v", graph.undrawnLockEdges)
 }
 
+func TestDiagnosticsSortErrorWarningInfo(t *testing.T) {
+	graph := NewGraph("go", "workflow.go")
+	graph.AddDiagnostic("info", "locked_method_uncertain_call", "uncertain", nil)
+	graph.AddDiagnostic("warning", "locked_method_external_call", "definite", nil)
+	graph.AddDiagnostic("error", "flow_not_found", "missing", nil)
+	graph.Normalize()
+	var severities []string
+	for _, diagnostic := range graph.Diagnostics {
+		severities = append(severities, diagnostic.Severity)
+	}
+	require.Equal(t, []string{"error", "warning", "info"}, severities)
+}
+
+// requireLockedMethodDiagnostics checks the warning and info fragments of the locked-method check, each in report order.
+func requireLockedMethodDiagnostics(t *testing.T, graph *Graph, warnings []string, uncertain []string) {
+	t.Helper()
+	var warningMessages, uncertainMessages []string
+	for _, diagnostic := range graph.Diagnostics {
+		switch diagnostic.Code {
+		case "locked_method_external_call":
+			require.Equal(t, "warning", diagnostic.Severity)
+			require.NotNil(t, diagnostic.Span)
+			warningMessages = append(warningMessages, diagnostic.Message)
+		case "locked_method_uncertain_call":
+			require.Equal(t, "info", diagnostic.Severity)
+			require.NotNil(t, diagnostic.Span)
+			uncertainMessages = append(uncertainMessages, diagnostic.Message)
+		}
+	}
+	require.Len(t, warningMessages, len(warnings), "%+v", graph.Diagnostics)
+	for index, fragment := range warnings {
+		require.Contains(t, warningMessages[index], fragment)
+	}
+	require.Len(t, uncertainMessages, len(uncertain), "%+v", graph.Diagnostics)
+	for index, fragment := range uncertain {
+		require.Contains(t, uncertainMessages[index], fragment)
+	}
+}
+
 func lockedMethodWarningMessages(graph *Graph) []string {
 	var messages []string
 	for _, diagnostic := range graph.Diagnostics {
@@ -331,6 +408,7 @@ func analyzeGoLockedMethodSource(t *testing.T, source goLockedMethodCase) *Graph
 		deliverExecute = goDefaultDeliverExecute
 	}
 	contents := strings.Replace(goLockedMethodSource, "DELIVER_EXECUTE", deliverExecute, 1)
+	contents = strings.NewReplacer(source.sourceReplacements...).Replace(contents)
 	replacer := strings.NewReplacer(
 		"RPC_LOCK", source.rpcLock,
 		"WAIT_LOCK", source.waitLock,
@@ -346,6 +424,11 @@ func analyzeGoLockedMethodSource(t *testing.T, source goLockedMethodCase) *Graph
 	require.NoError(t, err)
 	module := "module reminders\n\ngo 1.26.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.ToSlash(sdkDirectory) + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0o644))
+	for relativePath, packageSource := range source.packageFiles {
+		packagePath := filepath.Join(directory, relativePath)
+		require.NoError(t, os.MkdirAll(filepath.Dir(packagePath), 0o755))
+		require.NoError(t, os.WriteFile(packagePath, []byte(packageSource), 0o644))
+	}
 	sourcePath := filepath.Join(directory, "workflow.go")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(replacer.Replace(contents)), 0o644))
 	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow"})

@@ -131,7 +131,14 @@ impl<'source> RustFlowSource<'source> {
                 calls.sort_by_key(|call| Reverse(call.certainty));
                 let calls: Vec<_> = calls
                     .iter()
-                    .map(|call| json!({"callee": call.callee, "span": source_span(call.span)}))
+                    .map(|call| {
+                        let mut entry =
+                            json!({"callee": call.callee, "span": source_span(call.span)});
+                        if call.certainty == Certainty::Possible {
+                            entry["certainty"] = json!("uncertain");
+                        }
+                        entry
+                    })
                     .collect();
                 graph
                     .facts("methodExternalCalls")
@@ -687,7 +694,8 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         if let [name] = segments.as_slice()
             && self.is_binding(name)
         {
-            return CallVerdict::External(Certainty::Possible);
+            // A call through a function value is dynamic, so it counts as definite.
+            return CallVerdict::External(Certainty::Definite);
         }
         let last = segments.last().cloned().unwrap_or_default();
         match self.finder.source.path_target(&segments, &self.scope) {
@@ -744,15 +752,40 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         }
     }
 
+    /// Classifies a callee that is not a closure; visit_expr_call and is_reported_call share it.
+    fn callee_verdict(&mut self, callee: &Expr) -> CallVerdict {
+        match callee {
+            Expr::Path(function) => match &function.qself {
+                None => self.path_call_verdict(&function.path),
+                // A UFCS call, such as <String as Clone>::clone, runs the trait method of the named type.
+                Some(qself) => {
+                    let type_origin = self.finder.source.type_origin(&qself.ty, &self.scope, 0);
+                    // A trait object or other definite type stays definite, whichever trait the path names.
+                    if matches!(type_origin, ValueOrigin::External(Certainty::Definite)) {
+                        return CallVerdict::External(Certainty::Definite);
+                    }
+                    match self.path_call_verdict(&function.path) {
+                        CallVerdict::Allowed => match type_origin {
+                            ValueOrigin::PureStandardLibrary | ValueOrigin::DexSdk => {
+                                CallVerdict::Allowed
+                            }
+                            _ => CallVerdict::External(Certainty::Possible),
+                        },
+                        verdict => verdict,
+                    }
+                }
+            },
+            // A field, index, or returned callable is a function value, so the call is dynamic.
+            _ => CallVerdict::External(Certainty::Definite),
+        }
+    }
+
     fn is_reported_call(&mut self, expression: &Expr) -> bool {
         let verdict = match peel(expression) {
             Expr::MethodCall(call) => self.method_call_verdict(call),
             Expr::Call(call) => match peel(&call.func) {
-                Expr::Path(function) if function.qself.is_none() => {
-                    self.path_call_verdict(&function.path)
-                }
                 Expr::Closure(_) => CallVerdict::Allowed,
-                _ => CallVerdict::External(Certainty::Possible),
+                callee => self.callee_verdict(callee),
             },
             _ => CallVerdict::Allowed,
         };
@@ -768,11 +801,12 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
             .unwrap_or_default();
         let callee = format!("{name}!");
         let name = name.as_str();
+        // Printing writes locally and reaches no external system, so it stays uncertain.
         if PRINT_MACROS.contains(&name) {
             self.add(
                 value.span(),
                 callee,
-                CallVerdict::External(Certainty::Definite),
+                CallVerdict::External(Certainty::Possible),
             );
             return;
         }
@@ -855,15 +889,13 @@ impl<'ast> Visit<'ast> for MethodScan<'_, '_, 'ast> {
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         match peel(&call.func) {
-            Expr::Path(function) if function.qself.is_none() => {
-                let verdict = self.path_call_verdict(&function.path);
-                self.add(call.span(), source_text(&call.func), verdict);
-            }
             Expr::Closure(_) => self.visit_expr(&call.func),
-            _ => {
-                let verdict = CallVerdict::External(Certainty::Possible);
+            callee => {
+                let verdict = self.callee_verdict(callee);
                 self.add(call.span(), source_text(&call.func), verdict);
-                self.visit_expr(&call.func);
+                if !matches!(callee, Expr::Path(_)) {
+                    self.visit_expr(&call.func);
+                }
             }
         }
         for argument in &call.args {

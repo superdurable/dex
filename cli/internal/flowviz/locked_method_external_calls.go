@@ -30,6 +30,15 @@ type possibleExternalCall struct {
 	// Callee is source text, such as client.Send.
 	Callee string `json:"callee"`
 	Span   *Span  `json:"span,omitempty"`
+	// Certainty is externalCallUncertain for a call that may be pure, such as a third-party library; empty means definite.
+	Certainty string `json:"certainty,omitempty"`
+}
+
+// externalCallUncertain marks a call dexcli cannot classify, such as a third-party function that may do no I/O.
+const externalCallUncertain = "uncertain"
+
+func (call possibleExternalCall) isUncertain() bool {
+	return call.Certainty == externalCallUncertain
 }
 
 type methodLockHolder struct {
@@ -42,7 +51,8 @@ type rpcLockHolder struct {
 	instance string
 }
 
-// addLockedMethodExternalCallWarnings warns when a marked Step method shares an RPC lock.
+// addLockedMethodExternalCallWarnings reports a marked Step method that shares an RPC lock.
+// Definite external calls give a warning; a method with only uncertain calls gives an info diagnostic.
 func addLockedMethodExternalCallWarnings(graph *Graph) {
 	if len(graph.methodExternalCalls) == 0 {
 		return
@@ -60,15 +70,58 @@ func addLockedMethodExternalCallWarnings(graph *Graph) {
 		if !isShared {
 			continue
 		}
-		call := marker.Calls[0]
-		callee := call.Callee
-		if len(marker.Calls) > 1 {
-			callee = fmt.Sprintf("%s (and %d more)", callee, len(marker.Calls)-1)
+		var definiteCalls, uncertainCalls []possibleExternalCall
+		for _, call := range marker.Calls {
+			if call.isUncertain() {
+				uncertainCalls = append(uncertainCalls, call)
+			} else {
+				definiteCalls = append(definiteCalls, call)
+			}
 		}
-		graph.AddDiagnostic("warning", "locked_method_external_call", fmt.Sprintf(
-			"%s of %s holds lock %s, which RPC %s also takes, and calls %s; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step.",
-			stepMethodLabel(marker.Phase), graph.nodeName(marker.NodeID), lockName, rpcName, callee,
+		methodLabel, stepName := stepMethodLabel(marker.Phase), graph.nodeName(marker.NodeID)
+		if len(definiteCalls) > 0 {
+			call := definiteCalls[0]
+			graph.AddDiagnostic("warning", "locked_method_external_call", fmt.Sprintf(
+				"%s of %s holds lock %s, which RPC %s also takes, and calls %s%s; Dex fails that RPC while the lock is held. Make the call in the next, unlocked Step.",
+				methodLabel, stepName, lockName, rpcName, call.Callee, definiteCallCountSuffix(len(definiteCalls)-1, len(uncertainCalls)),
+			), call.Span)
+			continue
+		}
+		call := uncertainCalls[0]
+		subject := "this call performs"
+		if len(uncertainCalls) > 1 {
+			subject = "these calls perform"
+		}
+		graph.AddDiagnostic("info", "locked_method_uncertain_call", fmt.Sprintf(
+			"%s of %s holds lock %s, which RPC %s also takes, and calls %s%s. dexcli cannot determine whether %s I/O. Dex fails the RPC while the lock is held. Move any call that reaches an external system to the next, unlocked Step.",
+			methodLabel, stepName, lockName, rpcName, call.Callee, uncertainCallCountSuffix(len(uncertainCalls)-1), subject,
 		), call.Span)
+	}
+}
+
+// definiteCallCountSuffix returns the count text after the first definite call, such as " (and 1 more definite, 2 uncertain)".
+func definiteCallCountSuffix(moreDefinite int, uncertain int) string {
+	switch {
+	case uncertain == 0 && moreDefinite == 0:
+		return ""
+	case uncertain == 0:
+		return fmt.Sprintf(" (and %d more)", moreDefinite)
+	case moreDefinite == 0:
+		return fmt.Sprintf(" (and %d uncertain)", uncertain)
+	default:
+		return fmt.Sprintf(" (and %d more definite, %d uncertain)", moreDefinite, uncertain)
+	}
+}
+
+// uncertainCallCountSuffix returns the count text after the first uncertain call, such as " (and 2 more uncertain calls)".
+func uncertainCallCountSuffix(moreUncertain int) string {
+	switch moreUncertain {
+	case 0:
+		return ""
+	case 1:
+		return " (and 1 more uncertain call)"
+	default:
+		return fmt.Sprintf(" (and %d more uncertain calls)", moreUncertain)
 	}
 }
 

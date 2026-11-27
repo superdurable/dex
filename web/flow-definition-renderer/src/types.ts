@@ -63,7 +63,7 @@ export interface FlowDefinitionEdge {
 }
 
 export interface FlowDefinitionDiagnostic {
-  severity: 'warning' | 'error';
+  severity: 'warning' | 'error' | 'info';
   code: string;
   message: string;
   span?: SourceSpan;

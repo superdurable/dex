@@ -292,6 +292,20 @@ func (graph *Graph) AddDiagnostic(severity string, code string, message string, 
 	}
 }
 
+// diagnosticSeverityRank orders diagnostics error, warning, then info; an unknown severity sorts last.
+func diagnosticSeverityRank(severity string) int {
+	switch severity {
+	case "error":
+		return 0
+	case "warning":
+		return 1
+	case "info":
+		return 2
+	default:
+		return 3
+	}
+}
+
 func (graph *Graph) Normalize() {
 	graph.replaceNilArrays()
 	graph.addUnknownTargets()
@@ -321,7 +335,7 @@ func (graph *Graph) Normalize() {
 		first := graph.Diagnostics[left]
 		second := graph.Diagnostics[right]
 		if first.Severity != second.Severity {
-			return first.Severity < second.Severity
+			return diagnosticSeverityRank(first.Severity) < diagnosticSeverityRank(second.Severity)
 		}
 		if first.Code != second.Code {
 			return first.Code < second.Code

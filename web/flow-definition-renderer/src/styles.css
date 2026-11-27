@@ -668,6 +668,13 @@
   background: var(--flow-definition-danger-soft);
 }
 
+/* An info diagnostic is a hint, so it drops the warning colors. */
+.flow-definition-diagnostic.is-info {
+  border-color: var(--flow-definition-line);
+  background: transparent;
+  color: var(--flow-definition-muted);
+}
+
 .flow-definition-diagnostic code { color: var(--flow-definition-muted); }
 
 .flow-definition-view .graph-minimap-shell {

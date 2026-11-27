@@ -133,7 +133,7 @@
       "additionalProperties": false,
       "required": ["severity", "code", "message"],
       "properties": {
-        "severity": {"enum": ["warning", "error"]},
+        "severity": {"enum": ["warning", "error", "info"]},
         "code": {"type": "string"},
         "message": {"type": "string"},
         "span": {"$ref": "#/$defs/span"}
