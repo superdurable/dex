@@ -1263,6 +1263,7 @@ func mapStopFlowRequest(flowID string, options StopOptions) (*dexpb.StopFlowRequ
 	}
 	request := &dexpb.StopFlowRequest{
 		FlowId:   flowID,
+		RunId:    options.RunID,
 		StopType: stopType,
 		Reason:   options.Reason,
 	}

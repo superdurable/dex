@@ -858,8 +858,12 @@ func resolveClientRequestID(operation string, override *string) (string, error) 
 // FlowNotActiveOrNotFoundError when no active execution exists, plus validation, context,
 // transport, or server errors.
 //
+// StopOptions.RunID stops one exact run instead; such a stop never affects a newer run.
+//
 // Changed in 1.45.6: StopFlow accepts GracefulCompleteFlow, ForceCompleteFlow, and
 // StopOptions.Output.
+//
+// Changed in 1.45.17: StopFlow sends StopOptions.RunID.
 func (client *Client) StopFlow(
 	ctx context.Context,
 	flowID string,
@@ -897,6 +901,9 @@ func (client *Client) StopFlow(
 // Canceling this wait does not stop the Flow. Call StopFlow separately to request a stop.
 // A terminal failed or canceled Flow is returned in FlowResult.Status, not as a Go error.
 // Missing Flows return FlowNotFoundError; context, transport, and hydration failures return errors.
+// WaitForFlowOptions.RunID waits for one exact run instead of the latest run; a closed run returns
+// its result at once.
+// Changed in 1.45.17: WaitForFlow sends WaitForFlowOptions.RunID.
 func (client *Client) WaitForFlow(
 	ctx context.Context,
 	flowID string,
@@ -908,6 +915,7 @@ func (client *Client) WaitForFlow(
 	needsResults := mapWaitForFlowOptions(options)
 	response, err := client.service.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowID,
+		RunId:           options.RunID,
 		NeedsResults:    needsResults,
 		WaitTimeSeconds: serverCappedLongPollSeconds,
 	})
@@ -956,13 +964,68 @@ func waitForFlowValuePointers(response *dexpb.FlowResult) []**dexpb.Value {
 // validation, context, transport, and server failures are also returned.
 //
 //	info, err := client.DescribeFlow(ctx, "order-123")
+//
+// To read one exact run, which may be older than the latest run, use DescribeFlowRun.
 func (client *Client) DescribeFlow(ctx context.Context, flowID string) (FlowInfo, error) {
+	return client.doDescribeFlow(ctx, "DescribeFlow", flowID, "")
+}
+
+// DescribeFlowRun reads one exact run of a Flow ID without waiting.
+//
+// Use it when the caller tracks one run, such as a parent that started a child Flow under a
+// business Flow ID and recorded the returned run ID. The result describes that run even when a
+// newer run of the same Flow ID exists, so the caller does not need to check that the latest run
+// is still the tracked one. Use DescribeFlow to read the latest run instead.
+//
+// A run that does not exist, belongs to another Flow ID, or is being deleted after its retention
+// period returns FlowNotFoundError. Treat it as "the tracked run is gone". A runID that is not a
+// run ID in its canonical 36-character form returns a *ServiceError whose Code is
+// codes.InvalidArgument.
+//
+//	info, err := client.DescribeFlowRun(ctx, "shipment-42", claimedRunID)
+//	var notFound *dex.FlowNotFoundError
+//	if errors.As(err, &notFound) {
+//		return recordShipmentUnavailable(ctx)
+//	}
+//	if err != nil {
+//		return err
+//	}
+//	if info.Status == dex.FlowRunning {
+//		return waitForShipment(ctx)
+//	}
+//
+// Parameters:
+//   - ctx controls cancellation and the deadline of the server request.
+//   - flowID is the Flow ID. It must be non-empty.
+//   - runID is the run ID, such as one StartFlow returned. It must be non-empty.
+//
+// Returns the run's FlowInfo, whose RunID equals runID, and nil. Returns the zero FlowInfo and
+// FlowNotFoundError, a validation error for an empty flowID or runID, or a context, transport,
+// or server error otherwise.
+//
+// Since 1.45.17.
+func (client *Client) DescribeFlowRun(ctx context.Context, flowID string, runID string) (FlowInfo, error) {
+	if runID == "" {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlowRun Flow %q requires a run ID", flowID)
+	}
+	return client.doDescribeFlow(ctx, "DescribeFlowRun", flowID, runID)
+}
+
+func (client *Client) doDescribeFlow(
+	ctx context.Context,
+	operation string,
+	flowID string,
+	runID string,
+) (FlowInfo, error) {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return FlowInfo{}, err
 	}
-	response, err := client.service.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
+	response, err := client.service.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{
+		FlowId: flowID,
+		RunId:  runID,
+	})
 	if err != nil {
-		return FlowInfo{}, translateRPCError(err, "DescribeFlow", flowID, flowTargetExisting)
+		return FlowInfo{}, translateRPCError(err, operation, flowID, flowTargetExisting)
 	}
 	return mapFlowInfo(flowID, response)
 }
@@ -1977,7 +2040,12 @@ func (client *Client) InvokeRPC(
 // RPCs depend on what the repeated attempt returns. See RPCInvokeOptions.RequestID for the
 // deduplication rules, the codes.InvalidArgument error for a reused request ID, and an example.
 //
+// options.RunID invokes the RPC on one exact run instead of the active or latest run. See
+// RPCInvokeOptions.RunID for closed and missing runs.
+//
 // Changed in 1.45.3: InvokeRPCWithOptions sends RPCInvokeOptions.RequestID when it is non-nil.
+//
+// Changed in 1.45.17: InvokeRPCWithOptions sends RPCInvokeOptions.RunID.
 //
 //	options := dex.RPCInvokeOptions{
 //		LockAttributeMapInstances: []dex.AttributeLock{
@@ -2082,6 +2150,7 @@ func (client *Client) doInvokeRPC(
 	}
 	request := &dexpb.InvokeRPCRequest{
 		FlowId:                    flowID,
+		RunId:                     options.RunID,
 		RpcName:                   registered.durableName,
 		Input:                     encoded,
 		TimeoutSeconds:            timeout,

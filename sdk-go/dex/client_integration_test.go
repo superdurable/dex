@@ -588,6 +588,55 @@ func (service *clientTestFlowService) answerLongPollTimeoutNearDeadline(ctx cont
 	}
 }
 
+func TestClientRunIDTargetingSendsRunID(t *testing.T) {
+	client, service := newClientIntegration(t)
+	ctx := context.Background()
+	const runID = "8f14e45f-ceea-467a-9575-6d0e2f1c3b11"
+
+	// The fake summary omits FlowType, so mapping fails after the request is captured.
+	_, err := client.DescribeFlowRun(ctx, "order-1", runID)
+	require.ErrorContains(t, err, "missing FlowType")
+	require.Equal(t, runID, service.flowSummaryRequest.RunId)
+	_, err = client.DescribeFlow(ctx, "order-1")
+	require.ErrorContains(t, err, "missing FlowType")
+	require.Empty(t, service.flowSummaryRequest.RunId)
+
+	var status string
+	var item int
+	_, err = client.GetFlowRunAttributes(ctx, "order-1", runID,
+		ReadAttribute(clientTestStatus, &status),
+		ReadAttributeMapInstance(clientTestItems, "line-1", &item))
+	require.NoError(t, err)
+	require.Equal(t, runID, service.getAttributesRequest.RunId)
+	_, err = client.GetAttributes(ctx, "order-1",
+		ReadAttribute(clientTestStatus, &status),
+		ReadAttributeMapInstance(clientTestItems, "line-1", &item))
+	require.NoError(t, err)
+	require.Empty(t, service.getAttributesRequest.RunId)
+
+	_, err = client.WaitForFlow(ctx, "order-1", WaitForFlowOptions{RunID: runID})
+	require.NoError(t, err)
+	require.Equal(t, runID, service.waitFlowRequest.RunId)
+
+	require.NoError(t, client.StopFlow(ctx, "order-1", StopOptions{RunID: runID}))
+	require.Equal(t, runID, service.stopRequest.RunId)
+
+	require.NoError(t, client.InvokeRPCWithOptions(
+		ctx,
+		"none-output",
+		clientTestFlow{}.NoOutput,
+		nil,
+		nil,
+		RPCInvokeOptions{RunID: runID},
+	))
+	require.Equal(t, runID, service.invokeRequest.RunId)
+
+	_, err = client.DescribeFlowRun(ctx, "order-1", "")
+	require.ErrorContains(t, err, "requires a run ID")
+	_, err = client.GetFlowRunAttributes(ctx, "order-1", "", ReadAttribute(clientTestStatus, &status))
+	require.ErrorContains(t, err, "requires a run ID")
+}
+
 func TestClientUpdateFlowConfigPreservesWorkerTarget(t *testing.T) {
 	client, service := newClientIntegration(t)
 	for _, config := range []FlowConfig{

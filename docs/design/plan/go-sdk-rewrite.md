@@ -1381,7 +1381,9 @@ use `*dex.ValueMappingError`. Only errors received from FlowService become
 
 `Client.GetAttributes(ctx, flowID, reads ...AttributeRead)` returns
 `(AttributeReadResult, error)` and reads selected committed Attribute values
-from the current or latest run. `ReadAttribute` selects a registered Attribute
+from the current or latest run. `Client.GetFlowRunAttributes(ctx, flowID,
+runID, reads ...AttributeRead)` reads the same way from one exact run, which
+may be closed and older than the latest run. `ReadAttribute` selects a registered Attribute
 and a `*T` destination. `ReadAttributeMapInstance` selects one registered
 AttributeMap instance with the same destination shape. An unset value leaves
 its destination unchanged. `AttributeReadResult.IsSet` and `IsMapInstanceSet`
@@ -2648,7 +2650,7 @@ The remaining FlowService operations use non-generic public types:
 |---|---|
 | `StopFlow` | `Client.StopFlow(ctx, flowID, StopOptions)` |
 | `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, WaitForFlowOptions)` |
-| `GetFlowSummary` | `Client.DescribeFlow(ctx, flowID)` returns `FlowInfo` for the current or latest run without waiting |
+| `GetFlowSummary` | `Client.DescribeFlow(ctx, flowID)` returns `FlowInfo` for the current or latest run without waiting; `Client.DescribeFlowRun(ctx, flowID, runID)` reads one exact run |
 | `SearchFlows` | `Client.SearchFlows(ctx, query, pageSize, nextPageToken)` |
 | `TimeTravel` | `Client.TimeTravel(ctx, flowID, TimeTravelOptions)` |
 | `CloneForkFlow` | `Client.CloneForkFlow(ctx, flow, sourceFlowID, flowID, CloneForkFlowOptions)` returns `CloneForkFlowResult` |

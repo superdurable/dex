@@ -719,12 +719,40 @@ type RPCInvokeOptions struct {
 	//
 	// Since 1.45.3.
 	RequestID *string
+	// RunID invokes the RPC on this run of the Flow ID instead of its active or latest run.
+	// Empty, the default, keeps that behavior.
+	//
+	// Use it when the caller tracks one run, such as a parent that started a child Flow and
+	// recorded its run ID. A query-only RPC, one without locks, transactional execution, or
+	// durable effects, can read a closed run that Dex still retains. An RPC that needs an active
+	// execution returns FlowNotActiveOrNotFoundError when that run is closed; it never runs on a
+	// newer run of the same Flow ID. A run that does not exist, belongs to another Flow ID, or is
+	// being deleted also returns FlowNotActiveOrNotFoundError. Request IDs are recorded per run,
+	// so a retry with the same RequestID and RunID deduplicates against that run only.
+	//
+	// A RunID that is not a run ID in its canonical 36-character form returns a *ServiceError
+	// whose Code is codes.InvalidArgument.
+	//
+	// Since 1.45.17.
+	RunID string
 }
 
-// WaitForFlowOptions controls Flow-result hydration.
+// WaitForFlowOptions controls Flow-result hydration and the run Client.WaitForFlow waits for.
 type WaitForFlowOptions struct {
 	// NeedsResults asks Dex to include completed Step outputs.
 	NeedsResults bool
+	// RunID waits for this run of the Flow ID instead of its latest run. Empty, the default,
+	// keeps that behavior.
+	//
+	// When the run has already closed, WaitForFlow returns its result at once, even when a newer
+	// run of the same Flow ID is running. A run that does not exist, belongs to another Flow ID,
+	// or is being deleted returns FlowNotFoundError. A RunID that is not a run ID in its canonical
+	// 36-character form returns a *ServiceError whose Code is codes.InvalidArgument.
+	//
+	//	result, err := client.WaitForFlow(ctx, "order-42", dex.WaitForFlowOptions{RunID: childRunID})
+	//
+	// Since 1.45.17.
+	RunID string
 }
 
 // WaitForStepCompletionOptions configures one durable Step completion wait.
@@ -833,6 +861,23 @@ type StopOptions struct {
 	//
 	// Since 1.45.6.
 	Output any
+	// RunID stops this run of the Flow ID instead of its active run. Empty, the default, keeps
+	// that behavior.
+	//
+	// Use it to stop exactly the run the caller tracks. A stop with a RunID never affects a newer
+	// run of the same Flow ID. When that run has already closed, or does not exist, StopFlow
+	// returns FlowNotActiveOrNotFoundError, so the caller can treat the tracked run as already
+	// stopped. A RunID that is not a run ID in its canonical 36-character form returns a
+	// *ServiceError whose Code is codes.InvalidArgument.
+	//
+	//	err := client.StopFlow(ctx, "shipment-42", dex.StopOptions{RunID: claimedRunID})
+	//	var notActive *dex.FlowNotActiveOrNotFoundError
+	//	if errors.As(err, &notActive) {
+	//		err = nil // The claimed run had already closed.
+	//	}
+	//
+	// Since 1.45.17.
+	RunID string
 }
 
 // StepExecutionID identifies one execution of a Step type within a Flow run.
