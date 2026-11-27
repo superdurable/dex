@@ -372,6 +372,13 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
 		},
+		"fallback branch is a narrow data type holding an injected service": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const fallback: {} = this.flow.mailer;\n    const destination = input ? ending : fallback;\n    if (\"send\" in destination && typeof destination.send === \"function\") void destination.send(input);",
+			},
+			messages: []string{"and calls destination.send" + typeScriptLockedMessageSuffix},
+		},
 		"fallback branch is typed any": {
 			source: typeScriptLockedMethodCase{
 				rpcLock: "ending.lock()", executeLock: "ending.lock()",

@@ -3364,7 +3364,7 @@ class TypeScriptAnalyzer {
     return origin;
   }
 
-  // isLiteralDataValue reports whether a value is a literal written inline, or a name whose checked type is data; neither holds a service.
+  // isLiteralDataValue reports whether a value is a literal written inline, or a provably data const; neither holds a service.
   isLiteralDataValue(expression,depth) {
     const ts = this.ts;
     const value = this.unwrap(expression);
@@ -3372,15 +3372,27 @@ class TypeScriptAnalyzer {
     if (ts.isStringLiteral(value) || ts.isNumericLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value) || ts.isBigIntLiteral(value)) return true;
     if ([ts.SyntaxKind.TrueKeyword,ts.SyntaxKind.FalseKeyword,ts.SyntaxKind.NullKeyword].includes(value.kind)) return true;
     if (ts.isIdentifier(value) && value.text === "undefined") return true;
+    if (ts.isPrefixUnaryExpression(value) && [ts.SyntaxKind.MinusToken,ts.SyntaxKind.PlusToken].includes(value.operator)) return ts.isNumericLiteral(value.operand) || ts.isBigIntLiteral(value.operand);
+    if (ts.isTemplateExpression(value)) return value.templateSpans.every(span => this.isLiteralDataValue(span.expression,depth + 1));
     if (ts.isArrayLiteralExpression(value)) return value.elements.every(element => this.isLiteralDataValue(ts.isSpreadElement(element) ? element.expression : element,depth + 1));
     if (ts.isObjectLiteralExpression(value)) {
-      return value.properties.every(property => ts.isPropertyAssignment(property) ? this.isLiteralDataValue(property.initializer,depth + 1) :
+      return value.properties.every(property => ts.isPropertyAssignment(property) ? !ts.isComputedPropertyName(property.name) && this.isLiteralDataValue(property.initializer,depth + 1) :
         ts.isShorthandPropertyAssignment(property) ? this.isLiteralDataValue(property.name,depth + 1) :
         ts.isSpreadAssignment(property) && this.isLiteralDataValue(property.expression,depth + 1));
     }
-    if (!ts.isIdentifier(value)) return false;
+    return ts.isIdentifier(value) && this.isProvablyDataConst(value,depth + 1);
+  }
+
+  // isProvablyDataConst reports whether a name is a same-file const with a literal initializer and a data type.
+  // A typed binding of another origin, such as a narrow interface holding a service, never counts.
+  isProvablyDataConst(identifier,depth) {
+    const ts = this.ts;
+    const declaration = this.sourceDeclarationOf(identifier);
+    if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer || declaration.getSourceFile() !== this.tree) return false;
+    if (!ts.isVariableDeclarationList(declaration.parent) || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return false;
+    if (!this.isLiteralDataValue(declaration.initializer,depth + 1)) return false;
     try {
-      return this.isDataType(this.checker.getTypeAtLocation(value),new Set(),0);
+      return this.isDataType(this.checker.getTypeAtLocation(declaration.name),new Set(),0);
     } catch {
       return false;
     }
