@@ -9,7 +9,7 @@ bump: patch
 - Stopping an already-decided action is a two-row choice by what the business promises. Drop the state-snapshot timing from reply windows, reminders, and the stop grace.
 - Drop caveats that invited extra guards: late timeout-handler commits, Timer drift, stale queued-attempt snapshots, heartbeat acknowledgment, same-attempt ASYNC reruns, loose dispatch order, and the run-ID double read. Steps need no deadline check when the timeout handler force-closes the Flow.
 - The deadline watchdog is simpler: the polling loop runs as the only branch of a Join, and the join Step waits on its result or the deadline Timer, then decides alone. No shared lock, no losing Step, and no rule that a polling Step avoid the watchdog's lock.
-- A stand-in for an external service keeps the real call's heartbeat timeout and is never a Timer. When attempts are long, set the retry total duration so the default does not cut the retries you want.
+- When attempts are long, set the retry total duration so the default does not cut the retries you want. The rule about stand-ins for external services is removed; it described test fakes, not Dex behavior.
 - A parent lists a rejected child admission in its report and goes on with the admitted children. A parent tied to a claimed run records a newer run as a business outcome, never as an error.
 - Every exit of a critical section returns the token, including each Step's Execute failure route. Start first names a reuse policy that rejects a new run even after the original closes, such as the default.
 - Every RPC that races a decision shares one lock with the deciding Execute and closes the same window. Manual recovery retry and skip RPCs claim the failure under one lock, so only one decision counts.

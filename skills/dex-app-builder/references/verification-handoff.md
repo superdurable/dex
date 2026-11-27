@@ -53,9 +53,8 @@ the user asks or the project already has tests. Fakes may test the
 application's own branch logic. Claims about Dex durability, retries, or
 provider behavior need the real Server and the real provider; otherwise
 record them as unverified. A requested executed test of such a claim stays
-incomplete until its real dependencies pass. A stand-in for an external
-service keeps the real call's heartbeat timeout and is never modeled as a
-Timer. Connector-library verification keeps its own rules.
+incomplete until its real dependencies pass. Connector-library verification
+keeps its own rules.
 
 Complete, checked source can be handed off without a private Connector key or
 an isolated test stack. Record real execution as pending and finish the
