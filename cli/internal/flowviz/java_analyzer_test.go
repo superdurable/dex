@@ -101,12 +101,16 @@ func TestJavaLockedMethodExternalCall(t *testing.T) {
 		{flow: "MovedCallFlow", markers: 1},
 		{flow: "StepOnlyLockFlow"},
 		{flow: "PureFlow", markers: 1},
+		{flow: "PrintThenSendFlow", markers: 2, messages: []string{
+			"Execute of Announce holds lock status, which RPC stop also takes, and calls announce (calls mailer.send) (and 1 more);",
+			"Execute of Fetch holds lock status, which RPC stop also takes, and calls client.newCall (and 1 more definite, 4 uncertain);",
+		}},
 		{flow: "UncertainCallFlow", markers: 2,
 			messages: []string{"Execute of Notify holds lock status, which RPC stop also takes, and calls mailer.send (and 1 uncertain);"},
 			uncertainMessages: []string{
-				"Execute of Format holds lock status, which RPC stop also takes, and calls TextFormatting.title, which dexcli cannot tell whether it does I/O (and 1 more uncertain call).",
+				"Execute of Format holds lock status, which RPC stop also takes, and calls TextFormatting.title (and 1 more uncertain call). dexcli cannot determine whether these calls perform I/O.",
 			}},
-		{flow: "SiblingMethodFlow", markers: 1, uncertainMessages: []string{"and calls new Ticket(input, List.of()).render, which dexcli cannot tell whether it does I/O."}},
+		{flow: "SiblingMethodFlow", markers: 1, uncertainMessages: []string{"and calls new Ticket(input, List.of()).render. dexcli cannot determine whether this call performs I/O."}},
 		{flow: "OverloadFlow", markers: 1, messages: []string{"and calls dispatch (calls mailer.send);"}},
 		{flow: "SDKValueFlow", markers: 1, messages: []string{"and calls context.pendingChannelMessages(services).get(0).getValue().send;"}},
 		{flow: "JdkInputOutputFlow", markers: 3, messages: []string{

@@ -213,7 +213,8 @@ class ExternalCallAnalyzer:
                 is_exact = is_exact and argument_is_exact
                 if callee is not None:
                     found.append(self.external_call_entry(callee, argument))
-            if first_only and found:
+            # A helper scan keeps looking past uncertain calls, so a later definite call still gives the warning.
+            if first_only and any("certainty" not in entry for entry in found):
                 break
         return found, is_exact
 
@@ -245,6 +246,8 @@ class ExternalCallAnalyzer:
                 return None, SDK, True
             if self.is_pure_standard_library_call(qualified):
                 return None, SDK, True
+            if qualified == "builtins.print":
+                return UncertainCallee(callee), OPAQUE, True
             target = self.project_module_target(qualified)
             if target is not None:
                 return self.project_module_call(callee, target, arguments, keywords, scope)
@@ -309,12 +312,14 @@ class ExternalCallAnalyzer:
             # Data holds no service, but another module's class may define this method.
             return UncertainCallee(callee), OPAQUE, True
         is_exact = True
+        uncertain = None
         for declaration, method in methods:
             external, _, method_is_exact = self.helper_call(callee, method, ("class", declaration.name), arguments, keywords, scope, DATA)
             is_exact = is_exact and method_is_exact
-            if external is not None:
+            if external is not None and not isinstance(external, UncertainCallee):
                 return external, OPAQUE, is_exact
-        return None, DATA, is_exact
+            uncertain = uncertain or external
+        return (uncertain, OPAQUE, is_exact) if uncertain is not None else (None, DATA, is_exact)
 
     # Construction runs the metaclass __call__, then __new__, __init__, and __post_init__ found along the bases.
     def construction_call(self, callee, declaration, arguments, keywords, scope):
@@ -336,14 +341,18 @@ class ExternalCallAnalyzer:
         for name in ("__new__", "__init__", "__post_init__"):
             constructors.extend(self.first_class_method(classes, name))
         is_exact = True
+        uncertain = None
         for owner, method in constructors:
             passes_arguments = method.name != "__post_init__"
             external, _, method_is_exact = self.helper_call(
                 callee, method, ("class", owner.name), arguments if passes_arguments else [], keywords if passes_arguments else [], scope, DATA,
             )
             is_exact = is_exact and method_is_exact
-            if external is not None:
+            if external is not None and not isinstance(external, UncertainCallee):
                 return external, OPAQUE, is_exact
+            uncertain = uncertain or external
+        if uncertain is not None:
+            return uncertain, OPAQUE, is_exact
         return None, ("class", declaration.name), is_exact
 
     # Single inheritance runs the first definition; multiple inheritance checks every definition, since super() may chain them.
@@ -429,7 +438,8 @@ class ExternalCallAnalyzer:
         self.helpers_in_progress.discard(key)
         inner = None
         if calls:
-            inner = UncertainCallee(calls[0]["callee"]) if calls[0].get("certainty") else calls[0]["callee"]
+            chosen = next((entry for entry in calls if "certainty" not in entry), calls[0])
+            inner = UncertainCallee(chosen["callee"]) if chosen.get("certainty") else chosen["callee"]
         if is_exact:
             self.helper_external_call_results[key] = inner
         if inner is None:
@@ -775,6 +785,9 @@ class ExternalCallAnalyzer:
             return False
         qualified = self.qualified_import_name(root)
         if qualified is not None:
+            # A project value the analyzer resolved but could not prove pure, such as a module-level client, stays definite.
+            if self.project_module_target(qualified) is not None:
+                return False
             return isinstance(self.imported_callee("", qualified), UncertainCallee)
         binding_scope = self.binding_scope(root)
         bindings = self.scope_bindings.get(binding_scope, {}).get(root.id, [])

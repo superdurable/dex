@@ -226,7 +226,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::payload::Payload",
 				executeBody: "let value = input.get();",
 			},
-			uncertainMessages: []string{"and calls input.get, which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls input.get. dexcli cannot determine whether this call performs I/O."},
 			executeMarker:     rustMarkerCalls,
 		},
 		"derived Default whose field Default does I/O": {
@@ -267,7 +267,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())", executeInput: "crate::orders::Order",
 				executeBody: "let receipt = input.submit();",
 			},
-			uncertainMessages: []string{"and calls input.submit, which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls input.submit. dexcli cannot determine whether this call performs I/O."},
 			executeMarker:     rustMarkerCalls,
 		},
 		"combinator closures over an AttributeMap value read as data": {
@@ -301,7 +301,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let entries: Vec<_> = Vec::new();\n        entries.iter().for_each(|entry| entry.flush());",
 			},
-			uncertainMessages: []string{"and calls entry.flush, which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls entry.flush. dexcli cannot determine whether this call performs I/O."},
 			executeMarker:     rustMarkerCalls,
 		},
 		"derived Default of a same-file type": {
@@ -364,7 +364,7 @@ func TestRustLockedMethodExternalCall(t *testing.T) {
 				rpcLock: rustEndingLock, executeLock: ".execute_lock(ENDING.lock())",
 				executeBody: "let records: Vec<crate::records::Record> = Vec::new();\n        let sent = records.first().unwrap().send();",
 			},
-			uncertainMessages: []string{"and calls records.first().unwrap().send, which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls records.first().unwrap().send. dexcli cannot determine whether this call performs I/O."},
 			executeMarker:     rustMarkerCalls,
 		},
 		"injected service call inside format": {
@@ -588,11 +588,15 @@ func TestRustLockedMethodCertainty(t *testing.T) {
 		},
 		"helper from another module is uncertain": {
 			body:      "let _ = parse_local_time(&input);",
-			uncertain: []string{"and calls parse_local_time, which dexcli cannot tell whether it does I/O."},
+			uncertain: []string{"and calls parse_local_time. dexcli cannot determine whether this call performs I/O."},
+		},
+		"function pointer field is a dynamic call": {
+			body:     "(self.callback)(&input);",
+			warnings: []string{"and calls (self.callback); Dex fails that RPC"},
 		},
 		"printing is uncertain": {
 			body:      "println!(\"{input}\");",
-			uncertain: []string{"and calls println!, which dexcli cannot tell whether it does I/O."},
+			uncertain: []string{"and calls println!. dexcli cannot determine whether this call performs I/O."},
 		},
 	}
 	for _, name := range slices.Sorted(maps.Keys(testCases)) {
@@ -600,7 +604,7 @@ func TestRustLockedMethodCertainty(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			source := strings.NewReplacer(
 				"DEX_IMPORTS", imports,
-				"pub struct SendReminderStep;", "pub struct SendReminderStep {\n    gateway: SmsGateway,\n}",
+				"pub struct SendReminderStep;", "pub struct SendReminderStep {\n    gateway: SmsGateway,\n    callback: fn(&str),\n}",
 				"        if input.is_empty() {\n            return Ok(StepDecision::dead_end());\n        }\n", "        "+testCase.body+"\n",
 			).Replace(rustDexSDKImportFormSource)
 			sourcePath := filepath.Join(t.TempDir(), "flow.rs")

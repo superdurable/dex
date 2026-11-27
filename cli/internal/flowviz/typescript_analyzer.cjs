@@ -3113,7 +3113,8 @@ class TypeScriptAnalyzer {
   bodyExternalCalls(nodes,depth,firstOnly) {
     const scan = {calls:[],isExact:true};
     const visit = node => {
-      if (!node || (firstOnly && scan.calls.length) || this.ts.isTypeNode(node)) return;
+      // A helper scan keeps looking past uncertain calls, so a later definite call still gives the warning.
+      if (!node || (firstOnly && scan.calls.some(call => call.certainty !== externalCallUncertain)) || this.ts.isTypeNode(node)) return;
       let found;
       if (this.ts.isCallExpression(node) || this.ts.isNewExpression(node) || this.ts.isTaggedTemplateExpression(node)) found = this.classifyInvocation(node,depth);
       else if (this.ts.isIdentifier(node) || this.ts.isPropertyAccessExpression(node)) found = this.classifyFunctionValue(node,depth);
@@ -3316,7 +3317,7 @@ class TypeScriptAnalyzer {
       this.helpersInProgress.add(key);
       const scan = this.bodyExternalCalls(nodes,depth + 1,true);
       this.helpersInProgress.delete(key);
-      inner = scan.calls[0];
+      inner = scan.calls.find(call => call.certainty !== externalCallUncertain) || scan.calls[0];
       isExact = scan.isExact;
       if (isExact) this.exactHelperResults.set(key,inner);
     }
@@ -3527,9 +3528,13 @@ class TypeScriptAnalyzer {
 
   // isUncertainCallee reports whether a callee comes from a package or unfollowed import that may be pure.
   // A callee on this, a parameter, or a value of unknown origin counts as definite, such as an injected service.
-  isUncertainCallee(callee,depth) {
+  // isReceiver marks an object whose method is called; it may come from an imported factory call.
+  isUncertainCallee(callee,depth,isReceiver = false) {
     const ts = this.ts;
     let root = this.unwrap(callee);
+    // Calling a call result or an indexed value is a dynamic call through a function value, which is definite.
+    if (!root || (!isReceiver && (ts.isCallExpression(root) || ts.isElementAccessExpression(root)))) return false;
+    const isMemberCall = ts.isPropertyAccessExpression(root);
     while (root && (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root) || ts.isCallExpression(root))) root = this.unwrap(root.expression);
     if (!root || !ts.isIdentifier(root) || depth > maximumHelperDepth) return false;
     let symbol;
@@ -3547,7 +3552,7 @@ class TypeScriptAnalyzer {
       if (moduleName.startsWith(".")) return true;
       return ![...knownInputOutputModules].some(known => moduleName === known || moduleName.startsWith(`${known}/`));
     }
-    if (ts.isVariableDeclaration(declaration) && declaration.initializer) return this.isUncertainCallee(declaration.initializer,depth + 1);
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer) return this.isUncertainCallee(declaration.initializer,depth + 1,isReceiver || isMemberCall);
     return false;
   }
 

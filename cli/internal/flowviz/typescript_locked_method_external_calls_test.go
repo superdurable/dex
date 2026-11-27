@@ -304,7 +304,7 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 		},
 		"map receives an imported callback": {
 			source:            typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void [input].map(sendMail);"},
-			uncertainMessages: []string{"and calls sendMail, which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls sendMail. dexcli cannot determine whether this call performs I/O."},
 		},
 		"then receives an injected method": {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void Promise.resolve(input).then(this.flow.mailer.send);"},
@@ -443,18 +443,32 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				extraSource:        "import { parse } from \"./shim.js\";",
 				linkedOutsideFiles: map[string]string{"shim.ts": "export function parse(text: string): string { return text.trim(); }\n"},
 			},
-			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+			uncertainMessages: []string{"and calls parse. dexcli cannot determine whether this call performs I/O."},
 		},
 		"package function that may be pure": {
 			source: typeScriptLockedMethodCase{
 				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, uniq([input]).length);",
 				extraSource: "import { uniq } from \"lodash\";",
 			},
-			uncertainMessages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls uniq, which dexcli cannot tell whether it does I/O. If it calls an external system, Dex fails that RPC while the lock is held; make that call in the next, unlocked Step."},
+			uncertainMessages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls uniq. dexcli cannot determine whether this call performs I/O. Dex fails the RPC while the lock is held. Move any call that reaches an external system to the next, unlocked Step."},
+		},
+		"helper logs before fetch": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "announce(input);\n    announce(input);",
+				extraSource: "function announce(text: string): void {\n  console.log(text);\n  void fetch(\"https://example.com/\" + text);\n}",
+			},
+			messages: []string{"and calls announce (calls fetch) (and 1 more)" + typeScriptLockedMessageSuffix},
+		},
+		"call of a returned callback is dynamic": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "getCallback()(input);",
+				extraSource: "import { getCallback } from \"callbacks\";",
+			},
+			messages: []string{"and calls getCallback() (and 1 uncertain)" + typeScriptLockedMessageSuffix},
 		},
 		"console output is uncertain": {
 			source:            typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "console.log(input);"},
-			uncertainMessages: []string{"and calls console.log, which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls console.log. dexcli cannot determine whether this call performs I/O."},
 		},
 		"injected service and an uncertain call": {
 			source: typeScriptLockedMethodCase{

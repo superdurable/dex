@@ -88,9 +88,13 @@ func addLockedMethodExternalCallWarnings(graph *Graph) {
 			continue
 		}
 		call := uncertainCalls[0]
+		subject := "this call performs"
+		if len(uncertainCalls) > 1 {
+			subject = "these calls perform"
+		}
 		graph.AddDiagnostic("info", "locked_method_uncertain_call", fmt.Sprintf(
-			"%s of %s holds lock %s, which RPC %s also takes, and calls %s, which dexcli cannot tell whether it does I/O%s. If it calls an external system, Dex fails that RPC while the lock is held; make that call in the next, unlocked Step.",
-			methodLabel, stepName, lockName, rpcName, call.Callee, uncertainCallCountSuffix(len(uncertainCalls)-1),
+			"%s of %s holds lock %s, which RPC %s also takes, and calls %s%s. dexcli cannot determine whether %s I/O. Dex fails the RPC while the lock is held. Move any call that reaches an external system to the next, unlocked Step.",
+			methodLabel, stepName, lockName, rpcName, call.Callee, uncertainCallCountSuffix(len(uncertainCalls)-1), subject,
 		), call.Span)
 	}
 }

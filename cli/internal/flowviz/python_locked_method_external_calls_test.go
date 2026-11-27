@@ -264,7 +264,7 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 				rpcLock: endingLock, executeLock: endingLock,
 				modulePrelude: "import functools", executeDecorator: "@functools.cache\n    ",
 			},
-			uncertainMessages: []string{"and calls code dexcli cannot read (execute has decorator functools.cache), which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls code dexcli cannot read (execute has decorator functools.cache). dexcli cannot determine whether this call performs I/O."},
 			hasOtherError:     true,
 		},
 		"no RPC lock": {
@@ -327,7 +327,7 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 				modulePrelude: "import requests",
 				moduleExtra:   "class Session(requests.Session):\n    pass",
 			},
-			uncertainMessages: []string{"and calls Session (a constructor dexcli cannot read), which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls Session (a constructor dexcli cannot read). dexcli cannot determine whether this call performs I/O."},
 		},
 		"project module function does network I/O": {
 			source: pythonLockedMethodCase{
@@ -428,7 +428,7 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 				rpcLock: endingLock, executeLock: endingLock, executeBody: "parse(input)", modulePrelude: "from shim import parse",
 				linkedOutsideFiles: map[string]string{"shim.py": "def parse(text):\n    return text.strip()\n"},
 			},
-			messages: []string{"and calls parse;"},
+			uncertainMessages: []string{"and calls parse. dexcli cannot determine whether this call performs I/O."},
 		},
 		"singledispatch registration may do I/O": {
 			source: pythonLockedMethodCase{
@@ -513,11 +513,25 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 				rpcLock: endingLock, executeLock: endingLock, executeBody: "ReminderFlow.counter.set(context, len(parser.parse(input).isoformat()))",
 				modulePrelude: "from dateutil import parser",
 			},
-			uncertainMessages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls parser.parse(input).isoformat, which dexcli cannot tell whether it does I/O (and 1 more uncertain call). If it calls an external system, Dex fails that RPC while the lock is held; make that call in the next, unlocked Step."},
+			uncertainMessages: []string{"Execute of SendReminderStep holds lock ending, which RPC StopReminders also takes, and calls parser.parse(input).isoformat (and 1 more uncertain call). dexcli cannot determine whether these calls perform I/O. Dex fails the RPC while the lock is held. Move any call that reaches an external system to the next, unlocked Step."},
+		},
+		"helper prints before calling an injected service": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "announce(self.mailer, input)\n        announce(self.mailer, input)",
+				moduleExtra: "def announce(mailer, text):\n    print(text)\n    mailer.send(text)",
+			},
+			messages: []string{"and calls announce (calls mailer.send) (and 1 more); Dex fails that RPC"},
+		},
+		"builtins.print is uncertain": {
+			source: pythonLockedMethodCase{
+				rpcLock: endingLock, executeLock: endingLock, executeBody: "show(input)", modulePrelude: "from builtins import print as show",
+			},
+			uncertainMessages: []string{"and calls show. dexcli cannot determine whether this call performs I/O."},
+			hasOtherError:     true,
 		},
 		"printing is uncertain": {
 			source:            pythonLockedMethodCase{rpcLock: endingLock, executeLock: endingLock, executeBody: "print(input)"},
-			uncertainMessages: []string{"and calls print, which dexcli cannot tell whether it does I/O."},
+			uncertainMessages: []string{"and calls print. dexcli cannot determine whether this call performs I/O."},
 		},
 		"injected service and an uncertain call": {
 			source: pythonLockedMethodCase{

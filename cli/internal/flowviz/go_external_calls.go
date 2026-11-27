@@ -10,7 +10,9 @@ package flowviz
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
+	"slices"
 	"strings"
 )
 
@@ -124,21 +126,22 @@ type goExternalCallScan struct {
 	// calleeIdentifiers are identifiers already classified as a call's callee.
 	calleeIdentifiers map[*ast.Ident]bool
 	selectors         map[*ast.Ident]*ast.SelectorExpr
+	body              ast.Node
 }
 
 // bodyExternalCalls returns the possible external calls in body, and whether the result is exact.
-// When firstOnly is set it stops at the first call found.
+// When firstOnly is set it stops at the first definite call; uncertain calls before it are kept.
 func (finder *goExternalCallFinder) bodyExternalCalls(body ast.Node, depth int, firstOnly bool) ([]possibleExternalCall, bool) {
 	scan := &goExternalCallScan{
 		finder: finder, depth: depth, firstOnly: firstOnly, calls: make([]possibleExternalCall, 0), isExact: true,
-		calleeIdentifiers: make(map[*ast.Ident]bool), selectors: make(map[*ast.Ident]*ast.SelectorExpr),
+		calleeIdentifiers: make(map[*ast.Ident]bool), selectors: make(map[*ast.Ident]*ast.SelectorExpr), body: body,
 	}
 	ast.Inspect(body, scan.visit)
 	return scan.calls, scan.isExact
 }
 
 func (scan *goExternalCallScan) visit(node ast.Node) bool {
-	if scan.firstOnly && len(scan.calls) > 0 {
+	if scan.firstOnly && slices.ContainsFunc(scan.calls, func(call possibleExternalCall) bool { return !call.isUncertain() }) {
 		return false
 	}
 	switch current := node.(type) {
@@ -171,24 +174,89 @@ func (scan *goExternalCallScan) add(node ast.Node, calleeExpression ast.Expr, fu
 	scan.calls = append(scan.calls, *external)
 }
 
-// isFieldReceiver reports whether a method callee runs on a struct field, such as step.gateway.Send; a field holds an injected service.
+// isFieldReceiver reports whether a method callee runs on a struct field, such as step.gateway.Send, or on a local
+// variable assigned only from one, such as gateway := step.gateway; a field holds an injected service.
 func (scan *goExternalCallScan) isFieldReceiver(calleeExpression ast.Expr) bool {
 	selector, isSelector := ast.Unparen(calleeExpression).(*ast.SelectorExpr)
 	if !isSelector {
 		return false
 	}
-	receiver, isReceiverSelector := ast.Unparen(selector.X).(*ast.SelectorExpr)
-	if !isReceiverSelector {
-		return false
+	return scan.isFieldValue(selector.X, 0)
+}
+
+func (scan *goExternalCallScan) isFieldValue(expression ast.Expr, depth int) bool {
+	typeInfo := scan.finder.analyzer.typeInfo
+	switch value := ast.Unparen(expression).(type) {
+	case *ast.SelectorExpr:
+		selection := typeInfo.Selections[value]
+		return selection != nil && selection.Kind() == types.FieldVal
+	case *ast.Ident:
+		variable, isVariable := typeInfo.Uses[value].(*types.Var)
+		if !isVariable || depth > goMaximumHelperDepth || scan.body == nil {
+			return false
+		}
+		assigned := scan.localAssignments(variable)
+		return len(assigned) > 0 && !slices.ContainsFunc(assigned, func(right ast.Expr) bool { return right == nil || !scan.isFieldValue(right, depth+1) })
 	}
-	selection := scan.finder.analyzer.typeInfo.Selections[receiver]
-	return selection != nil && selection.Kind() == types.FieldVal
+	return false
+}
+
+// localAssignments returns every value assigned to variable in the scanned body; a nil entry is an assignment dexcli cannot pair.
+func (scan *goExternalCallScan) localAssignments(variable *types.Var) []ast.Expr {
+	typeInfo := scan.finder.analyzer.typeInfo
+	var assigned []ast.Expr
+	isVariable := func(expression ast.Expr) bool {
+		identifier, isIdentifier := ast.Unparen(expression).(*ast.Ident)
+		return isIdentifier && (typeInfo.Defs[identifier] == variable || typeInfo.Uses[identifier] == variable)
+	}
+	ast.Inspect(scan.body, func(node ast.Node) bool {
+		switch statement := node.(type) {
+		case *ast.AssignStmt:
+			for index, left := range statement.Lhs {
+				if !isVariable(left) {
+					continue
+				}
+				if len(statement.Lhs) == len(statement.Rhs) {
+					assigned = append(assigned, statement.Rhs[index])
+				} else {
+					assigned = append(assigned, nil)
+				}
+			}
+		case *ast.ValueSpec:
+			for index, name := range statement.Names {
+				if typeInfo.Defs[name] != variable {
+					continue
+				}
+				if len(statement.Names) == len(statement.Values) {
+					assigned = append(assigned, statement.Values[index])
+				} else {
+					assigned = append(assigned, nil)
+				}
+			}
+		case *ast.UnaryExpr:
+			// Taking the address lets other code rebind the variable.
+			if statement.Op == token.AND && isVariable(statement.X) {
+				assigned = append(assigned, nil)
+			}
+		}
+		return true
+	})
+	return assigned
 }
 
 // inspectCall classifies the callee of call; a function literal callee is walked as part of the body.
 func (scan *goExternalCallScan) inspectCall(call *ast.CallExpr) {
 	typeAndValue := scan.finder.analyzer.typeInfo.Types[call.Fun]
-	if typeAndValue.IsType() || typeAndValue.IsBuiltin() {
+	if typeAndValue.IsBuiltin() {
+		// The print and println built-ins write to standard error, which reaches no external system.
+		if identifier, isIdentifier := ast.Unparen(call.Fun).(*ast.Ident); isIdentifier {
+			if builtin, isBuiltin := scan.finder.analyzer.typeInfo.Uses[identifier].(*types.Builtin); isBuiltin && (builtin.Name() == "print" || builtin.Name() == "println") {
+				scan.calls = append(scan.calls, possibleExternalCall{Callee: builtin.Name(), Span: scan.finder.analyzer.span(call), Certainty: externalCallUncertain})
+			}
+		}
+		return
+	}
+	if typeAndValue.IsType() {
 		return
 	}
 	callee := unwrapCallFun(ast.Unparen(call.Fun))
@@ -285,7 +353,9 @@ func (finder *goExternalCallFinder) helperExternalCall(function *types.Func, dec
 	calls, isExact := finder.bodyExternalCalls(declaration.Body, depth+1, true)
 	delete(finder.inProgress, function)
 	var result *possibleExternalCall
-	if len(calls) > 0 {
+	if index := slices.IndexFunc(calls, func(call possibleExternalCall) bool { return !call.isUncertain() }); index >= 0 {
+		result = &calls[index]
+	} else if len(calls) > 0 {
 		result = &calls[0]
 	}
 	if isExact {

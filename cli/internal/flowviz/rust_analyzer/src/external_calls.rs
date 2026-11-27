@@ -760,7 +760,8 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
                     self.path_call_verdict(&function.path)
                 }
                 Expr::Closure(_) => CallVerdict::Allowed,
-                _ => CallVerdict::External(Certainty::Possible),
+                // A field, index, or returned callable is a function value, so the call is dynamic.
+                _ => CallVerdict::External(Certainty::Definite),
             },
             _ => CallVerdict::Allowed,
         };
@@ -870,7 +871,8 @@ impl<'ast> Visit<'ast> for MethodScan<'_, '_, 'ast> {
             }
             Expr::Closure(_) => self.visit_expr(&call.func),
             _ => {
-                let verdict = CallVerdict::External(Certainty::Possible);
+                // A field, index, or returned callable is a function value, so the call is dynamic.
+                let verdict = CallVerdict::External(Certainty::Definite);
                 self.add(call.span(), source_text(&call.func), verdict);
                 self.visit_expr(&call.func);
             }
