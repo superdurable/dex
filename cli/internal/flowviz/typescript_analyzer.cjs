@@ -3529,7 +3529,8 @@ class TypeScriptAnalyzer {
   // isUncertainCallee reports whether a callee comes from a package or unfollowed import that may be pure.
   // A callee on this, a parameter, or a value of unknown origin counts as definite, such as an injected service.
   // isReceiver marks an object whose method is called; it may come from an imported factory call.
-  isUncertainCallee(callee,depth,isReceiver = false) {
+  // A method on a value built from literals, Dex data, and same-file consts is uncertain; a let may be reassigned.
+  isUncertainCallee(callee,depth,isReceiver = false,isConstBinding = true) {
     const ts = this.ts;
     let root = this.unwrap(callee);
     // Calling a call result or an indexed value is a dynamic call through a function value, which is definite.
@@ -3538,6 +3539,7 @@ class TypeScriptAnalyzer {
     if (!root || (!isReceiver && (ts.isCallExpression(root) || (ts.isElementAccessExpression(root) && !isLiteralMember)))) return false;
     const isMemberCall = ts.isPropertyAccessExpression(root) || isLiteralMember;
     while (root && (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root) || ts.isCallExpression(root))) root = this.unwrap(root.expression);
+    if (root && isConstBinding && (isReceiver || isMemberCall) && this.isLocalValueExpression(root)) return this.isLocalDataOrigin(root,depth + 1);
     if (!root || !ts.isIdentifier(root) || depth > maximumHelperDepth) return false;
     let symbol;
     try {
@@ -3554,8 +3556,48 @@ class TypeScriptAnalyzer {
       if (moduleName.startsWith(".")) return true;
       return ![...knownInputOutputModules].some(known => moduleName === known || moduleName.startsWith(`${known}/`));
     }
-    if (ts.isVariableDeclaration(declaration) && declaration.initializer) return this.isUncertainCallee(declaration.initializer,depth + 1,isReceiver || isMemberCall);
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+      return this.isUncertainCallee(declaration.initializer,depth + 1,isReceiver || isMemberCall,isConstBinding && this.isConstVariable(declaration));
+    }
     return false;
+  }
+
+  isConstVariable(declaration) {
+    const ts = this.ts;
+    return ts.isVariableDeclarationList(declaration.parent) && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+  }
+
+  // isLocalValueExpression reports whether a receiver root is a literal or a fallback, which isLocalDataOrigin traces.
+  isLocalValueExpression(value) {
+    const ts = this.ts;
+    return ts.isObjectLiteralExpression(value) || ts.isArrayLiteralExpression(value) || ts.isConditionalExpression(value) ||
+      (ts.isBinaryExpression(value) && fallbackOperatorKinds(ts).has(value.operatorToken.kind));
+  }
+
+  // isLocalDataOrigin reports whether every branch is a literal, same-file code or const, Dex data, or uncertain import.
+  isLocalDataOrigin(expression,depth) {
+    const ts = this.ts;
+    const value = this.unwrap(expression);
+    if (!value || depth > maximumHelperDepth) return false;
+    if (ts.isArrowFunction(value) || ts.isFunctionExpression(value) || this.isLiteralDataValue(value,0)) return true;
+    const origin = this.dexValueOrigin(value,0);
+    if (origin) return !dexExternalExports.has(origin);
+    if (ts.isBinaryExpression(value) && fallbackOperatorKinds(ts).has(value.operatorToken.kind)) return [value.left,value.right].every(part => this.isLocalDataOrigin(part,depth + 1));
+    if (ts.isConditionalExpression(value)) return [value.whenTrue,value.whenFalse].every(part => this.isLocalDataOrigin(part,depth + 1));
+    if (ts.isArrayLiteralExpression(value)) return value.elements.every(element => this.isLocalDataOrigin(ts.isSpreadElement(element) ? element.expression : element,depth + 1));
+    if (ts.isObjectLiteralExpression(value)) {
+      return value.properties.every(property => ts.isMethodDeclaration(property) ||
+        (ts.isPropertyAssignment(property) && this.isLocalDataOrigin(property.initializer,depth + 1)) ||
+        (ts.isShorthandPropertyAssignment(property) && this.isLocalDataOrigin(property.name,depth + 1)) ||
+        (ts.isSpreadAssignment(property) && this.isLocalDataOrigin(property.expression,depth + 1)));
+    }
+    if (ts.isIdentifier(value)) {
+      const declaration = this.sourceDeclarationOf(value);
+      if (declaration && ts.isVariableDeclaration(declaration) && declaration.getSourceFile() === this.tree) {
+        return this.isConstVariable(declaration) && !!declaration.initializer && this.isLocalDataOrigin(declaration.initializer,depth + 1);
+      }
+    }
+    return this.isUncertainCallee(value,depth + 1,true);
   }
 
   // isLibraryContainerMember reports whether a default-library declaration is a member of the named interface or namespace.

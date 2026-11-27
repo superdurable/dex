@@ -372,7 +372,7 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				executeBody: "const current = formattedState.get(context) ?? emptyFormattedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
 				extraSource: typeScriptNamedFallbackSource,
 			},
-			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+			uncertainMessages: []string{"and calls current.sent.filter. dexcli cannot determine whether this call performs I/O."},
 		},
 		"fallback branch is a narrow data type holding an injected service": {
 			source: typeScriptLockedMethodCase{
@@ -394,7 +394,23 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				executeBody: "const current = reminderState.get(context) ?? untypedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
 				extraSource: typeScriptNamedFallbackSource,
 			},
+			uncertainMessages: []string{"and calls current.sent.filter. dexcli cannot determine whether this call performs I/O."},
+		},
+		"fallback branch typed any in a let binding": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "let current = reminderState.get(context) ?? untypedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
 			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch reaches an injected service": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? this.flow.mailer;\n    void current.send(input);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			messages: []string{"and calls current.send" + typeScriptLockedMessageSuffix},
 		},
 		"fallback branch is a written array through an alias": {
 			source: typeScriptLockedMethodCase{
