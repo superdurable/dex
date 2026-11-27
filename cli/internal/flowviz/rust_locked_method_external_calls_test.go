@@ -593,6 +593,10 @@ func TestRustLockedMethodCertainty(t *testing.T) {
 		"UFCS call of a standard trait method is a static call": {
 			body: "let _ = <String as Clone>::clone(&input);\n        let _ = <String as From<&str>>::from(input.as_str());",
 		},
+		"UFCS call naming a supertrait of a trait object field is definite": {
+			body:     "<dyn Gateway + Send + Sync as Mailer>::send(self.trait_gateway.as_ref(), &input);",
+			warnings: []string{"and calls <dyn Gateway + Send + Sync as Mailer>::send; Dex fails that RPC"},
+		},
 		"function pointer field is a dynamic call": {
 			body:     "(self.callback)(&input);",
 			warnings: []string{"and calls (self.callback); Dex fails that RPC"},
@@ -607,7 +611,7 @@ func TestRustLockedMethodCertainty(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			source := strings.NewReplacer(
 				"DEX_IMPORTS", imports,
-				"pub struct SendReminderStep;", "pub struct SendReminderStep {\n    gateway: SmsGateway,\n    callback: fn(&str),\n}",
+				"pub struct SendReminderStep;", "pub struct SendReminderStep {\n    gateway: SmsGateway,\n    callback: fn(&str),\n    trait_gateway: Box<dyn Gateway + Send + Sync>,\n}\n\npub trait Mailer {\n    fn send(&self, input: &str);\n}\n\npub trait Gateway: Mailer {\n    fn send(&self, input: &str);\n}",
 				"        if input.is_empty() {\n            return Ok(StepDecision::dead_end());\n        }\n", "        "+testCase.body+"\n",
 			).Replace(rustDexSDKImportFormSource)
 			sourcePath := filepath.Join(t.TempDir(), "flow.rs")

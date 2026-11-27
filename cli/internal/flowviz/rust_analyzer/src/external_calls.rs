@@ -758,17 +758,22 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
             Expr::Path(function) => match &function.qself {
                 None => self.path_call_verdict(&function.path),
                 // A UFCS call, such as <String as Clone>::clone, runs the trait method of the named type.
-                Some(qself) => match self.path_call_verdict(&function.path) {
-                    CallVerdict::Allowed => {
-                        match self.finder.source.type_origin(&qself.ty, &self.scope, 0) {
+                Some(qself) => {
+                    let type_origin = self.finder.source.type_origin(&qself.ty, &self.scope, 0);
+                    // A trait object or other definite type stays definite, whichever trait the path names.
+                    if matches!(type_origin, ValueOrigin::External(Certainty::Definite)) {
+                        return CallVerdict::External(Certainty::Definite);
+                    }
+                    match self.path_call_verdict(&function.path) {
+                        CallVerdict::Allowed => match type_origin {
                             ValueOrigin::PureStandardLibrary | ValueOrigin::DexSdk => {
                                 CallVerdict::Allowed
                             }
                             _ => CallVerdict::External(Certainty::Possible),
-                        }
+                        },
+                        verdict => verdict,
                     }
-                    verdict => verdict,
-                },
+                }
             },
             // A field, index, or returned callable is a function value, so the call is dynamic.
             _ => CallVerdict::External(Certainty::Definite),

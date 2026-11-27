@@ -372,7 +372,38 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				executeBody: "const current = formattedState.get(context) ?? emptyFormattedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
 				extraSource: typeScriptNamedFallbackSource,
 			},
+			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is a package import": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? defaultState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptReminderStateSource + "\nimport { defaultState } from \"reminder-defaults\";",
+			},
 			uncertainMessages: []string{"and calls current.sent.filter. dexcli cannot determine whether this call performs I/O."},
+		},
+		"module registry filled with a Dex Client": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "void clients.worker.stopFlow(input);",
+				extraSource: "const clients: Record<string, Client> = {};\nexport function configureClients(client: Client): void {\n  clients.worker = client;\n}",
+			},
+			messages: []string{"and calls clients.worker.stopFlow" + typeScriptLockedMessageSuffix},
+		},
+		"any array filled with an injected service": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const services: any[] = [];\n    services.push(this.flow.mailer);\n    void services[0].send(input);",
+			},
+			messages: []string{"and calls services[0].send" + typeScriptLockedMessageSuffix},
+		},
+		"module adapter typed any calls fetch": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "void mailGateway.send(input);",
+				extraSource: "const mailGateway: any = {\n  send(to: string) {\n    return fetch(\"https://example.com/mail\", {method: \"POST\", body: to});\n  },\n};",
+			},
+			messages: []string{"and calls mailGateway.send" + typeScriptLockedMessageSuffix},
 		},
 		"fallback branch is a narrow data type holding an injected service": {
 			source: typeScriptLockedMethodCase{
@@ -394,7 +425,7 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				executeBody: "const current = reminderState.get(context) ?? untypedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
 				extraSource: typeScriptNamedFallbackSource,
 			},
-			uncertainMessages: []string{"and calls current.sent.filter. dexcli cannot determine whether this call performs I/O."},
+			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
 		},
 		"fallback branch typed any in a let binding": {
 			source: typeScriptLockedMethodCase{
