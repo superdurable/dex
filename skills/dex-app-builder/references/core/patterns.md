@@ -383,40 +383,38 @@ Never:
 
 #### Deadline watchdog
 
-Use it for a deadline shorter than the Flow that spans a polling loop's rounds, or other work that can retry, and must fire even while a round retries.
-
-1. The decision that handles the starting event schedules the polling Step and a watchdog Step together.
-2. The watchdog's WaitFor returns Timer(deadline).
-3. The polling Step calls the provider and holds no lock, so the watchdog never waits for a call or its retries. A finished job, or the polling Step's failure route, goes to a short result Step.
-4. The result Step and the watchdog's Execute share one Attribute lock and make no external call. Each writes the terminal state only while it is open.
-5. The winner writes the terminal state once, cancels the still-active other Step by Step type in its committed decision, and completes or goes to the existing close branch. The loser returns DeadEnd.
+Use it for a deadline shorter than the Flow that must fire while work, such as a polling loop or a retrying Step, is still running. The work runs as the only branch of a Join, and the join Step races the branch's result against a Timer.
 
 ```text
+JobResult = Join<JobOutcome>("job-result")        // register it with the Flow's Channels
+
 StartJob.execute(request)
     jobId = provider.startJob(...)
-    return goToMany(CheckJobStatus({jobId, round = 1}), WatchDeadline(jobId))   // one decision schedules both
+    return goToMany(JobResult.fork(
+        [round -> CheckJobStatus({jobId, round})],
+        round -> AwaitJob(round)))
 
-CheckJobStatus.execute(context, input)                 // no lock; failure route -> RecordJobResult(failed)
+CheckJobStatus.execute(context, input)            // failure route -> ReportJobFailure
     status = provider.getStatus(input.jobId, cancel = context's cancellation signal)
-    if status is finished: return goTo(RecordJobResult, status)
-    return goTo(CheckJobStatus, {input.jobId, input.round + 1})
+    if status is finished: return JobResult.endBranch(input.round, status)
+    return goTo(CheckJobStatus, input)            // the round token travels with each poll
 
-RecordJobResult.execute(outcome)   [lock JobOutcome]   // short; no external call
-    if JobOutcome is set: return deadEnd()             // lost to the watchdog
-    JobOutcome = outcome
-    return gracefulComplete(outcome).cancelSteps(WatchDeadline)
+ReportJobFailure.execute(input) -> return JobResult.endBranch(input.round, failed)
 
-WatchDeadline.waitFor(jobId) -> until(Timer(deadline))
-WatchDeadline.execute(jobId)       [lock JobOutcome]
-    if JobOutcome is set: return deadEnd()             // lost to the result
-    JobOutcome = overdue
-    return gracefulComplete(overdue).cancelSteps(CheckJobStatus)
+AwaitJob.waitFor(round) -> anyOf(JobResult.forFirstBranch(round), Timer(deadline))
+AwaitJob.execute(context, round)
+    if context.hasTimerFired():
+        record overdue
+        return gracefulComplete(overdue).cancelSteps(CheckJobStatus, ReportJobFailure)
+    result = JobResult.branchResults(round)[0]
+    record result
+    return gracefulComplete(result)
 ```
 
-- This extends the polling skeleton above only when a deadline spans rounds.
-- The cancel by Step type assumes one poller and one watchdog. After the completion request, the Flow starts closing once its remaining Steps end. With several watchdogs of one type, wake each through its own completion Channel.
-- Later rounds come from goTo, not from the fork, so a sibling cancel does not reach the watchdog.
-- The Timer is business time: it fires at or shortly after the deadline, and the watchdog needs no second clock check or drift correction.
+- The join Step is the only decider. It needs no lock, and no Step loses a race or returns DeadEnd.
+- Execute checks which Condition fired: the Timer means overdue; otherwise it reads the branch result.
+- The poller's next rounds come from goTo, not from the fork, so they are not siblings of the join Step. Cancel the branch's Step types with cancelSteps. A cancel by Step type is correct while one round is active.
+- A result that the branch reports after the Timer won stays pending in its round. It is harmless and does not block gracefulComplete.
 
 ### Polling with long-running Step heartbeat
 
@@ -452,14 +450,14 @@ RecordJobWaitFailure.execute(context)
 - Keep the longest gap between heartbeats, including the slowest healthy call and the interval, below the heartbeat timeout the Step uses, with a margin. Its default is in each SDK's [StepOptions reference](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Keep the default heartbeat timeout when the loop fits it, so a stalled Worker is detected quickly. Raise it only when a healthy call is silent longer.
 - Within that bound, use a few seconds when a user watches something they just started, and tens of seconds for long jobs.
-- A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, is a watchdog: a waiting Step that races its Timer. The watchdog and the Step that records the result declare the same Attribute lock. When the Timer fires, the watchdog reads the status under that lock and declares the work overdue only while it is still unfinished.
+- A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, uses the [deadline watchdog](#deadline-watchdog): the waiting Step is the Join's branch, and the join Step races its result against a Timer.
 - The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. Each attempt lasts at most the method timeout. Never use a large attempt count as a time bound.
 - Use the language's plain sleep. Honor cancellation through the language SDK's mechanism. When the provider call accepts a cancellation argument, pass it. Prefer giving a blocking call that cannot observe cancellation its own timeout: a stuck call keeps its Worker slot until it returns, while the heartbeat or method timeout still ends the attempt and Dex schedules later attempts by the retry policy. Cancellation is cooperative: the loop exits at the next boundary that can report it. See [Make the Step stop](https://docs.superdurable.io/reference/server/runtime-data#cancel-honour).
-- The wait limits come from the Step options, and Dex enforces each one: the method timeout ends an attempt, and the total duration is the retry budget. The Step code never computes a deadline, and neither the checkpoint nor the input carries one. A hard business deadline uses the watchdog below.
+- The wait limits come from the Step options, and Dex enforces each one: the method timeout ends an attempt, and the total duration is the retry budget. The Step code never computes a deadline, and neither the checkpoint nor the input carries one. A hard business deadline uses the [deadline watchdog](#deadline-watchdog).
 - The checkpoint is only resume state, such as the last reported status. Resuming from the last stored checkpoint reduces repeated progress frames; it can be lost, so consumers tolerate duplicates and gaps. See [Heartbeat](https://docs.superdurable.io/reference/go/step-options#heartbeat).
 - A business condition that is not a fixed duration, such as a lease the Flow does not own expiring, is still checked inside the loop.
 - Write Stream frames only on status changes. Consumers recover from Attributes or a read-only RPC.
-- Do not hold an Execute lock for the whole wait. Every Step that needs the lock, such as the watchdog, would wait until the loop ends, and every RPC that needs it would fail. Commit locked results in a short following Step.
+- Do not hold an Execute lock for the whole wait. Every Step that needs the lock would wait until the loop ends, and every RPC that needs it would fail. Commit locked results in a short following Step.
 - The recovery error does not carry the last status. The Stream and logs do. To branch on which limit ended the wait, follow [recovery error types](error-handling.md#recovery-error-types).
 - Either durability works. With ASYNC, work whose result was not yet saved can run again; the checkpoint is only a resume hint.
 

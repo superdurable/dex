@@ -46,7 +46,7 @@ Attribute locks serialize Steps and RPCs that declare the same lock within one F
 - An RPC that needs a held lock fails at once with the RPC lock-conflict error. It is not queued. Retry it with bounded backoff and keep it idempotent. The holder can be a Step in retry backoff, because a method keeps its locks until the method call ends.
 - A Step takes its locks when Dex hands its attempt to a Worker. See [step.md](step.md#retry-snapshots-and-locks) for queued and retrying attempts.
 - When an Execute declares a lock that an RPC also takes, do not call an external system in that Execute. Decide and commit under the lock in that Step, then make the call in the next, unlocked Step. Otherwise every RPC that needs the lock fails with a lock conflict while the call and its retries run. The same applies to a WaitFor or a Flow timeout handler that declares such a lock, and starting or calling another Flow counts as an external call.
-- A lock that only Steps share may cover an external call; those Steps run one at a time. A lock on long parallel branches therefore serializes them, and a failing Step keeps the lock through its retries. A polling Step never holds a lock that its deadline watchdog also needs, because the watchdog would wait until the loop ends.
+- A lock that only Steps share may cover an external call; those Steps run one at a time. A lock on long parallel branches therefore serializes them, and a failing Step keeps the lock through its retries.
 - When an RPC stops an action that a Step decides, such as a reminder, choose the design by what the business promises:
 
   | The business accepts | Design |

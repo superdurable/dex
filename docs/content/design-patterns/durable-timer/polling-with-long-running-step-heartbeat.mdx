@@ -51,11 +51,10 @@ A plain sleep is enough. Honor cancellation through the language SDK's mechanism
   duration.
 - <a id="deadline-watchdog"></a>Use a watchdog for a business deadline that is
   shorter than the whole wait, or that the Step options cannot hold because the
-  polling Step re-enters itself to commit each status change. The watchdog is a
-  waiting Step that races its Timer. It declares the same Attribute lock as the
-  Step that records the result. When its Timer fires, it reads the status under
-  that lock and declares the work overdue only while the work is still
-  unfinished.
+  polling Step re-enters itself to commit each status change. The polling Step
+  runs as the only branch of a Join, and the join Step races the branch's
+  result against a Timer. See the
+  [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules).
 - <a id="checkpoint-and-progress"></a>Resume from the last checkpoint, which
   `GetLastHeartbeatValue` returns. In the example, the checkpoint is the last
   reported job status. Resuming from the last stored checkpoint reduces
@@ -67,8 +66,8 @@ A plain sleep is enough. Honor cancellation through the language SDK's mechanism
   from durable state, such as Attributes, a read RPC, or the Flow result.
 - <a id="locks"></a>Return the result from the polling Step, and commit
   anything that needs a lock in a short following Step. A polling Step that
-  held the lock for the whole wait would make every Step that needs it, such
-  as a watchdog, wait until the loop ends, and every RPC that needs it fail.
+  held the lock for the whole wait would make every Step that needs it wait
+  until the loop ends, and every RPC that needs it fail.
 
 ## Example
 
