@@ -7,6 +7,7 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import ast
+import copy
 import json
 import sys
 from collections import deque
@@ -17,6 +18,15 @@ CHANNEL_WAIT_METHODS = {"for_one", "for_n", "at_least", "at_most", "for_range"}
 # A Join is a ChannelMap; these methods wait on its round instance or build its movements.
 JOIN_WAIT_METHODS = {"for_all_branches", "for_first_branch", "for_branches", "for_remaining_branches"}
 JOIN_FORK_METHODS = {"fork", "fork_with_round_key"}
+
+
+class ResourceFactoryArgumentSubstitution(ast.NodeTransformer):
+    # Replaces factory parameter names with the call's argument expressions.
+    def __init__(self, arguments):
+        self.arguments = arguments
+
+    def visit_Name(self, node):
+        return self.arguments.get(node.id, node)
 
 
 class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, ExternalCallAnalyzer):
@@ -58,6 +68,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         self.actions = []
         self.rpc_lock_errors = []
         self.lock_handlers = []
+        self.unreadable_step_options = []
         self.declared_lock_missing_severity = "warning"
         self.view_rpcs = []
         self.start_input = None
@@ -94,6 +105,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         for step_name, node_id in list(self.registered.items()):
             self.analyze_step(step_name, node_id)
         self.analyze_flow_handlers(flow_class)
+        self.report_unreadable_step_options()
         self.record_deferred_method_external_calls()
         self.check_declared_locks()
         if len(self.flow_classes) > 1:
@@ -331,6 +343,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                 target, value = statement.target, statement.value
             if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
                 continue
+            factory_call = value
+            value = self.resource_factory_call(value) or value
             kind = self.resource_kind(self.symbol(value.func))
             if not kind or not self.is_dex_reference(value.func, self.symbol(value.func).rsplit(".", 1)[-1]):
                 continue
@@ -341,6 +355,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
             self.resources[key] = node_id
             if not owner or self.flow_class is None or owner == self.flow_class.name:
                 self.resources[target.id] = node_id
+            self.resource_calls[factory_call] = node_id
             self.resource_calls[value] = node_id
             self.resource_declarations[node_id] = (value, statement)
             self.record_join_resource(value, node_id)
@@ -349,6 +364,52 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                 self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(value))
             self.record_resource_diagnostics(node_id, first_diagnostic)
             self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(statement), "resource": resource})
+
+    # Returns the Dex resource call that a same-module factory function returns, with the call's arguments substituted, or None.
+    def resource_factory_call(self, call):
+        if not isinstance(call.func, ast.Name) or any(isinstance(argument, ast.Starred) for argument in call.args) or any(keyword.arg is None for keyword in call.keywords):
+            return None
+        # The call site must see the module-level function, not a local name that shadows it.
+        if self.binding_scope(call.func) is not self.tree:
+            return None
+        function = self.static_binding(self.tree, call.func.id)
+        if not isinstance(function, ast.FunctionDef) or function.decorator_list or function.args.vararg or function.args.kwarg:
+            return None
+        statements = [statement for statement in function.body if not (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant))]
+        if len(statements) != 1 or not isinstance(statements[0], ast.Return) or not isinstance(statements[0].value, ast.Call):
+            return None
+        returned = statements[0].value
+        if not self.resource_kind(self.symbol(returned.func)) or not self.is_dex_reference(returned.func, self.symbol(returned.func).rsplit(".", 1)[-1]):
+            return None
+        parameters = [*function.args.posonlyargs, *function.args.args]
+        if len(call.args) > len(parameters):
+            return None
+        arguments = {}
+        defaults = function.args.defaults
+        for index, parameter in enumerate(parameters):
+            default_index = index - (len(parameters) - len(defaults))
+            if default_index >= 0:
+                arguments[parameter.arg] = defaults[default_index]
+        for parameter, default in zip(function.args.kwonlyargs, function.args.kw_defaults):
+            if default is not None:
+                arguments[parameter.arg] = default
+        for parameter, argument in zip(parameters, call.args):
+            arguments[parameter.arg] = argument
+        names = {parameter.arg for parameter in [*parameters, *function.args.kwonlyargs]}
+        for keyword in call.keywords:
+            if keyword.arg not in names:
+                return None
+            arguments[keyword.arg] = keyword.value
+        if names - arguments.keys():
+            return None
+        substituted = ResourceFactoryArgumentSubstitution(arguments).visit(copy.deepcopy(returned))
+        ast.copy_location(substituted, call)
+        ast.fix_missing_locations(substituted)
+        self.parents[substituted] = self.parents.get(call)
+        for parent in ast.walk(substituted):
+            for child in ast.iter_child_nodes(parent):
+                self.parents.setdefault(child, parent)
+        return substituted
 
     def index_flow_fields(self, flow_class):
         local_resources = {}
@@ -384,6 +445,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                 target, value = statement.target, statement.value
             if not isinstance(value, ast.Call):
                 continue
+            factory_call = value
+            value = self.resource_factory_call(value) or value
             kind = self.resource_kind(self.symbol(value.func))
             if not kind or not self.is_dex_reference(value.func, self.symbol(value.func).rsplit(".", 1)[-1]):
                 continue
@@ -391,6 +454,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
             if not target_name:
                 continue
             node_id = self.add_resource(kind, target_name, value, flow_class.name, statement)
+            self.resource_calls[factory_call] = node_id
             local_resources[target_name] = node_id
         for node in ast.walk(initializer):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -577,6 +641,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                 expression, frame = self.resolved_value(statement.value, self.current_frame)
                 if expression is not statement.value:
                     self.analyze_step_options(node_id, expression, frame)
+                self.analyze_returned_step_locks(node_id, statement.value, expression, frame)
         self.current_frame = EvaluationFrame()
 
     def analyze_step_options(self, owner_id, expression, frame):
@@ -584,10 +649,21 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         self.current_frame = frame
         for source in self.option_sources(expression):
             self.analyze_failure(owner_id, source)
-            self.analyze_locks(owner_id, ast.walk(source), {
-                "wait_for_lock_attributes": "wait_for",
-                "execute_lock_attributes": "execute",
-            })
+        self.current_frame = step_frame
+
+    # Step locks come only from a StepOptions call that get_step_options returns; any other options value is reported.
+    def analyze_returned_step_locks(self, owner_id, returned, expression, frame):
+        if isinstance(expression, ast.Constant) and expression.value is None:
+            return
+        # A builder chain, such as StepOptions(...).on_execute_failure_proceed_to(...), starts at its StepOptions call.
+        while isinstance(expression, ast.Call) and isinstance(expression.func, ast.Attribute) and isinstance(expression.func.value, ast.Call):
+            expression = expression.func.value
+        if not isinstance(expression, ast.Call) or not self.is_dex_reference(expression.func, "StepOptions"):
+            self.unreadable_step_options.append((owner_id, returned))
+            return
+        step_frame = self.current_frame
+        self.current_frame = frame
+        self.analyze_locks(owner_id, [expression], {"wait_for_lock_attributes": "wait_for", "execute_lock_attributes": "execute"})
         self.current_frame = step_frame
 
     def option_sources(self, expression):
@@ -952,21 +1028,26 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         if is_named:
             # A named list may be rebound or changed elsewhere; its locks count as held but cannot prove one missing.
             locks["notLiteral"] = locks.get("notLiteral") or f"the lock list {expression.id} is a variable"
-            expression = self.module_assignment(expression.id) or expression
+            # The lock-edge path resolves names the same way, through the frame of get_step_options.
+            expression, _ = self.resolved_value(expression, self.current_frame)
         if not isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
             locks["unresolved"] = locks["unresolved"] or self.unparse(expression)
             return
-        for lock in expression.elts:
+        for listed_lock in expression.elts:
+            lock, _ = self.resolved_value(listed_lock, self.current_frame)
+            is_lock_named = is_named or lock is not listed_lock
+            if lock is not listed_lock:
+                locks["notLiteral"] = locks.get("notLiteral") or f"the lock {self.unparse(listed_lock)} is a variable"
             is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
             resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
             keywords = {keyword.arg: keyword.value for keyword in lock.keywords} if is_lock_call else {}
             if not resource_id or len(lock.args) + len(keywords) > 1 or (keywords and "instance" not in keywords):
                 locks["unresolved"] = locks["unresolved"] or self.unparse(lock)
                 continue
-            proven_id = None if is_named else self.registration_lock_resource(lock.func.value, owner_id, scope_method, class_call)
+            proven_id = None if is_lock_named else self.registration_lock_resource(lock.func.value, owner_id, scope_method, class_call)
             if proven_id is not None:
                 resource_id = proven_id
-            elif not is_named:
+            elif not is_lock_named:
                 locks["notLiteral"] = locks.get("notLiteral") or f"the lock {self.unparse(lock)} is not proven in its registration scope"
             instance = lock.args[0] if lock.args else keywords.get("instance")
             locks["locks"].append((resource_id, self.constant_instance(instance), instance is not None))
@@ -1515,17 +1596,29 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
         for expression in expressions:
             if not isinstance(expression, ast.Call):
                 continue
+            # Only Dex StepOptions and rpc calls register locks; other calls with these keywords add no lock.
+            is_registration_call = self.is_dex_reference(expression.func, "StepOptions") or self.is_dex_reference(expression.func, "rpc")
+            if not is_registration_call:
+                continue
+            unpacked = next((keyword for keyword in expression.keywords if keyword.arg is None), None)
+            if unpacked is not None:
+                self.report_unresolved_registration_options(owner_id, unpacked.value)
             for keyword in expression.keywords:
                 phase = phases.get(keyword.arg)
                 if not phase:
                     continue
-                locks = keyword.value.elts if isinstance(keyword.value, (ast.List, ast.Set, ast.Tuple)) else [keyword.value]
-                for lock in locks:
-                    if not isinstance(lock, ast.Call) or not isinstance(lock.func, ast.Attribute) or lock.func.attr != "lock":
+                lock_list, _ = self.resolved_value(keyword.value, self.current_frame)
+                locks = lock_list.elts if isinstance(lock_list, (ast.List, ast.Set, ast.Tuple)) else [lock_list]
+                for listed_lock in locks:
+                    lock, _ = self.resolved_value(listed_lock, self.current_frame)
+                    is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
+                    resource_id = self.resource_for(lock.func.value, owner_id) if is_lock_call else None
+                    if not resource_id:
+                        if not (isinstance(lock, ast.Constant) and lock.value is None):
+                            self.report_unresolved_registration_lock(owner_id, keyword.arg, listed_lock)
                         continue
-                    resource_id = self.resource_for(lock.func.value, owner_id)
                     key = (resource_id, phase)
-                    if not resource_id or key in seen:
+                    if key in seen:
                         continue
                     seen.add(key)
                     self.add_edge(
@@ -1536,6 +1629,36 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer, V2MetadataAnalyzer, Exter
                         span=self.span(lock),
                         metadata={"phase": phase, **(extra_metadata or {})},
                     )
+
+    def report_unresolved_registration_lock(self, owner_id, field, lock):
+        kind, _, name = owner_id.partition(":")
+        owner = f"RPC {name}" if kind == "rpc" else f"Step {name}"
+        self.warning(
+            "registration_lock_unresolved",
+            f"{owner} lists {self.unparse(lock)} in {field}, but dexcli cannot resolve it to an Attribute lock of this Flow; lock checks such as locked_method_external_call skip it",
+            self.span(lock),
+        )
+
+    # Unreadable Step options matter only when an RPC takes a lock, which the Step might share.
+    def report_unreadable_step_options(self):
+        if not any(edge["kind"] == "resource_lock" and edge.get("metadata", {}).get("phase") == "rpc" for edge in self.graph["edges"]):
+            return
+        for owner_id, returned in self.unreadable_step_options:
+            _, _, name = owner_id.partition(":")
+            self.warning(
+                "registration_lock_unresolved",
+                f"Step {name} get_step_options returns {self.unparse(returned)}, which is not a StepOptions call dexcli can read; lock checks such as locked_method_external_call skip its locks",
+                self.span(returned),
+            )
+
+    def report_unresolved_registration_options(self, owner_id, options):
+        kind, _, name = owner_id.partition(":")
+        owner = f"RPC {name}" if kind == "rpc" else f"Step {name}"
+        self.warning(
+            "registration_lock_unresolved",
+            f"{owner} unpacks **{self.unparse(options)} into its options, but dexcli cannot read the locks in it; lock checks such as locked_method_external_call skip them",
+            self.span(options),
+        )
 
     def analyze_decisions(self, owner_id, method, rpc):
         locals_map = self.local_movements(method)

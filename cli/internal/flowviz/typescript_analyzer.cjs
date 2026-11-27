@@ -53,6 +53,26 @@ const pureNodeExports = new Map([
   ["util",new Set(["format","isDeepStrictEqual"])],
 ]);
 const pureLibraryFunctions = new Set(["parseInt","parseFloat","isNaN","isFinite","encodeURI","encodeURIComponent","decodeURI","decodeURIComponent","structuredClone"]);
+// Source files the locked-method check may type-check besides the Flow source; declarations elsewhere stay unresolved.
+const projectSourceExtensions = [".ts",".tsx",".mts",".cts"];
+const maximumProjectFiles = 200;
+const excludedProjectDirectories = new Set(["node_modules","venv",".venv","site-packages"]);
+// Library containers whose type arguments, not their methods, decide whether a value is data.
+const dataContainerTypeNames = new Set(["Array","ReadonlyArray","Map","ReadonlyMap","Set","ReadonlySet","Promise"]);
+const dataLibraryTypeNames = new Set(["Date","RegExp"]);
+const maximumDataTypeDepth = 12;
+
+// projectRootDirectory returns the nearest directory above sourcePath with a package.json or tsconfig.json, else the source directory.
+function projectRootDirectory(sourcePath) {
+  for (let directory = path.dirname(sourcePath); ; directory = path.dirname(directory)) {
+    if (fs.existsSync(path.join(directory,"package.json")) || fs.existsSync(path.join(directory,"tsconfig.json"))) return directory;
+    if (path.dirname(directory) === directory) return path.dirname(sourcePath);
+  }
+}
+
+function fallbackOperatorKinds(ts) {
+  return new Set([ts.SyntaxKind.QuestionQuestionToken,ts.SyntaxKind.BarBarToken,ts.SyntaxKind.AmpersandAmpersandToken]);
+}
 
 class TypeScriptAnalyzer {
   constructor(request) {
@@ -69,7 +89,8 @@ class TypeScriptAnalyzer {
       }
     }
     this.ts = require(compilerPath);
-    this.tree = this.ts.createSourceFile(this.path, this.source, this.ts.ScriptTarget.Latest, true);
+    this.compilerEntryPath = compilerPath;
+    this.tree =this.ts.createSourceFile(this.path, this.source, this.ts.ScriptTarget.Latest, true);
     this.graph = {schemaVersion:"2.0", valid:true, source:{language:"typescript",path:this.path}, flow:{name:""}, nodes:[], edges:[], diagnostics:[]};
     this.imports = new Map();
     this.factories = new Map();
@@ -2956,26 +2977,48 @@ class TypeScriptAnalyzer {
         let calls;
         if (problem) calls = [{callee:`code dexcli could not type-check (${problem})`,span:this.span(method)}];
         else if (!method.body) calls = [{callee:`${methodName}, which has no body in this file`,span:this.span(method)}];
-        else calls = this.bodyExternalCalls([method.body],0,false).calls;
+        else {
+          this.stepInputParameter = this.hasDataInputCodec(instance.declaration) ? method.parameters[1] : undefined;
+          calls = this.bodyExternalCalls([method.body],0,false).calls;
+          this.stepInputParameter = undefined;
+        }
         this.methodExternalCalls.push({nodeId:nodeID,phase,calls});
       }
       this.currentFrame = {};
     }
   }
 
-  // createTypeChecker type-checks the source alone with the compiler's default library; imports stay unresolved.
+  // createTypeChecker type-checks the source with the compiler's default library and the project's own
+  // relative imports; package imports, including the Dex SDK, stay unresolved.
   // It returns undefined, or the reason the checker could not be built.
   createTypeChecker() {
     const ts = this.ts;
     try {
-      const options = {target:ts.ScriptTarget.ESNext,module:ts.ModuleKind.ESNext,noResolve:true,types:[],noEmit:true,skipLibCheck:true,experimentalDecorators:true,strict:true};
+      const moduleResolution = ts.ModuleResolutionKind.Bundler ?? ts.ModuleResolutionKind.NodeJs;
+      const options = {target:ts.ScriptTarget.ESNext,module:ts.ModuleKind.ESNext,moduleResolution,types:[],noEmit:true,skipLibCheck:true,experimentalDecorators:true,strict:true};
       const libraryDirectory = path.dirname(ts.getDefaultLibFilePath(options));
       const sourcePath = path.resolve(this.path);
+      const projectRoot = projectRootDirectory(sourcePath);
       const isLibraryFile = fileName => path.dirname(path.resolve(fileName)) === libraryDirectory && path.basename(fileName).startsWith("lib.");
+      // A file under a symbolic link or an installed-package directory stays unresolved, so its logical path is its real path.
+      const isProjectFile = fileName => {
+        const resolved = path.resolve(fileName);
+        if (!projectSourceExtensions.some(extension => resolved.endsWith(extension)) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return false;
+        const relative = path.relative(projectRoot,resolved);
+        if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+        let current = projectRoot;
+        for (const component of relative.split(path.sep)) {
+          current = path.join(current,component);
+          if (excludedProjectDirectories.has(component) || fs.lstatSync(current).isSymbolicLink()) return false;
+        }
+        return true;
+      };
+      this.projectAnalyzers = new Map([[sourcePath,this]]);
       const host = {
         getSourceFile: (fileName,languageVersion) => {
           if (path.resolve(fileName) === sourcePath) return this.tree;
-          return isLibraryFile(fileName) && fs.existsSync(fileName) ? ts.createSourceFile(fileName,fs.readFileSync(fileName,"utf8"),languageVersion) : undefined;
+          if (isLibraryFile(fileName)) return fs.existsSync(fileName) ? ts.createSourceFile(fileName,fs.readFileSync(fileName,"utf8"),languageVersion) : undefined;
+          return isProjectFile(fileName) ? this.projectAnalyzer(path.resolve(fileName))?.tree : undefined;
         },
         getDefaultLibFileName: compilerOptions => path.join(libraryDirectory,ts.getDefaultLibFileName(compilerOptions)),
         getDefaultLibLocation: () => libraryDirectory,
@@ -2984,8 +3027,11 @@ class TypeScriptAnalyzer {
         getCanonicalFileName: fileName => fileName,
         useCaseSensitiveFileNames: () => true,
         getNewLine: () => "\n",
-        fileExists: fileName => path.resolve(fileName) === sourcePath || (isLibraryFile(fileName) && fs.existsSync(fileName)),
-        readFile: fileName => path.resolve(fileName) === sourcePath ? this.source : isLibraryFile(fileName) && fs.existsSync(fileName) ? fs.readFileSync(fileName,"utf8") : undefined,
+        fileExists: fileName => path.resolve(fileName) === sourcePath || (isLibraryFile(fileName) && fs.existsSync(fileName)) || isProjectFile(fileName),
+        readFile: fileName => {
+          if (path.resolve(fileName) === sourcePath) return this.source;
+          return (isLibraryFile(fileName) || isProjectFile(fileName)) && fs.existsSync(fileName) ? fs.readFileSync(fileName,"utf8") : undefined;
+        },
       };
       this.program = ts.createProgram({rootNames:[sourcePath],options,host});
       this.checker = this.program.getTypeChecker();
@@ -2993,6 +3039,65 @@ class TypeScriptAnalyzer {
     } catch (error) {
       return error.message;
     }
+  }
+
+  // hasDataInputCodec reports whether a Step decodes its input with a Dex SDK codec, such as jsonCodec(), which yields plain data.
+  // A custom codec may decode the input into an object with methods that do I/O.
+  hasDataInputCodec(declaration) {
+    const ts = this.ts;
+    // A base class, a getter, or a constructor may supply a codec dexcli cannot read.
+    if (declaration.heritageClauses?.some(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)) return false;
+    if (/\binputCodec\b/.test(this.constructorOf(declaration)?.getText(this.tree) ?? "")) return false;
+    const members = declaration.members.filter(candidate => candidate.name && this.propertyName(candidate.name) === "inputCodec");
+    if (members.length === 0) return true;
+    if (members.length !== 1 || !ts.isPropertyDeclaration(members[0])) return false;
+    // Only an SDK codec without configuration, such as stringCodec or jsonCodec(), decodes plain data.
+    const codec = this.unwrap(members[0].initializer);
+    const isUnconfiguredCall = codec && ts.isCallExpression(codec) && codec.arguments.length === 0;
+    const codecName = codec && (isUnconfiguredCall ? this.dexName(codec.expression) : ts.isCallExpression(codec) ? undefined : this.dexName(codec));
+    return typeof codecName === "string" && codecName !== "*" && /Codec$/.test(codecName);
+  }
+
+  // projectAnalyzer returns the analyzer of another project file, which only parses it and indexes its names, or undefined.
+  projectAnalyzer(filePath) {
+    if (this.projectAnalyzers.has(filePath)) return this.projectAnalyzers.get(filePath);
+    // Past the bound, an import stays unresolved, so its calls keep the conservative classification.
+    if (this.projectAnalyzers.size > maximumProjectFiles) return undefined;
+    let analyzer;
+    try {
+      analyzer = new TypeScriptAnalyzer({path:filePath,source:fs.readFileSync(filePath,"utf8"),flowType:"",compilerEntryPath:this.compilerEntryPath});
+      for (const statement of analyzer.tree.statements) {
+        if (analyzer.ts.isImportDeclaration(statement)) analyzer.indexImport(statement);
+        if (analyzer.ts.isClassDeclaration(statement) && statement.name) analyzer.classes.set(statement.name.text,statement);
+        if (analyzer.ts.isFunctionDeclaration(statement) && statement.name && statement.body) analyzer.functions.set(statement.name.text,statement);
+        if (analyzer.ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) analyzer.indexValue(declaration.name,declaration.initializer);
+      }
+      analyzer.indexBindings();
+      analyzer.projectAnalyzers = this.projectAnalyzers;
+    } catch {
+      analyzer = undefined;
+    }
+    this.projectAnalyzers.set(filePath,analyzer);
+    return analyzer;
+  }
+
+  // projectFileExternalCall follows a function or constructor declared in another project file with that file's analyzer.
+  projectFileExternalCall(calleeText,declaration,depth) {
+    const ts = this.ts;
+    const external = {external:calleeText,isExact:true};
+    const sourceFile = declaration.getSourceFile();
+    const analyzer = this.projectAnalyzers?.get(path.resolve(sourceFile.fileName));
+    if (!analyzer || analyzer.tree !== sourceFile) return external;
+    analyzer.program = this.program;
+    analyzer.checker = this.checker;
+    if (ts.isClassDeclaration(declaration)) return analyzer.classConstructionExternalCall(calleeText,declaration,depth);
+    const implementation = analyzer.implementationOf(declaration);
+    if (!implementation) return external;
+    if (ts.isConstructorDeclaration(implementation)) return analyzer.classConstructionExternalCall(calleeText,implementation.parent,depth);
+    const isFunction = ts.isFunctionDeclaration(implementation) ||
+      ((ts.isArrowFunction(implementation) || ts.isFunctionExpression(implementation)) && ts.isVariableDeclaration(implementation.parent));
+    if (!isFunction || !implementation.body) return external;
+    return analyzer.helperExternalCall(calleeText,implementation,[implementation.body],depth);
   }
 
   // bodyExternalCalls returns the possible external calls in nodes, and whether the result is exact.
@@ -3036,7 +3141,10 @@ class TypeScriptAnalyzer {
     }
     if (!declaration && ts.isNewExpression(node)) {
       const constructed = this.sourceDeclarationOf(ts.isPropertyAccessExpression(callee) ? callee.name : callee);
-      if (constructed && ts.isClassDeclaration(constructed)) return this.classConstructionExternalCall(calleeText,constructed,depth);
+      if (constructed && ts.isClassDeclaration(constructed)) {
+        if (constructed.getSourceFile() !== this.tree) return this.projectFileExternalCall(calleeText,constructed,depth);
+        return this.classConstructionExternalCall(calleeText,constructed,depth);
+      }
     }
     return this.classifyDeclaration(calleeText,declaration,callee,depth);
   }
@@ -3126,7 +3234,7 @@ class TypeScriptAnalyzer {
     if (!declaration) return external;
     const sourceFile = declaration.getSourceFile();
     if (this.program.isSourceFileDefaultLibrary(sourceFile)) return this.isPureLibraryDeclaration(declaration) ? allowed : external;
-    if (sourceFile !== this.tree) return external;
+    if (sourceFile !== this.tree) return this.projectFileExternalCall(calleeText,declaration,depth);
     declaration = this.implementationOf(declaration);
     if (!declaration) return external;
     if (ts.isConstructorDeclaration(declaration)) return this.classConstructionExternalCall(calleeText,declaration.parent,depth);
@@ -3231,6 +3339,8 @@ class TypeScriptAnalyzer {
       return declaration && declaration.getSourceFile() === this.tree ? this.declarationDexOrigin(declaration,depth + 1) : undefined;
     }
     if (ts.isElementAccessExpression(value)) return this.dexValueOrigin(value.expression,depth + 1);
+    if (ts.isBinaryExpression(value) && fallbackOperatorKinds(ts).has(value.operatorToken.kind)) return this.alternativesDexOrigin([value.left,value.right],depth + 1);
+    if (ts.isConditionalExpression(value)) return this.alternativesDexOrigin([value.whenTrue,value.whenFalse],depth + 1);
     if (ts.isNewExpression(value)) return this.allowedRootName(this.unwrap(value.expression));
     if (ts.isCallExpression(value)) {
       const callee = this.unwrap(value.expression);
@@ -3239,6 +3349,77 @@ class TypeScriptAnalyzer {
       return this.allowedRootName(callee);
     }
     return undefined;
+  }
+
+  // alternativesDexOrigin returns the origin of a fallback, such as attribute.get(context) ?? empty, when every branch is a Dex value or literal data.
+  // A branch that reaches a Dex client or Worker decides the origin, so its calls stay external.
+  alternativesDexOrigin(alternatives,depth) {
+    let origin;
+    for (const alternative of alternatives) {
+      const alternativeOrigin = this.dexValueOrigin(alternative,depth);
+      if (alternativeOrigin && dexExternalExports.has(alternativeOrigin)) return alternativeOrigin;
+      if (alternativeOrigin) origin = origin || alternativeOrigin;
+      else if (!this.isLiteralDataValue(alternative,depth)) return undefined;
+    }
+    return origin;
+  }
+
+  // isLiteralDataValue reports whether a value is a literal written inline, or a provably data const; neither holds a service.
+  isLiteralDataValue(expression,depth) {
+    const ts = this.ts;
+    const value = this.unwrap(expression);
+    if (!value || depth > 2 * maximumHelperDepth) return false;
+    if (ts.isStringLiteral(value) || ts.isNumericLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value) || ts.isBigIntLiteral(value)) return true;
+    if ([ts.SyntaxKind.TrueKeyword,ts.SyntaxKind.FalseKeyword,ts.SyntaxKind.NullKeyword].includes(value.kind)) return true;
+    if (ts.isIdentifier(value) && value.text === "undefined") return true;
+    if (ts.isPrefixUnaryExpression(value) && [ts.SyntaxKind.MinusToken,ts.SyntaxKind.PlusToken].includes(value.operator)) return ts.isNumericLiteral(value.operand) || ts.isBigIntLiteral(value.operand);
+    if (ts.isTemplateExpression(value)) return value.templateSpans.every(span => this.isLiteralDataValue(span.expression,depth + 1));
+    if (ts.isArrayLiteralExpression(value)) return value.elements.every(element => this.isLiteralDataValue(ts.isSpreadElement(element) ? element.expression : element,depth + 1));
+    if (ts.isObjectLiteralExpression(value)) {
+      return value.properties.every(property => ts.isPropertyAssignment(property) ? !ts.isComputedPropertyName(property.name) && this.isLiteralDataValue(property.initializer,depth + 1) :
+        ts.isShorthandPropertyAssignment(property) ? this.isLiteralDataValue(property.name,depth + 1) :
+        ts.isSpreadAssignment(property) && this.isLiteralDataValue(property.expression,depth + 1));
+    }
+    return ts.isIdentifier(value) && this.isProvablyDataConst(value,depth + 1);
+  }
+
+  // isProvablyDataConst reports whether a name is a same-file const with a literal initializer and a data type.
+  // A typed binding of another origin, such as a narrow interface holding a service, never counts.
+  isProvablyDataConst(identifier,depth) {
+    const ts = this.ts;
+    const declaration = this.sourceDeclarationOf(identifier);
+    if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer || declaration.getSourceFile() !== this.tree) return false;
+    if (!ts.isVariableDeclarationList(declaration.parent) || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return false;
+    if (!this.isLiteralDataValue(declaration.initializer,depth + 1)) return false;
+    try {
+      // The use site keeps control-flow narrowing, such as "send" in value.
+      return this.isDataType(this.checker.getTypeAtLocation(declaration.name),new Set(),0) &&
+        this.isDataType(this.checker.getTypeAtLocation(identifier),new Set(),0);
+    } catch {
+      return false;
+    }
+  }
+
+  // isDataType reports whether a checked type contains no function, any, unknown, or unresolved part.
+  isDataType(type,visited,depth) {
+    const ts = this.ts;
+    if (visited.has(type)) return true;
+    if (depth > maximumDataTypeDepth) return false;
+    visited.add(type);
+    const flags = type.flags;
+    if (flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter | ts.TypeFlags.NonPrimitive | ts.TypeFlags.Never)) return false;
+    if (type.isUnionOrIntersection()) return type.types.every(part => this.isDataType(part,visited,depth + 1));
+    if (!(flags & ts.TypeFlags.Object)) return !!(flags & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.EnumLike | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void));
+    if (type.getCallSignatures().length || type.getConstructSignatures().length) return false;
+    const libraryName = type.symbol?.declarations?.some(declaration => this.program.isSourceFileDefaultLibrary(declaration.getSourceFile())) ? type.symbol.name : undefined;
+    if (this.checker.isTupleType(type) || (libraryName && dataContainerTypeNames.has(libraryName))) {
+      return this.checker.getTypeArguments(type).every(argument => this.isDataType(argument,visited,depth + 1));
+    }
+    if (libraryName && dataLibraryTypeNames.has(libraryName)) return true;
+    const location = this.tree;
+    // A getter runs code when read.
+    return this.checker.getPropertiesOfType(type).every(property => !(property.flags & ts.SymbolFlags.GetAccessor) && this.isDataType(this.checker.getTypeOfSymbolAtLocation(property,location),visited,depth + 1)) &&
+      this.checker.getIndexInfosOfType(type).every(info => this.isDataType(info.type,visited,depth + 1));
   }
 
   // allowedRootName returns the Dex SDK export or pure Node export a name refers to, or undefined.
@@ -3274,6 +3455,8 @@ class TypeScriptAnalyzer {
 
   declarationDexOrigin(declaration,depth) {
     const ts = this.ts;
+    // The Step input is decoded data, so it holds no service.
+    if (declaration === this.stepInputParameter) return "StepInput";
     if (ts.isBindingElement(declaration)) {
       let root = declaration.parent;
       while (root && (ts.isObjectBindingPattern(root) || ts.isArrayBindingPattern(root) || ts.isBindingElement(root))) root = root.parent;

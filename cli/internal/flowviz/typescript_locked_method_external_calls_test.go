@@ -10,6 +10,7 @@ package flowviz
 
 import (
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -136,7 +137,67 @@ type typeScriptLockedMethodCase struct {
 	executeBody string
 	deliverBody string
 	extraSource string
+	// projectFiles are other project source files, by path relative to workflow.ts.
+	projectFiles map[string]string
+	// sendInputCodec replaces SendReminderStep's stringCodec input codec when set.
+	sendInputCodec string
+	// linkedOutsideFiles are written under node_modules outside the project and linked from the given path.
+	linkedOutsideFiles map[string]string
+	// linkedProjectFiles maps a link path next to workflow.ts to a project file it points to.
+	linkedProjectFiles map[string]string
 }
+
+const typeScriptReminderStateSource = `import { jsonCodec } from "@superdurable/dex";
+
+interface ReminderState {
+  sent: string[];
+}
+
+const emptyState: ReminderState = {sent: []};
+const reminderState = new Attribute("ReminderState", jsonCodec<ReminderState>());`
+
+const typeScriptNamedFallbackSource = typeScriptReminderStateSource + `
+
+interface ReminderTree {
+  label: string;
+  children: ReminderTree[];
+  byName: Record<string, ReminderTree>;
+}
+
+interface FormattedState {
+  sent: string[];
+  format: (text: string) => string;
+}
+
+const emptyTree: ReminderTree = {label: "", children: [], byName: {}};
+const reminderTree = new Attribute("ReminderTree", jsonCodec<ReminderTree>());
+const formattedState = new Attribute("FormattedState", jsonCodec<FormattedState>());
+const emptyFormattedState: FormattedState = {sent: [], format: text => text};
+const untypedState: any = {sent: []};`
+
+const typeScriptFallbackExecuteBody =`const current = reminderState.get(context) ?? {sent: []};
+    const other = reminderState.get(context) || {sent: []};
+    const chosen = input === "" ? current : {sent: []};
+    counter.set(context, current.sent.filter(Boolean).length + other.sent.slice(0).length + chosen.sent.map(String).length);`
+
+const typeScriptTicketsModule = `export interface Ticket {
+  id: string;
+}
+
+export function ticketLabel(text: string): string {
+  return text.trim().toUpperCase();
+}
+
+export function notifyCustomer(text: string): Promise<Response> {
+  return fetch("https://example.com/" + text);
+}
+`
+
+const typeScriptTicketHelperSource = `import { notifyCustomer, ticketLabel, type Ticket } from "./tickets.js";
+
+function ticketIds(tickets: readonly Ticket[]): string[] {
+  return tickets.map(ticket => ticket.id.trim());
+}`
 
 const typeScriptPureExecuteBody = `const names: string[] = [input.trim().toUpperCase(), String(counter.get(context)), context.flowId.toLowerCase()];
     names.sort((left, right) => left.localeCompare(right));
@@ -193,6 +254,8 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 		source typeScriptLockedMethodCase
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
+		// isExecuteClean requires a checked SendReminderStep execute with no possible external call.
+		isExecuteClean bool
 	}{
 		"execute calls an injected service while holding an RPC lock": {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);"},
@@ -255,6 +318,138 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls this.flow.mailer.send" + typeScriptLockedMessageSuffix},
 		},
+		"Attribute values with fallbacks use collection methods": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: typeScriptFallbackExecuteBody,
+				extraSource: typeScriptReminderStateSource,
+			},
+			isExecuteClean: true,
+		},
+		"pure helper and data type from a project file": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "counter.set(context, ticketIds([{id: input}]).length + ticketLabel(input).length);",
+				extraSource: typeScriptTicketHelperSource, projectFiles: map[string]string{"tickets.ts": typeScriptTicketsModule},
+			},
+			isExecuteClean: true,
+		},
+		"fallback branch reaches a Dex Client": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const target = input ? ending : this.flow.client;\n    if (\"stopFlow\" in target) void target.stopFlow(input);",
+			},
+			messages: []string{"and calls target.stopFlow" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is a written array": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const local: Mailer[] = [];\n    local.push(this.flow.mailer);\n    const chosen = reminderState.get(context) ?? local;\n    const item = chosen[0] as Mailer;\n    void item.send(input);",
+				extraSource: typeScriptReminderStateSource,
+			},
+			messages: []string{"and calls item.send" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is a named data constant": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? emptyState;\n    const chosen = input === \"\" ? current : emptyState;\n    counter.set(context, current.sent.filter(Boolean).length + chosen.sent.slice(0).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			isExecuteClean: true,
+		},
+		"fallback branch is a named constant of a recursive data type": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const tree = reminderTree.get(context) ?? emptyTree;\n    counter.set(context, tree.children.filter(child => child.label !== \"\").length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			isExecuteClean: true,
+		},
+		"fallback branch type has a function-valued property": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = formattedState.get(context) ?? emptyFormattedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is a narrow data type holding an injected service": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const fallback: {} = this.flow.mailer;\n    const destination = input ? ending : fallback;\n    if (\"send\" in destination && typeof destination.send === \"function\") void destination.send(input);",
+			},
+			messages: []string{"and calls destination.send" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch narrowed to a method an alias attached": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const fallback = {id: \"local\"};\n    const prepared: {id: string; send?: Mailer[\"send\"]} = fallback;\n    prepared.send = this.flow.mailer.send;\n    if (\"send\" in fallback && typeof fallback.send === \"function\") {\n      const destination = input ? ending : fallback;\n      if (\"send\" in destination && typeof destination.send === \"function\") void destination.send(input);\n    }",
+			},
+			messages: []string{"and calls destination.send" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is typed any": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const current = reminderState.get(context) ?? untypedState;\n    counter.set(context, current.sent.filter(Boolean).length);",
+				extraSource: typeScriptNamedFallbackSource,
+			},
+			messages: []string{"and calls current.sent.filter" + typeScriptLockedMessageSuffix},
+		},
+		"fallback branch is a written array through an alias": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "const local: Mailer[] = [];\n    const alias = input ? local : local;\n    alias.push(this.flow.mailer);\n    const chosen = reminderState.get(context) ?? local;\n    const item = chosen[0] as Mailer;\n    void item.send(input);",
+				extraSource: typeScriptReminderStateSource,
+			},
+			messages: []string{"and calls item.send" + typeScriptLockedMessageSuffix},
+		},
+		"Step input decoded by a configured SDK codec": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void (input as unknown as Mailer).send(\"hello\");",
+				extraSource:    "import { jsonCodec as configuredJsonCodec } from \"@superdurable/dex\";",
+				sendInputCodec: "configuredJsonCodec<string>({decode: () => ({send: async (url: string) => { await fetch(url); }})} as never)",
+			},
+			messages: []string{"(input as unknown as Mailer).send" + typeScriptLockedMessageSuffix},
+		},
+		"Step input decoded by an unconfigured SDK codec": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, input.trim().length);",
+				extraSource:    "import { jsonCodec as plainJsonCodec } from \"@superdurable/dex\";",
+				sendInputCodec: "plainJsonCodec<string>()",
+			},
+			isExecuteClean: true,
+		},
+		"symbolic link inside the project is not followed": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void parse(input);",
+				extraSource:        "import { parse } from \"./shim.js\";",
+				projectFiles:       map[string]string{"real.ts": "export function parse(text: string): string { return text.trim(); }\n"},
+				linkedProjectFiles: map[string]string{"shim.ts": "real.ts"},
+			},
+			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+		},
+		"Step input decoded by a custom codec": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void (input as unknown as Mailer).send(\"hello\");",
+				extraSource:    "const mailerCodec = {...stringCodec, decode: () => ({send: async (url: string) => { await fetch(url); }})};",
+				sendInputCodec: "mailerCodec",
+			},
+			messages: []string{"(input as unknown as Mailer).send" + typeScriptLockedMessageSuffix},
+		},
+		"symbolic link into node_modules is not followed": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void parse(input);",
+				extraSource:        "import { parse } from \"./shim.js\";",
+				linkedOutsideFiles: map[string]string{"shim.ts": "export function parse(text: string): string { return text.trim(); }\n"},
+			},
+			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+		},
+		"project file helper calls fetch": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void notifyCustomer(input);",
+				extraSource: typeScriptTicketHelperSource, projectFiles: map[string]string{"tickets.ts": typeScriptTicketsModule},
+			},
+			messages: []string{"and calls notifyCustomer (calls fetch)" + typeScriptLockedMessageSuffix},
+		},
 	}
 	for _, name := range slices.Sorted(maps.Keys(testCases)) {
 		testCase := testCases[name]
@@ -271,6 +466,13 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
 			for index, fragment := range testCase.messages {
 				require.Contains(t, messages[index], fragment)
+			}
+			if testCase.isExecuteClean {
+				executeIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
+					return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"
+				})
+				require.NotEqual(t, -1, executeIndex, "%+v", graph.methodExternalCalls)
+				require.Empty(t, graph.methodExternalCalls[executeIndex].Calls)
 			}
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 		})
@@ -318,8 +520,24 @@ func analyzeTypeScriptLockedMethodSource(t *testing.T, source typeScriptLockedMe
 		"DELIVER_BODY", source.deliverBody,
 		"EXTRA_SOURCE", source.extraSource,
 	)
-	sourcePath := filepath.Join(t.TempDir(), "workflow.ts")
-	writeTestFile(t, sourcePath, replacer.Replace(typeScriptLockedMethodSource))
+	sourceDirectory := t.TempDir()
+	for relativePath, contents := range source.projectFiles {
+		writeTestFile(t, filepath.Join(sourceDirectory, relativePath), contents)
+	}
+	outsideDirectory := filepath.Join(t.TempDir(), "node_modules", "pkg")
+	for relativePath, contents := range source.linkedOutsideFiles {
+		writeTestFile(t, filepath.Join(outsideDirectory, relativePath), contents)
+		require.NoError(t, os.Symlink(filepath.Join(outsideDirectory, relativePath), filepath.Join(sourceDirectory, relativePath)))
+	}
+	for linkPath, targetPath := range source.linkedProjectFiles {
+		require.NoError(t, os.Symlink(filepath.Join(sourceDirectory, targetPath), filepath.Join(sourceDirectory, linkPath)))
+	}
+	contents := replacer.Replace(typeScriptLockedMethodSource)
+	if source.sendInputCodec != "" {
+		contents = strings.Replace(contents, "public readonly inputCodec = stringCodec;", "public readonly inputCodec = "+source.sendInputCodec+";", 1)
+	}
+	sourcePath := filepath.Join(sourceDirectory, "workflow.ts")
+	writeTestFile(t, sourcePath, contents)
 	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow", TypeScriptCompilerDirectory: compilerDirectory})
 	require.NoError(t, err)
 	return graph

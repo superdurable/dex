@@ -49,7 +49,10 @@ func analyzeRust(ctx context.Context, sourcePath string, source []byte, cargoPat
 		return rustAnalyzerFailure(sourcePath, err), nil
 	}
 	defer cache.lock.Close()
-	request, err := json.Marshal(map[string]string{"path": sourcePath, "source": string(source), "flowType": flowType})
+	request, err := json.Marshal(map[string]any{
+		"path": sourcePath, "source": string(source), "flowType": flowType,
+		"dexSdkCrateAliases": rustDexSDKCrateAliases(sourcePath),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("encode Rust analyzer input: %w", err)
 	}

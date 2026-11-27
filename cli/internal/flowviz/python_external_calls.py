@@ -10,6 +10,7 @@ import ast
 import builtins
 import datetime
 import decimal
+import os
 
 # Standard-library modules whose functions and objects do no I/O; PYTHON_DENIED_STANDARD_LIBRARY_CALLS lists exceptions.
 PYTHON_PURE_STANDARD_LIBRARY_MODULES = {
@@ -78,6 +79,12 @@ OPAQUE = "opaque"
 LOCAL_FUNCTION = "local_function"
 # A value whose kind depends on itself, such as value = value.strip(); other bindings decide it.
 CYCLE = "cycle"
+# Asks helper_call_with_kinds to infer the result kind from the helper's returns.
+RETURNED_KIND = "returned_kind"
+
+# Directories that hold installed packages, never project modules.
+PYTHON_INSTALLED_PACKAGE_DIRECTORIES = {"site-packages", "dist-packages", ".venv", "venv", "node_modules", "__pycache__"}
+PYTHON_MAXIMUM_REEXPORT_DEPTH = 4
 
 
 class ExternalCallScope:
@@ -97,6 +104,11 @@ class ExternalCallAnalyzer:
         self.helpers_in_progress = set()
         self.kinds_in_progress = set()
         self.pending_method_external_calls = []
+        # Opaque while checking a project-module constructor whose caller passes opaque arguments.
+        self.default_parameter_kind = DATA
+        self.external_call_owner_id = ""
+        # Parsed project modules by absolute path, shared with every module analyzer; None marks an unreadable module.
+        self.project_module_analyzers = {}
 
     def defer_method_external_calls(self, owner_id, step_class, phase):
         self.pending_method_external_calls.append((owner_id, step_class, phase, self.current_frame))
@@ -206,6 +218,9 @@ class ExternalCallAnalyzer:
                 return None, SDK, True
             if self.is_pure_standard_library_call(qualified):
                 return None, SDK, True
+            target = self.project_module_target(qualified)
+            if target is not None:
+                return self.project_module_call(callee, target, arguments, keywords, scope)
             return callee, OPAQUE, True
         if isinstance(function, ast.Name):
             return self.classify_name_call(function, arguments, keywords, scope)
@@ -223,7 +238,7 @@ class ExternalCallAnalyzer:
         if binding_scope is self.tree:
             binding = self.static_binding(self.tree, function.id)
             if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                return self.helper_call(callee, binding, None, arguments, keywords, scope, DATA)
+                return self.helper_call(callee, binding, None, arguments, keywords, scope, RETURNED_KIND)
             if isinstance(binding, ast.ClassDef):
                 return self.construction_call(callee, binding, arguments, keywords, scope)
             return callee, OPAQUE, True
@@ -363,41 +378,80 @@ class ExternalCallAnalyzer:
 
     def helper_call(self, callee, function, self_kind, arguments, keywords, scope, result_kind):
         parameter_kinds = self.helper_parameter_kinds(function, self_kind, arguments, keywords, scope)
+        return self.helper_call_with_kinds(callee, function, self_kind, parameter_kinds, scope.depth, result_kind)
+
+    # result_kind RETURNED_KIND infers the kind from the helper's return statements.
+    def helper_call_with_kinds(self, callee, function, self_kind, parameter_kinds, depth, result_kind):
         # Step fields and resources resolve per Step node, so the node is part of the key.
         key = (self.external_call_owner_id, function, self_kind, tuple(sorted(parameter_kinds.items())))
+        helper_scope = ExternalCallScope(function, self_kind, parameter_kinds, depth + 1)
         cached = self.helper_external_call_results.get(key, False)
         if cached is not False:
-            return (None if cached is None else f"{callee} (calls {cached})"), (OPAQUE if cached else result_kind), True
+            if cached:
+                return f"{callee} (calls {cached})", OPAQUE, True
+            return None, self.helper_result_kind(helper_scope, result_kind), True
         if key in self.helpers_in_progress:
-            return None, result_kind, False
-        if scope.depth + 1 > PYTHON_MAXIMUM_HELPER_DEPTH:
+            return None, DATA if result_kind == RETURNED_KIND else result_kind, False
+        if depth + 1 > PYTHON_MAXIMUM_HELPER_DEPTH:
             return f"{callee} (calls a helper chain deeper than dexcli follows)", OPAQUE, False
         self.helpers_in_progress.add(key)
-        calls, is_exact = self.function_external_calls(ExternalCallScope(function, self_kind, parameter_kinds, scope.depth + 1), first_only=True)
+        calls, is_exact = self.function_external_calls(helper_scope, first_only=True)
         self.helpers_in_progress.discard(key)
         inner = calls[0]["callee"] if calls else None
         if is_exact:
             self.helper_external_call_results[key] = inner
         if inner is None:
-            return None, result_kind, is_exact
+            return None, self.helper_result_kind(helper_scope, result_kind), is_exact
         return f"{callee} (calls {inner})", OPAQUE, is_exact
 
-    def helper_parameter_kinds(self, function, self_kind, arguments, keywords, scope):
-        positional = [*function.args.posonlyargs, *function.args.args]
-        if self_kind is not None and positional:
-            positional = positional[1:]
+    # A clean helper returns an SDK value when every return is one, such as a Channel; opaque when any return is unknown.
+    def helper_result_kind(self, helper_scope, result_kind):
+        if result_kind != RETURNED_KIND:
+            return result_kind
+        returns = [statement.value for statement in self.function_returns(helper_scope.function) if statement.value is not None]
+        if not returns:
+            return DATA
+        key = ("returns", helper_scope.function, tuple(sorted(helper_scope.parameter_kinds.items())))
+        if key in self.kinds_in_progress:
+            return DATA
+        self.kinds_in_progress.add(key)
+        try:
+            kind = self.combined_kind([self.value_kind(value, helper_scope) for value in returns])
+        finally:
+            self.kinds_in_progress.discard(key)
+        # An unknown return path, such as a module-level client, keeps its methods external.
+        if kind in (SDK, OPAQUE):
+            return kind
+        return DATA
+
+    # defaults_analyzer reads default values in the callee's module, which may differ from the caller's.
+    def helper_parameter_kinds(self, function, self_kind, arguments, keywords, scope, defaults_analyzer=None):
+        all_positional = [*function.args.posonlyargs, *function.args.args]
+        positional = all_positional[1:] if self_kind is not None and all_positional else all_positional
         kinds = {}
         for parameter in [*positional, *function.args.kwonlyargs]:
-            kinds[parameter.arg] = DATA
+            kinds[parameter.arg] = self.default_parameter_kind
+        defaults_analyzer = defaults_analyzer or self
+        positional_defaults = function.args.defaults
+        for parameter, default in zip(all_positional[len(all_positional) - len(positional_defaults):], positional_defaults):
+            if parameter.arg in kinds:
+                kinds[parameter.arg] = defaults_analyzer.default_value_kind(default)
+        for parameter, default in zip(function.args.kwonlyargs, function.args.kw_defaults):
+            if default is not None:
+                kinds[parameter.arg] = defaults_analyzer.default_value_kind(default)
         extra_kinds = []
         for index, argument in enumerate(arguments):
-            kind = self.argument_kind(argument.value if isinstance(argument, ast.Starred) else argument, scope)
-            if index < len(positional) and not isinstance(argument, ast.Starred):
+            if isinstance(argument, ast.Starred):
+                # An unpacked argument may fill any parameter with any value.
+                extra_kinds.append(OPAQUE)
+                continue
+            kind = self.argument_kind(argument, scope)
+            if index < len(positional):
                 kinds[positional[index].arg] = kind
             else:
                 extra_kinds.append(kind)
         for keyword in keywords:
-            kind = self.argument_kind(keyword.value, scope)
+            kind = self.argument_kind(keyword.value, scope) if keyword.arg is not None else OPAQUE
             if keyword.arg in kinds:
                 kinds[keyword.arg] = kind
             else:
@@ -410,6 +464,11 @@ class ExternalCallAnalyzer:
             if parameter is not None:
                 kinds[parameter.arg] = OPAQUE if any(kind != DATA for kind in extra_kinds) else DATA
         return kinds
+
+    # A default value is data or a Dex SDK value only when its module builds it from allowed calls.
+    def default_value_kind(self, default):
+        kind = self.module_value_kind(default)
+        return kind if kind in (DATA, SDK) else OPAQUE
 
     # A helper argument still being resolved is checked as opaque, never as data.
     def argument_kind(self, argument, scope):
@@ -439,6 +498,12 @@ class ExternalCallAnalyzer:
             self.kinds_in_progress.discard(key)
 
     def expression_kind(self, expression, scope):
+        if isinstance(expression, (ast.List, ast.Tuple, ast.Set)) and expression.elts:
+            # A sequence of Dex SDK values, such as a tuple of Channels, keeps their methods.
+            element_kinds = [self.value_kind(element, scope) for element in expression.elts]
+            if all(kind == SDK for kind in element_kinds):
+                return SDK
+            return DATA
         if isinstance(expression, (ast.Constant, ast.JoinedStr, ast.List, ast.Tuple, ast.Set, ast.Dict, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.BinOp, ast.UnaryOp, ast.Compare)):
             return DATA
         if isinstance(expression, ast.BoolOp):
@@ -453,7 +518,9 @@ class ExternalCallAnalyzer:
             owner_kind = self.value_kind(expression.value, scope)
             if owner_kind == CYCLE:
                 return CYCLE
-            return DATA if owner_kind in (DATA, SDK, CONTEXT) else OPAQUE
+            if owner_kind == SDK:
+                return SDK
+            return DATA if owner_kind in (DATA, CONTEXT) else OPAQUE
         if isinstance(expression, ast.Call):
             callee, kind, _ = self.classify_call(expression.func, expression.args, expression.keywords, scope)
             return OPAQUE if callee is not None else kind
@@ -470,7 +537,7 @@ class ExternalCallAnalyzer:
             return DATA
         qualified = self.qualified_import_name(name)
         if qualified is not None:
-            return SDK if self.is_allowed_qualified_value(qualified) else OPAQUE
+            return SDK if self.is_allowed_qualified_value(qualified) else self.project_module_value_kind(qualified)
         binding_scope = self.binding_scope(name)
         if binding_scope is self.tree:
             binding = self.static_binding(self.tree, name.id)
@@ -531,7 +598,7 @@ class ExternalCallAnalyzer:
     def attribute_kind(self, attribute, scope):
         qualified = self.qualified_import_name(attribute)
         if qualified is not None:
-            return SDK if self.is_allowed_qualified_value(qualified) else OPAQUE
+            return SDK if self.is_allowed_qualified_value(qualified) else self.project_module_value_kind(qualified)
         owner_kind = self.value_kind(attribute.value, scope)
         if owner_kind == CYCLE:
             return CYCLE
@@ -550,8 +617,21 @@ class ExternalCallAnalyzer:
             return self.dex_field_kind(attribute)
         if isinstance(attribute.value, ast.Name) and self.static_binding(self.tree, attribute.value.id) is declaration:
             # A class attribute, such as an Enum member or a constant.
-            return DATA
+            return self.class_attribute_kind(declaration, attribute.attr)
         return self.instance_field_kind(declaration, attribute.attr)
+
+    # A class attribute is data or an SDK value only when its class-body assignment builds it from allowed calls.
+    # Any other binding of the name, such as a rebinding or del, keeps it opaque.
+    def class_attribute_kind(self, declaration, name):
+        if self.has_dynamic_attributes or name in self.foreign_attribute_stores:
+            return OPAQUE
+        bindings = self.scope_bindings.get(declaration, {}).get(name, [])
+        statement = self.parents.get(bindings[0]) if len(bindings) == 1 else None
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)) or statement.value is None or self.parents.get(statement) is not declaration:
+            return OPAQUE
+        if isinstance(statement, ast.Assign) and statement.targets != [bindings[0]]:
+            return OPAQUE
+        return self.default_value_kind(statement.value)
 
     # A Step or Flow field is data only when its stored value resolves; a Flow reference keeps its methods.
     def dex_field_kind(self, attribute):
@@ -644,3 +724,167 @@ class ExternalCallAnalyzer:
         if binding.asname:
             return binding.name
         return binding.name.split(".")[0]
+
+    # Project modules are parsed, never imported or run, so following them executes no project code.
+    def project_module_call(self, callee, target, arguments, keywords, scope):
+        analyzer, kind, node = target
+        if kind in ("function", "class") and not all(analyzer.is_followed_project_decorator(decorator) for decorator in node.decorator_list):
+            # A decorator may replace the function or class with code that does I/O.
+            return callee, OPAQUE, True
+        if kind == "function":
+            parameter_kinds = {
+                name: parameter_kind if parameter_kind in (DATA, SDK, CONTEXT) else OPAQUE
+                for name, parameter_kind in self.helper_parameter_kinds(node, None, arguments, keywords, scope, analyzer).items()
+            }
+            analyzer.external_call_owner_id = ""
+            external, result_kind, is_exact = analyzer.helper_call_with_kinds(callee, node, None, parameter_kinds, scope.depth, RETURNED_KIND)
+            return external, result_kind if external is None else OPAQUE, is_exact
+        if kind == "class":
+            argument_kinds = [OPAQUE if isinstance(argument, ast.Starred) else self.argument_kind(argument, scope) for argument in arguments]
+            argument_kinds += [OPAQUE if keyword.arg is None else self.argument_kind(keyword.value, scope) for keyword in keywords]
+            analyzer.default_parameter_kind = DATA if all(argument_kind in (DATA, SDK, CONTEXT) for argument_kind in argument_kinds) else OPAQUE
+            analyzer.external_call_owner_id = ""
+            try:
+                external, _, is_exact = analyzer.construction_call(callee, node, [], [], ExternalCallScope(None, None, {}, scope.depth))
+            finally:
+                analyzer.default_parameter_kind = DATA
+            return external, DATA if external is None else OPAQUE, is_exact
+        return callee, OPAQUE, True
+
+    # The Step method decorators, plus dataclasses.dataclass, whose generated methods the constructor check reads.
+    def is_followed_project_decorator(self, decorator):
+        if self.is_followed_step_method_decorator(decorator):
+            return True
+        return self.qualified_import_name(decorator.func if isinstance(decorator, ast.Call) else decorator) == "dataclasses.dataclass"
+
+    # A project-module value is a Dex SDK value or data only when the module builds it from allowed calls.
+    def project_module_value_kind(self, qualified):
+        target = self.project_module_target(qualified)
+        if target is None:
+            return OPAQUE
+        analyzer, kind, node = target
+        if kind == "class_attribute":
+            return analyzer.class_attribute_kind(*node)
+        if kind != "value":
+            return OPAQUE
+        value_kind = analyzer.module_value_kind(node)
+        return value_kind if value_kind in (DATA, SDK) else OPAQUE
+
+    # Returns (module analyzer, "function" | "class" | "class_attribute" | "value", node) for a project-module name, or None.
+    def project_module_target(self, qualified, reexport_depth=0):
+        if reexport_depth > PYTHON_MAXIMUM_REEXPORT_DEPTH or not self.path:
+            return None
+        if ":" in qualified:
+            module, _, rest = qualified.partition(":")
+            level = len(module) - len(module.lstrip("."))
+            base = os.path.dirname(os.path.abspath(self.path))
+            # A relative import stays inside packages: every directory it climbs through has an __init__.py.
+            for climbed in range(level):
+                if not os.path.isfile(os.path.join(base, "__init__.py")):
+                    return None
+                if climbed < level - 1:
+                    base = os.path.dirname(base)
+            module_path = self.project_module_path(base, [part for part in module[level:].split(".") if part])
+            names = rest.split(".")
+        else:
+            parts = qualified.split(".")
+            module_path = self.project_module_path(self.project_boundary()["import_root"], parts[:1])
+            names = parts[1:]
+        if module_path is None or not names:
+            return None
+        return self.project_member_target(module_path, names, reexport_depth)
+
+    # Resolves names[0] in a module as Python does for from-imports: a package binding first, then a submodule.
+    # A package that binds the name and also has a submodule of that name is ambiguous, so it stays unresolved.
+    def project_member_target(self, module_path, names, reexport_depth):
+        analyzer = self.project_module_analyzer(module_path)
+        if analyzer is None:
+            return None
+        is_bound = names[0] in analyzer.scope_bindings.get(analyzer.tree, {})
+        submodule = None
+        if os.path.basename(module_path) == "__init__.py" and len(names) > 1:
+            submodule = self.project_module_path(os.path.dirname(module_path), names[:1])
+        if is_bound and submodule is not None:
+            return None
+        if is_bound:
+            return analyzer.project_module_binding(names, reexport_depth)
+        if submodule is not None:
+            return self.project_member_target(submodule, names[1:], reexport_depth)
+        return None
+
+    def project_module_binding(self, names, reexport_depth):
+        binding = self.static_binding(self.tree, names[0])
+        if isinstance(binding, ast.ClassDef):
+            if len(names) == 1:
+                return self, "class", binding
+            return (self, "class_attribute", (binding, names[1])) if len(names) == 2 else None
+        if len(names) != 1:
+            return None
+        if isinstance(binding, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return self, "function", binding
+        if isinstance(binding, ast.alias):
+            # A package re-export, such as from .helpers import parse_local_time in __init__.py.
+            statement = self.parents.get(binding)
+            if not isinstance(statement, ast.ImportFrom):
+                return None
+            module = "." * statement.level + (statement.module or "")
+            qualified = f"{module}.{binding.name}" if statement.level == 0 else f"{module}:{binding.name}"
+            return self.project_module_target(qualified, reexport_depth + 1)
+        statement = self.assignment_statement(self.tree, binding) if binding is not None else None
+        return (self, "value", statement.value) if statement is not None else None
+
+    # Returns the import root fixed by the Flow file: the directory above its outermost package, or its own directory.
+    # Every analyzer of one run shares it, so a project module never moves the boundary.
+    def project_boundary(self):
+        boundary = self.project_module_analyzers.get("")
+        if boundary is None:
+            source_directory = os.path.dirname(os.path.abspath(self.path))
+            import_root = source_directory
+            while os.path.isfile(os.path.join(import_root, "__init__.py")) and os.path.dirname(import_root) != import_root:
+                import_root = os.path.dirname(import_root)
+            boundary = {"import_root": import_root}
+            self.project_module_analyzers[""] = boundary
+        return boundary
+
+    # Python prefers a package directory over a same-named module file.
+    # A module outside the import root, under an installed-package directory, or reached through a symbolic link stays unresolved.
+    def project_module_path(self, root, parts):
+        if any(not part.isidentifier() for part in parts):
+            return None
+        import_root = os.path.abspath(self.project_boundary()["import_root"])
+        for candidate in (os.path.join(root, *parts, "__init__.py"), os.path.join(root, *parts) + ".py"):
+            if not os.path.isfile(candidate):
+                continue
+            relative = os.path.relpath(os.path.abspath(candidate), import_root)
+            components = relative.split(os.sep)
+            if relative.startswith(os.pardir) or any(component in PYTHON_INSTALLED_PACKAGE_DIRECTORIES for component in components):
+                return None
+            path = import_root
+            for component in components:
+                path = os.path.join(path, component)
+                if os.path.islink(path):
+                    return None
+            return path
+        return None
+
+    def project_module_analyzer(self, module_path):
+        analyzers = self.project_module_analyzers
+        self.project_boundary()
+        analyzers.setdefault(os.path.abspath(self.path), self)
+        if module_path in analyzers:
+            return analyzers[module_path]
+        analyzers[module_path] = None
+        try:
+            with open(module_path, encoding="utf-8") as module_file:
+                source = module_file.read()
+            analyzer = type(self)(module_path, source, "")
+            analyzer.tree = ast.parse(source, filename=module_path)
+        except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
+            return None
+        analyzer.project_module_analyzers = analyzers
+        analyzer.parents = {child: parent for parent in ast.walk(analyzer.tree) for child in ast.iter_child_nodes(parent)}
+        analyzer.index_imports()
+        analyzer.index_classes()
+        analyzer.index_bindings()
+        analyzers[module_path] = analyzer
+        return analyzer

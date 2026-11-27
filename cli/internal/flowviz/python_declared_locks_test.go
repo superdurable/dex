@@ -499,7 +499,7 @@ func TestPythonDeclaredLockDiagnostics(t *testing.T) {
 				stepOptions:  "    def get_step_options(self):\n        LOCKS = (CartFlow.total.lock(),)\n        return StepOptions(execute_lock_attributes=LOCKS)\n",
 				executeBody:  "CartFlow.total.set(context, 1)",
 			},
-			diagnostics: []string{"warning declared_lock_unresolved"},
+			// The local list resolves through the get_step_options frame, as the lock edges do, so it holds the lock.
 		},
 		"receiver attribute of another object": {
 			source: pythonDeclaredLocksCase{
