@@ -597,7 +597,7 @@ impl Step for LongLiveHandleSubFlow {
 - 每个 worker 负责自己消费的请求。在这个 lock 下，它只提交下一步：进入不持有 lock 的 `HandleChild` 启动子 Flow；或者在关闭后进入不持有 lock 的 `ReturnRequest`，通过以请求为键的幂等路径交还请求（比如回复提交方），再领取下一个请求。RPC 也拿这个 lock，所以 worker 持有它时不调用其他系统或 Flow。排队的请求不会被丢掉，也不会被交还两次。
 - 一个关闭 Step 等待关闭消息，然后 graceful complete。
 - Channel condition 仍然优先于 graceful completion condition，所以关闭后 worker 继续领取并交还排队的请求。队列清空后，空闲的 worker 通过 graceful completion condition 被唤醒并结束自己的分支。有运行中子 Flow 的 worker 先等它结束。
-- 接收 RPC 用 Channel 大小检查上限。每个 RPC 都能拿到 Channel 大小，所以父 Flow 不需要另外的等待计数器。放在一个 Channel 里的等待列表必须在 server 的[每个 Channel 消息上限](/reference/server/configuration#limits)（英文）之内。可以把它拆到多个 Channel，或者调高上限。
+- 接收 RPC 用 Channel 大小检查上限。每个 RPC 都能拿到 Channel 大小，所以父 Flow 不需要另外的等待计数器。放在一个 Channel 里的等待列表必须在 server 的[每个 Channel 消息上限](/reference/server/configuration#limits)（英文）之内。等待列表可能更长时，把它拆到多个 Channel。这样不依赖 server 配置。
 - graceful completion condition 需要 SDK 和 server 支持；见 [Graceful completion requests](/reference/go/waits#graceful-completion-requests)（英文）。没有它时，关闭 Step 给每个 worker 发布一条唤醒消息，每个 worker 同时等待这个唤醒 Channel，它声明在请求 Channel 之后。
 
 以下步骤描述可关闭接收的变体。它额外的 Step（例如 `CloseIntake`）不在上面的图中。

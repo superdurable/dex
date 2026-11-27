@@ -270,7 +270,7 @@ CloseIntake.waitFor -> Until(CloseRequests.ForOne())
 CloseIntake.execute -> gracefulComplete()
 ```
 
-- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter. A waiting list held in one Channel must fit the Server's per-Channel message limit; split it or raise the limit.
+- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter. A waiting list held in one Channel must fit the Server's per-Channel message limit. When the waiting list can be longer, split it across Channels; this does not depend on Server configuration.
 - Each worker owns the request it consumed. Under the `intakeClosed` lock it only commits its next move: to `HandleChild`, which starts the child without the lock and finishes even after the close, or, after the close, to `ReturnRequest`, which sends the returned request back without the lock through an idempotent path keyed by the request. The RPCs take that lock, so the locked Execute calls no other system or Flow. A queued request is never silently dropped or handed back twice.
 - The runnable long-lived parent examples show the basic variant: a later Step starts each child, and a stop RPC ends the workers. They have no closable intake, shared admission lock, or returned-request reply.
 - After the close, Channel Conditions still win over the graceful completion Condition, so workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion Condition and end with DeadEnd. Running children finish first, and the Flow completes when the last branch ends.
