@@ -105,8 +105,10 @@ pub struct EffectsConfig {
     /// Default 1 hour, `timers.fullScanInterval`; zero disables. When idle, a timer service
     /// starts one due scan from its partition's Timer index prefix at this interval, in case a
     /// timer was armed without notifying it. Due rows beyond one pass's load threshold are read
-    /// in later passes. The service logs at ERROR each due row the scan finds below its previous
-    /// read cursor when no arm notification covers the row.
+    /// in later passes. The first pass of a full scan checks the due rows it reads below the
+    /// previous read cursor, except rows with a retry delay. It tracks at most 16 of them and
+    /// counts the rest in one WARN line. A tracked row for which the service observes no covering
+    /// arm notification within 10 seconds is logged at ERROR.
     pub timer_full_scan_interval: Duration,
     /// Default 1024. Number of timer index rows read per page of a partition. A pass keeps
     /// paging past rows in retry backoff until it has read this many other rows.

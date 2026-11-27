@@ -1066,17 +1066,23 @@ it reads the normal way. Normally it finds no timer that the read position
 skipped. A process restart and a partition rebuild also read from the first
 timer.
 
-When a full scan finds a due timer below the old read position, and no arm
-notification for it arrives within 10 seconds, the server logs an ERROR line,
-"a full timer scan found and fired a due timer that no arm notification
-reported". The line has the partition, run ID, timer ID, fire time, and old
-read position. One scan logs at most 16 timers. A WARN line counts the rest.
+The first pass of a full scan also checks the due timers it reads below the
+old read position. Timers with a retry delay are left out, because an earlier
+pass already read them. The service tracks at most 16 such timers at a time,
+and one WARN line counts the rest. A tracked timer for which the service
+observes no covering arm notification within 10 seconds gets an ERROR line, "a
+full timer scan found a due timer below the previous read cursor and observed
+no covering arm notification within the grace period". The line has the
+partition, run ID, timer ID, fire time, and old read position. The ERROR
+reports an observation; a notification that is only late also produces it.
+Timers read by later passes of the same scan, past the first pass's load
+limit, fire without this check.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **timers.fullScanInterval** | 1h | Time between two full scans of each partition's timers. 0 turns the full scan off. |
 
-A timer never fires before its fire time.
+A full scan selects only timers that are already due when it reads them.
 
 ~~~yaml
 timers:

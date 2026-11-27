@@ -138,7 +138,10 @@ pub struct TimersConfig {
     /// Defaults to 1 h; 0 disables. At this interval, each partition's timer service starts one
     /// pass from its first timer instead of its read position. The pass fires every due timer
     /// it reads the normal way. It is insurance against a timer written without an arm
-    /// notification, and normally finds nothing. Each such timer it finds is logged at ERROR.
+    /// notification, and normally finds nothing. The first pass of a scan checks the due timers
+    /// it reads below the previous read position, except timers with a retry delay. It tracks at
+    /// most 16 and counts the rest in one WARN line. A tracked timer is logged at ERROR when the
+    /// service observes no covering arm notification within 10 seconds.
     #[serde(with = "humantime_serde")]
     pub full_scan_interval: Duration,
 }

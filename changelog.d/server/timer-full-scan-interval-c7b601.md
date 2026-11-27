@@ -1,4 +1,4 @@
 ---
 section: Added
 ---
-- **timers.fullScanInterval** (default 1h, 0 turns it off) sets how often each partition's timer service reads its due timers from the first one. A due timer it finds that no arm notification reported is fired and logged at ERROR. [Reference](/reference/server/configuration#timers)
+- **timers.fullScanInterval** (default 1h, 0 off) sets how often timer services rescan all due timers. The first pass tracks up to 16 due timers below the old cursor, minus retried ones, and logs an ERROR when no arm notification arrives in 10s. [Reference](/reference/server/configuration#timers)

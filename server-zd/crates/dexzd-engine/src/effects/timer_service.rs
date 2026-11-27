@@ -244,20 +244,22 @@ impl PartitionTimerService {
     /// Fires every due timer. Returns when to look again, or `None` to look again at once.
     pub(super) async fn fire_due_timers(&mut self) -> Result<Option<Instant>, EffectError> {
         self.wake.plan_pass_running();
+        // Sampled before the rewind consumes notifications, so a later one is never judged late.
+        let notifications_checked_at = Instant::now();
         let rewind = self.rewind_scan_start_key();
         let now_micros = self.context.clock.now_unix_micros();
         let lookahead_micros =
             i64::try_from(self.context.config.timer_lookahead.as_micros()).unwrap_or(i64::MAX);
         let horizon_micros = now_micros.saturating_add(lookahead_micros);
         let now = Instant::now();
-        self.log_unnotified_timer_rows(rewind.earliest_armed_micros, now);
+        self.log_unnotified_timer_rows(rewind.earliest_armed_micros, notifications_checked_at);
         let scan = self.load_timers(now_micros, horizon_micros, now)?;
         if let Some(previous_start_key) = &rewind.full_scan_previous_start_key {
             self.note_unnotified_timer_rows(
                 &scan.due_entries,
                 previous_start_key,
                 rewind.earliest_armed_micros,
-                now,
+                Instant::now(),
             );
         }
         let entries = scan.due_entries;
@@ -387,25 +389,28 @@ impl PartitionTimerService {
 
     /// Forgets remembered rows a consumed arm notification covers; logs the rest at ERROR once
     /// their grace passes.
-    fn log_unnotified_timer_rows(&mut self, earliest_armed_micros: i64, now: Instant) {
-        let partition = self.partition;
-        self.unnotified_timer_rows.retain(|row| {
+    fn log_unnotified_timer_rows(
+        &mut self,
+        earliest_armed_micros: i64,
+        notifications_checked_at: Instant,
+    ) {
+        for row in std::mem::take(&mut self.unnotified_timer_rows) {
             if row.entry.fire_at_micros >= earliest_armed_micros {
-                return false;
+                continue;
             }
-            if row.log_at > now {
-                return true;
+            if row.log_at > notifications_checked_at {
+                self.unnotified_timer_rows.push(row);
+                continue;
             }
             tracing::error!(
-                %partition,
+                partition = %self.partition,
                 run_id = %row.entry.run.run_id,
                 timer_id = ?row.entry.timer_id,
                 fire_at_micros = row.entry.fire_at_micros,
                 previous_cursor_fire_at_micros = row.previous_cursor_fire_at_micros,
-                "a full timer scan found and fired a due timer that no arm notification reported"
+                "a full timer scan found a due timer below the previous read cursor and observed no covering arm notification within the grace period"
             );
-            false
-        });
+        }
     }
 
     /// Reads due timer rows from the read cursor, paged by the load limit, then advances the
@@ -501,7 +506,7 @@ impl PartitionTimerService {
         due_entries: &[(Vec<u8>, TimerIndexEntry)],
         previous_start_key: &[u8],
         earliest_armed_micros: i64,
-        now: Instant,
+        found_at: Instant,
     ) {
         let armed_start_key = timer_index_start_key(self.partition, earliest_armed_micros);
         let unnotified_end = previous_start_key.min(armed_start_key.as_slice());
@@ -523,7 +528,7 @@ impl PartitionTimerService {
             self.unnotified_timer_rows.push(UnnotifiedTimerRow {
                 entry: entry.clone(),
                 previous_cursor_fire_at_micros,
-                log_at: now + UNNOTIFIED_TIMER_ROW_GRACE,
+                log_at: found_at + UNNOTIFIED_TIMER_ROW_GRACE,
             });
         }
         if untracked_rows > 0 {
@@ -531,7 +536,7 @@ impl PartitionTimerService {
                 partition = %self.partition,
                 untracked_rows,
                 previous_cursor_fire_at_micros,
-                "a full timer scan found more due timers below the read cursor than it checks for a missed arm notification"
+                "a full timer scan found more due timers below the previous read cursor than it tracks for a covering arm notification"
             );
         }
     }

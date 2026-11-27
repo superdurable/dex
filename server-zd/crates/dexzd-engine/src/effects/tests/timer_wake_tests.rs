@@ -458,6 +458,106 @@ async fn a_full_scan_does_not_log_a_timer_whose_arm_notification_arrives_late() 
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_notification_arriving_after_a_pass_consumed_notifications_and_before_the_deadline_is_not_late()
+ {
+    const FLOW_ID: &str = "cursor-backstop-notification-after-consume";
+    let errors = TimerServiceErrors::default();
+    let _log_guard = capture_timer_service_errors(&errors);
+    // No rebuild, so this test drives the only timer service pass by pass.
+    let harness = EffectHarness::with_config(
+        DurableState::new(),
+        full_scan_config(Duration::from_secs(120)),
+    );
+    harness
+        .flow_effect_operations
+        .add_override(timers_fired_override());
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    let partition = harness.partition_of(FLOW_ID);
+    let wake = Arc::new(PartitionTimerWake::new(
+        Arc::clone(&harness.clock) as Arc<dyn WallClock>
+    ));
+    let mut service = PartitionTimerService::new(
+        Arc::clone(harness.effect_context()),
+        partition,
+        Arc::clone(&wake),
+    );
+    let started_at = tokio::time::Instant::now();
+    let first_fire_at = harness.clock.now_unix_micros() - MILLI_MICROS;
+    seed_timer(&harness, FLOW_ID, run_id, &wait_timer(0), first_fire_at);
+    assert!(service.fire_due_timers().await.expect("pass").is_none());
+    service
+        .fire_due_timers()
+        .await
+        .expect("the cursor passes the fired timer");
+    let fire_at = first_fire_at - MILLI_MICROS;
+    seed_timer(&harness, FLOW_ID, run_id, &wait_timer(1), fire_at);
+
+    tokio::time::sleep_until(started_at + Duration::from_secs(120)).await;
+    assert!(
+        service.fire_due_timers().await.expect("pass").is_none(),
+        "the full scan fires the unnotified timer"
+    );
+    service.fire_due_timers().await.expect("pass");
+    // The grace ends at 130 seconds; this pass consumes notifications just before it.
+    tokio::time::sleep_until(started_at + Duration::from_millis(129_999)).await;
+    let late_wake = Arc::clone(&wake);
+    *harness
+        .flow_effect_operations
+        .committed_reader_hook
+        .lock()
+        .expect("lock") = Some(Box::new(move |_| late_wake.note_armed(fire_at)));
+    service.fire_due_timers().await.expect("pass");
+    tokio::time::sleep_until(started_at + Duration::from_secs(132)).await;
+    service
+        .fire_due_timers()
+        .await
+        .expect("pass after the deadline");
+
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(1)).len(), 1);
+    assert!(errors.timer_ids().is_empty(), "{:?}", errors.timer_ids());
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_forward_wall_clock_jump_fires_a_notified_timer_by_the_next_planned_wake() {
+    const FLOW_ID: &str = "clock-jump-planned-wake";
+    let config = EffectsConfig::default();
+    let lookahead_micros = i64::try_from(config.timer_lookahead.as_micros()).expect("fits");
+    let harness = start_harness(config).await;
+    let run_id = start_flow_without_steps(&harness, FLOW_ID);
+    let started_at = tokio::time::Instant::now();
+    tokio::time::sleep_until(started_at + Duration::from_secs(290)).await;
+    harness.settle().await;
+
+    // A due timer wakes a pass at 290 seconds that plans its next wake at 340.
+    let now_micros = harness.clock.now_unix_micros();
+    let fire_at = now_micros + 50 * SECOND_MICROS;
+    seed_timer(&harness, FLOW_ID, run_id, &wait_timer(0), fire_at);
+    notify_armed(&harness, FLOW_ID, fire_at);
+    seed_timer(&harness, FLOW_ID, run_id, &wait_timer(1), now_micros);
+    notify_armed(&harness, FLOW_ID, now_micros);
+    harness.settle().await;
+    assert_eq!(fires_of(&harness, run_id, &wait_timer(1)).len(), 1);
+    tokio::time::sleep_until(started_at + Duration::from_secs(295)).await;
+    harness.settle().await;
+    harness.clock.move_back(-60 * SECOND_MICROS);
+    let jumped_at_micros = harness.clock.now_unix_micros();
+    assert!(jumped_at_micros > fire_at, "the jump makes the timer due");
+
+    tokio::time::sleep_until(started_at + Duration::from_millis(340_010)).await;
+    harness.settle().await;
+
+    let fires = fires_of(&harness, run_id, &wait_timer(0));
+    assert_eq!(fires.len(), 1, "it fires at the planned wake: {fires:?}");
+    assert!(fires[0] >= fire_at);
+    assert!(
+        fires[0] <= jumped_at_micros + lookahead_micros,
+        "the delay after the jump stays within one lookahead"
+    );
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_zero_full_scan_interval_disables_the_full_scan() {
     const FLOW_ID: &str = "cursor-backstop-disabled";
     let errors = TimerServiceErrors::default();
