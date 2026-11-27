@@ -75,7 +75,7 @@ Some processes rank events against each other. For example, a withdrawal wins ov
 - **Server commit order.** A response window or lock admits responses one commit at a time. The first committed response wins, so ties never occur. This is the response window above. The response RPC may also record the admitted response as the outcome under the window lock. The `Execute` of the waiting Step still checks which Condition fired. It never infers the Timer from an open window or an unset outcome.
 - **Competing Channels ready when the wait is evaluated.** Among the Channel Conditions of one `AnyOf` that are ready together, the first declared wins, and `Execute` uses the messages it consumed. This ranks Channels only. A Timer in the same wait that is also ready is selected first, and the messages stay queued.
 
-When a Timer wins and `Execute` then checks the Channels again, it sees the responses committed in the first state snapshot of `Execute`. Retries reuse that snapshot. That is a later moment than the wait evaluation. In the example, `Execute` takes the shared window lock before Dex builds the snapshot. The example's `RouteResponseBeforeExpiry` branch relies on this: it takes a response that committed after the Timer won.
+When a Timer wins, `Execute` may still take a response that committed before it closed the window. The example's `RouteResponseBeforeExpiry` branch does this: it takes a response that committed after the Timer won.
 
 The snapshot that the decision uses, or the closed window, fixes the candidates. A later event then changes nothing. Do not wait for new events with a clock or Timer grace window. A next Step that takes a response admitted before that boundary, such as `RouteResponseBeforeExpiry`, is not such a wait.
 

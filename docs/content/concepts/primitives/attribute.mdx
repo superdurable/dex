@@ -392,14 +392,14 @@ ends. A failing locked Step holds its lock through every retry, so set a short
 total duration, such as a few minutes, in its `StepOptions` retry policy; see
 [Lock holding](/reference/server/runtime-data#lock-holding).
 
-Some processes accept that an already decided action may still happen once,
-such as a reminder that is about to be sent when a stop request arrives. Such
-a process needs no lock. The RPC publishes the request and answers
-"received". The decision point is the deciding `Execute`'s first state
-snapshot. Its retries reuse that snapshot. The `Execute` checks the stop in
-that snapshot, also in the branch where a Timer was selected first. A stop
-committed after the snapshot may let the already decided action happen once.
-Every later interruptible wait still includes the stop Condition.
+When an RPC stops an action that a Step decides, choose the design by what
+the business promises. Some processes accept that an already decided action
+may still happen once, such as a reminder that is about to be sent when a
+stop request arrives. Such a process needs no lock. The RPC publishes the
+request and answers "received". The deciding `Execute` checks the stop, also
+in the branch where a Timer was selected first. A stop that arrives while the
+decided action runs may not stop it. Every later interruptible wait still
+includes the stop Condition.
 
 One message reaches one consumer, so parallel consumers each get their own
 stop message, such as one per branch on each branch's Channel. That message

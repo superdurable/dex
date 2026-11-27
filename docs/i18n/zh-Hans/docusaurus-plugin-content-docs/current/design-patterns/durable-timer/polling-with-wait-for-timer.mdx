@@ -34,7 +34,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
   需要不受轮询重试推迟的持久截止时间时，使用
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)（英文）
   或下面的截止时间 watchdog。
-- <a id="deadline-watchdog"></a>截止时间短于 Flow 时，使用截止时间 watchdog。处理起始事件的决定同时调度轮询 Step 和 watchdog Step。watchdog 的 `WaitFor` 返回截止时间的 Timer。轮询 Step 调用外部系统，不持有锁。它看到作业完成时，转到一个短的结果 Step。结果 Step 和 watchdog 的 `Execute` 共用一个 Attribute 锁。两者都只在终态仍未写入时写入终态。轮询 Step 的失败恢复分支也转到结果 Step。胜出方只写一次终态，然后返回 `GracefulComplete`，或者转到已有的收尾分支。落败方返回 `DeadEnd`。只有一个轮询 Step 和一个 watchdog 时，胜出方在它提交的决定里取消仍然活跃的另一个 Step。发出完成请求之后，剩下的 Step 结束时，Flow 开始关闭。轮询间隔的 Timer 在 `Execute` 开始前已经触发，因此不能在 `Execute` 重试期间执行截止动作。即使下一轮的 Timer 时长由存下的截止时间算出，它也覆盖不到当前正在重试的一轮。截止时间必须在重试期间触发工作时，使用独立的截止时间 watchdog。Timer 从 watchdog 的 `WaitFor` 结果提交时开始计时；见 [Timer firing time](/reference/server/runtime-data#timer-firing-time)（英文）。
+- <a id="deadline-watchdog"></a>截止时间短于 Flow 时，使用截止时间 watchdog。处理起始事件的决定同时调度轮询 Step 和 watchdog Step。watchdog 的 `WaitFor` 返回截止时间的 Timer。轮询 Step 调用外部系统，不持有锁。它看到作业完成时，转到一个短的结果 Step。结果 Step 和 watchdog 的 `Execute` 共用一个 Attribute 锁。两者都只在终态仍未写入时写入终态。轮询 Step 的失败恢复分支也转到结果 Step。胜出方只写一次终态，然后返回 `GracefulComplete`，或者转到已有的收尾分支。落败方返回 `DeadEnd`。只有一个轮询 Step 和一个 watchdog 时，胜出方在它提交的决定里取消仍然活跃的另一个 Step。发出完成请求之后，剩下的 Step 结束时，Flow 开始关闭。轮询间隔的 Timer 在 `Execute` 开始前已经触发，因此不能在 `Execute` 重试期间执行截止动作。即使下一轮的 Timer 时长由存下的截止时间算出，它也覆盖不到当前正在重试的一轮。截止时间必须在重试期间触发工作时，使用独立的截止时间 watchdog。Timer 表示业务时间：它在截止时间到达时或稍后触发，所以 watchdog 不需要再用时钟检查一次。
 - <a id="step-input"></a>Step 输入保持小而且大小固定，例如 job ID 和轮次编号。
   累积的状态，例如收集到的结果，放在 Attribute 里，绝不放进不断变大的 Step 输入。
 - <a id="external-calls"></a>在 `Execute` 中检查作业状态。不要在 `WaitFor` 中轮询外部系统。在这个模式中，`WaitFor` 只声明 Timer。

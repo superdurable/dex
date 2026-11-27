@@ -199,9 +199,10 @@ A Flow closes in one of these ways:
   [Flow close by a new start](/reference/server/runtime-data#flow-close-by-new-start).
 
 Instead of failing or canceling the Flow, a timeout can run a handler that
-decides the outcome. Active Steps keep running while the handler runs. When
-the handler commits a force-complete or force-fail decision, Dex starts
-closing the Flow. The handler can commit after the deadline. While the Flow runs, clients read and change it through
+decides the outcome. Active Steps keep running until the handler commits.
+When the handler commits a force-complete or force-fail decision, Dex starts
+closing the Flow and cancels those Steps, so they need no deadline check of
+their own. While the Flow runs, clients read and change it through
 its RPCs.
 
 ## Child Flows with their own identity {#child-flows}
@@ -229,14 +230,18 @@ The parent receives each child's result durably:
   with a new request ID. It uses an ID reuse policy that allows the needed
   earlier closed state and rejects an active run; see
   [ID reuse policies](/reference/go/start-flow-options#flow-id-request-id-and-already-started).
+  A policy decides only by how the latest run closed, not by what it saved.
+  A child that records a business failure and then completes is closed as
+  completed. To reopen it after that failure, close it with a force-fail
+  decision or allow a completed run.
   Whether the parent ties reads, reports, and stops to the run ID it claimed
   is a business decision. It ties them when the business can reopen a child
   under the same number while the parent still waits, and the parent must
   not mix runs. When a child number has only one run, the Flow ID is enough.
   A parent that ties them accepts only reads, reports, and stops that it can
-  tie to the claimed run. When it reads the outcome by Flow ID, it confirms
-  the run ID before and after the read; see the
-  [Production checklist](/design-patterns/subflows/child-flows-with-business-identity#production-checklist).
+  tie to the claimed run. The
+  [Production checklist](/design-patterns/subflows/child-flows-with-business-identity#production-checklist)
+  shows the read order.
   A newer run is another attempt, which the parent handles by business
   policy.
 - Every start of the same logical request derives the same Flow ID and
