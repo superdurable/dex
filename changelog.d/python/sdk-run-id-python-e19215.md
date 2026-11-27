@@ -1,5 +1,6 @@
 ---
 section: Added
 ---
-- **Client.describe_flow** and **Client.get_attributes** accept a keyword-only `run_id` to read one exact run of a Flow ID, even when a newer run exists. A closed run returns its final status and Attribute values. **AsyncClient** has the same parameters.
-- **Client.wait_for_flow** and **Client.stop_flow** accept a keyword-only `run_id` to target one exact run, as **Client.invoke_rpc** already does. A wait on a closed run returns its result at once. A stop with a run ID never affects a newer run and raises **FlowNotActiveOrNotFoundError** when that run has already closed. **AsyncClient** has the same parameters.
+- **Client.describe_flow** and **Client.get_attributes** accept keyword-only **run_id** to read one exact run, including a retained closed run. **AsyncClient** supports the same calls.
+- **Client.wait_for_flow** accepts keyword-only **run_id**; a closed run returns its result at once. **AsyncClient** supports the same call.
+- **Client.stop_flow** accepts keyword-only **run_id**. It never stops a newer run and raises **FlowNotActiveOrNotFoundError** when the tracked run has closed. **AsyncClient** supports the same call.

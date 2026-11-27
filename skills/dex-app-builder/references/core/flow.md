@@ -8,7 +8,7 @@ A Flow is one durable run of a business process, with a stable identity and life
 | --- | --- | --- | --- |
 | Flow type | the application, from the Flow implementation | Routes Worker calls and groups search results | Name it after the domain, such as `ApprovalFlow`. Never just `Flow`. |
 | Flow ID | the caller at start | Business identity of one Flow run | Derive it from the business operation or resource. Address a Flow by Flow ID. |
-| Run ID | Dex Server | One run of that Flow ID | Diagnostic only. Never a business revision or fence. Time travel keeps it. |
+| Run ID | Dex Server | One run of that Flow ID | Use it with the Flow ID to address one exact run, such as a claimed child run. Never a business revision or fence. Time travel keeps it. |
 | Run attempt | Dex Server | Increments on each time travel of a run | Capture it before an operator mutation. |
 | Step type | the application | Stable name of a Step definition in the Flow | Part of the durable contract of open runs, not just a function name. |
 | Step execution ID | Dex Server | One execution of a Step type, formatted Step type plus a number | Use it, with the Flow ID, to key external effects. |

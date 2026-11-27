@@ -1176,9 +1176,10 @@ the FlowService TLS option in a later release.
 
 ## Calling FlowService
 
-Client methods target the current run by sending an empty run ID. This always
-reaches the Flow's current run. `StartFlow` and `TimeTravel` return run IDs for
-diagnostics, while normal calls need only the flow ID.
+By default, Client methods send an empty run ID and use the Flow ID to select
+the current or latest run. To address one exact run, use the run-targeted
+methods or `RunID` options described below. `StartFlow` returns the run ID to
+track; time travel keeps that run ID.
 
 `CloneForkFlow` creates a new Flow from a point of another Flow run, while the
 source keeps running. It takes the source run's registered Flow, the source and

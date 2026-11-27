@@ -132,9 +132,9 @@ impl WaitForFlowOptions {
     ///
     /// When the timeout elapses while the run is still active, the wait returns
     /// [`crate::SdkError::LongPollTimeout`], like [`crate::Client::wait_for_flow_with_timeout`].
-    /// A wait timeout does not stop the Flow. A timeout with a fractional second returns
-    /// [`crate::SdkError::InvalidArgument`] without contacting Dex. By default the wait has no
-    /// client-side timeout.
+    /// A wait timeout does not stop the Flow. A timeout with a fractional second is rejected
+    /// with [`crate::SdkError::InvalidArgument`] before WaitForFlow is sent, after any required
+    /// protocol negotiation. By default the wait has no client-side timeout.
     ///
     /// Returns these options with the supplied timeout.
     ///
