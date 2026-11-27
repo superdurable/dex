@@ -3392,7 +3392,9 @@ class TypeScriptAnalyzer {
     if (!ts.isVariableDeclarationList(declaration.parent) || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return false;
     if (!this.isLiteralDataValue(declaration.initializer,depth + 1)) return false;
     try {
-      return this.isDataType(this.checker.getTypeAtLocation(declaration.name),new Set(),0);
+      // The use site keeps control-flow narrowing, such as "send" in value.
+      return this.isDataType(this.checker.getTypeAtLocation(declaration.name),new Set(),0) &&
+        this.isDataType(this.checker.getTypeAtLocation(identifier),new Set(),0);
     } catch {
       return false;
     }
