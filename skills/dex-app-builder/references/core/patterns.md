@@ -561,7 +561,7 @@ CloseInactive.execute      // a reply or resolution committed before the empty c
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
-- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A reply still queued, or taken by a Step that has not finished, at the empty check blocks the close and takes the fallback. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because a resolution can commit after the Timer won; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
+- Every closing Step completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). A non-empty reply Channel at the atomic check blocks the close and takes the fallback. The fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. The inactivity close also checks the resolution Channel, because a resolution can commit after the Timer won; its fallback reopens the wait. Keep the waiting Step the only consumer of the reply Channel.
 - The resolution RPC rejects an empty reason, because an empty pending resolution means "none".
 - When the caller must confirm each reply was handled, the waiting Step records the reply's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
@@ -682,7 +682,7 @@ Controller(entityId, message):                   // flowId = entityId; message h
 - "Accepted" means the run accepted the message, not that a Step handled it.
 - One stable Flow ID per entity, one active run at a time, messages handled in the order their publications commit. An external business order needs its own ordering mechanism.
 - The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. The consuming Step owns all state, so concurrent RPCs never hit a lock conflict.
-- The decision checks the Channel atomically. A message already consumed by a Step that is still in Execute counts as not empty.
+- The decision checks the Channel atomically; see [ForceCompleteIfChannelsEmpty](https://docs.superdurable.io/reference/go/step-decisions#forcecompleteifchannelsempty).
 - Only one Step may consume a Channel that the decision checks.
 - When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
