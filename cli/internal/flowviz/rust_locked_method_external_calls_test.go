@@ -590,6 +590,9 @@ func TestRustLockedMethodCertainty(t *testing.T) {
 			body:      "let _ = parse_local_time(&input);",
 			uncertain: []string{"and calls parse_local_time. dexcli cannot determine whether this call performs I/O."},
 		},
+		"UFCS call of a standard trait method is a static call": {
+			body: "let _ = <String as Clone>::clone(&input);\n        let _ = <String as From<&str>>::from(input.as_str());",
+		},
 		"function pointer field is a dynamic call": {
 			body:     "(self.callback)(&input);",
 			warnings: []string{"and calls (self.callback); Dex fails that RPC"},

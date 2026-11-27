@@ -3533,8 +3533,10 @@ class TypeScriptAnalyzer {
     const ts = this.ts;
     let root = this.unwrap(callee);
     // Calling a call result or an indexed value is a dynamic call through a function value, which is definite.
-    if (!root || (!isReceiver && (ts.isCallExpression(root) || ts.isElementAccessExpression(root)))) return false;
-    const isMemberCall = ts.isPropertyAccessExpression(root);
+    // obj["name"] with a string literal key is a member access like obj.name; only a computed key is dynamic.
+    const isLiteralMember = !!root && ts.isElementAccessExpression(root) && ts.isStringLiteralLike(root.argumentExpression);
+    if (!root || (!isReceiver && (ts.isCallExpression(root) || (ts.isElementAccessExpression(root) && !isLiteralMember)))) return false;
+    const isMemberCall = ts.isPropertyAccessExpression(root) || isLiteralMember;
     while (root && (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root) || ts.isCallExpression(root))) root = this.unwrap(root.expression);
     if (!root || !ts.isIdentifier(root) || depth > maximumHelperDepth) return false;
     let symbol;

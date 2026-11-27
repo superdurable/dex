@@ -752,16 +752,35 @@ impl<'source, 'ast> MethodScan<'_, 'source, 'ast> {
         }
     }
 
+    /// Classifies a callee that is not a closure; visit_expr_call and is_reported_call share it.
+    fn callee_verdict(&mut self, callee: &Expr) -> CallVerdict {
+        match callee {
+            Expr::Path(function) => match &function.qself {
+                None => self.path_call_verdict(&function.path),
+                // A UFCS call, such as <String as Clone>::clone, runs the trait method of the named type.
+                Some(qself) => match self.path_call_verdict(&function.path) {
+                    CallVerdict::Allowed => {
+                        match self.finder.source.type_origin(&qself.ty, &self.scope, 0) {
+                            ValueOrigin::PureStandardLibrary | ValueOrigin::DexSdk => {
+                                CallVerdict::Allowed
+                            }
+                            _ => CallVerdict::External(Certainty::Possible),
+                        }
+                    }
+                    verdict => verdict,
+                },
+            },
+            // A field, index, or returned callable is a function value, so the call is dynamic.
+            _ => CallVerdict::External(Certainty::Definite),
+        }
+    }
+
     fn is_reported_call(&mut self, expression: &Expr) -> bool {
         let verdict = match peel(expression) {
             Expr::MethodCall(call) => self.method_call_verdict(call),
             Expr::Call(call) => match peel(&call.func) {
-                Expr::Path(function) if function.qself.is_none() => {
-                    self.path_call_verdict(&function.path)
-                }
                 Expr::Closure(_) => CallVerdict::Allowed,
-                // A field, index, or returned callable is a function value, so the call is dynamic.
-                _ => CallVerdict::External(Certainty::Definite),
+                callee => self.callee_verdict(callee),
             },
             _ => CallVerdict::Allowed,
         };
@@ -865,16 +884,13 @@ impl<'ast> Visit<'ast> for MethodScan<'_, '_, 'ast> {
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         match peel(&call.func) {
-            Expr::Path(function) if function.qself.is_none() => {
-                let verdict = self.path_call_verdict(&function.path);
-                self.add(call.span(), source_text(&call.func), verdict);
-            }
             Expr::Closure(_) => self.visit_expr(&call.func),
-            _ => {
-                // A field, index, or returned callable is a function value, so the call is dynamic.
-                let verdict = CallVerdict::External(Certainty::Definite);
+            callee => {
+                let verdict = self.callee_verdict(callee);
                 self.add(call.span(), source_text(&call.func), verdict);
-                self.visit_expr(&call.func);
+                if !matches!(callee, Expr::Path(_)) {
+                    self.visit_expr(&call.func);
+                }
             }
         }
         for argument in &call.args {

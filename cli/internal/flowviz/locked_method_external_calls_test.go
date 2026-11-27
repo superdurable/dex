@@ -193,6 +193,18 @@ func TestGoLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"and calls sender.Send (and 1 uncertain); Dex fails that RPC"},
 		},
+		"field alias rebound after the call": {
+			source: goLockedMethodCase{
+				rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)",
+				executeBody: "sender := step.gateway\n\t_ = sender.Send(input)\n\tsender = &gateway.Gateway{}\n\t_ = sender",
+				sourceReplacements: []string{
+					"\"github.com/superdurable/dex/sdk-go/dex\"\n)", "\"github.com/superdurable/dex/sdk-go/dex\"\n\t\"reminders/gateway\"\n)",
+					"type SendReminderStep struct {\n\tdex.StepDefaults\n\tmailer Mailer\n}", "type SendReminderStep struct {\n\tdex.StepDefaults\n\tmailer  Mailer\n\tgateway *gateway.Gateway\n}",
+				},
+				packageFiles: map[string]string{"gateway/gateway.go": "package gateway\n\nimport \"net/http\"\n\ntype Gateway struct{}\n\nfunc (*Gateway) Send(to string) error {\n\t_, err := http.Get(\"https://example.com/\" + to)\n\treturn err\n}\n"},
+			},
+			messages: []string{"and calls sender.Send; Dex fails that RPC"},
+		},
 		"injected service and an uncertain call": {
 			source:   goLockedMethodCase{rpcLock: "dex.LockAttribute(ending)", executeLock: "dex.LockAttribute(ending)", executeBody: "fmt.Println(input)\n\t_ = step.mailer.Send(input)\n\tfmt.Println(input)"},
 			messages: []string{"and calls step.mailer.Send (and 2 uncertain); Dex fails that RPC"},

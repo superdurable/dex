@@ -10,7 +10,6 @@ package flowviz
 
 import (
 	"go/ast"
-	"go/token"
 	"go/types"
 	"slices"
 	"strings"
@@ -175,7 +174,7 @@ func (scan *goExternalCallScan) add(node ast.Node, calleeExpression ast.Expr, fu
 }
 
 // isFieldReceiver reports whether a method callee runs on a struct field, such as step.gateway.Send, or on a local
-// variable assigned only from one, such as gateway := step.gateway; a field holds an injected service.
+// variable ever assigned from one, such as gateway := step.gateway; a field holds an injected service.
 func (scan *goExternalCallScan) isFieldReceiver(calleeExpression ast.Expr) bool {
 	selector, isSelector := ast.Unparen(calleeExpression).(*ast.SelectorExpr)
 	if !isSelector {
@@ -195,8 +194,8 @@ func (scan *goExternalCallScan) isFieldValue(expression ast.Expr, depth int) boo
 		if !isVariable || depth > goMaximumHelperDepth || scan.body == nil {
 			return false
 		}
-		assigned := scan.localAssignments(variable)
-		return len(assigned) > 0 && !slices.ContainsFunc(assigned, func(right ast.Expr) bool { return right == nil || !scan.isFieldValue(right, depth+1) })
+		// Any assignment from a field marks the variable as an injected service, wherever it sits in the function.
+		return slices.ContainsFunc(scan.localAssignments(variable), func(right ast.Expr) bool { return right != nil && scan.isFieldValue(right, depth+1) })
 	}
 	return false
 }
@@ -232,11 +231,6 @@ func (scan *goExternalCallScan) localAssignments(variable *types.Var) []ast.Expr
 				} else {
 					assigned = append(assigned, nil)
 				}
-			}
-		case *ast.UnaryExpr:
-			// Taking the address lets other code rebind the variable.
-			if statement.Op == token.AND && isVariable(statement.X) {
-				assigned = append(assigned, nil)
 			}
 		}
 		return true

@@ -453,7 +453,7 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 					"services.py": "def from_service(text):\n    return text\n",
 				},
 			},
-			messages: []string{"and calls services.from_service;"},
+			uncertainMessages: []string{"and calls services.from_service. dexcli cannot determine whether this call performs I/O."},
 		},
 		"symbolic link inside the project is not followed": {
 			source: pythonLockedMethodCase{
@@ -461,7 +461,7 @@ func TestPythonLockedMethodExternalCall(t *testing.T) {
 				projectFiles:       map[string]string{"real_impl.py": "def parse(text):\n    return text.strip()\n"},
 				linkedProjectFiles: map[string]string{"shim.py": "real_impl.py"},
 			},
-			messages: []string{"and calls parse;"},
+			uncertainMessages: []string{"and calls parse. dexcli cannot determine whether this call performs I/O."},
 		},
 		"project package named like a virtual environment is not followed": {
 			source: pythonLockedMethodCase{

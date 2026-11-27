@@ -427,7 +427,7 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				projectFiles:       map[string]string{"real.ts": "export function parse(text: string): string { return text.trim(); }\n"},
 				linkedProjectFiles: map[string]string{"shim.ts": "real.ts"},
 			},
-			messages: []string{"and calls parse" + typeScriptLockedMessageSuffix},
+			uncertainMessages: []string{"and calls parse. dexcli cannot determine whether this call performs I/O."},
 		},
 		"Step input decoded by a custom codec": {
 			source: typeScriptLockedMethodCase{
@@ -465,6 +465,27 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 				extraSource: "import { getCallback } from \"callbacks\";",
 			},
 			messages: []string{"and calls getCallback() (and 1 uncertain)" + typeScriptLockedMessageSuffix},
+		},
+		"package member called with a dot is uncertain": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, lodash.uniq([input]).length);",
+				extraSource: "import * as lodash from \"lodash\";",
+			},
+			uncertainMessages: []string{"and calls lodash.uniq. dexcli cannot determine whether this call performs I/O."},
+		},
+		"package member called with a literal key is uncertain": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, lodash[\"uniq\"]([input]).length);",
+				extraSource: "import * as lodash from \"lodash\";",
+			},
+			uncertainMessages: []string{"and calls lodash[\"uniq\"]. dexcli cannot determine whether this call performs I/O."},
+		},
+		"package member called with a computed key is dynamic": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "counter.set(context, lodash[input]([input]).length);",
+				extraSource: "import * as lodash from \"lodash\";",
+			},
+			messages: []string{"and calls lodash[input]" + typeScriptLockedMessageSuffix},
 		},
 		"console output is uncertain": {
 			source:            typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "console.log(input);"},
