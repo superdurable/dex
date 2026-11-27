@@ -48,9 +48,11 @@ Each round of the polling Step runs these steps:
   the existing close branch. The loser returns `DeadEnd`. With one polling
   Step and one watchdog, the winner cancels the still-active other Step in
   its committed decision. After the completion request, the Flow starts
-  closing once its remaining Steps end. The deadline never comes
-  from a stored timestamp and the clock, because a round that is retrying
-  would delay it. The Timer starts when the watchdog's `WaitFor` result
+  closing once its remaining Steps end. The polling interval Timer has
+  already fired when `Execute` begins, so it cannot enforce a deadline while
+  `Execute` retries. Computing the next round's Timer from a stored deadline
+  does not cover that retrying round. Use a deadline watchdog when the
+  deadline must trigger work during a retry. The Timer starts when the watchdog's `WaitFor` result
   commits; see [Timer firing time](/reference/server/runtime-data#timer-firing-time).
 - <a id="step-input"></a>Keep the Step input small and fixed in size, such as
   the job ID and the round number. Keep accumulated state, such as collected

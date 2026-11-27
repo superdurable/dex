@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inac
 
 当一个动作只应在一段时间没有活动后才发生时，使用这个模式。`InactivenessTrackerFlow` 从 `TrackerStep` 开始，等待 Timer 或 **Active** Channel。如果活动先到达，`TrackerStep` 转回自身，从而开始一个新的 Timer。如果 Timer 先触发，Flow 转到 `ProcessInactiveness`。
 
-每次处理完活动后，下一次 `WaitFor` 开始一个完整的窗口。Step 不用存下的时间戳和时钟推算剩余时间。新的 Timer 代码更少，测试也能跳过它。
+每次处理完活动后，下一次 `WaitFor` 开始一个完整的窗口。新的 Timer 代码更少，测试也能跳过它。用存下的时间戳推算窗口的剩余时间也可以。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
