@@ -22,7 +22,7 @@ The only hard boundary is that a Client never writes Flow state directly; it has
 | WaitForAttributeMatch, WaitForAttributeMapInstanceMatch | Wait until a stored value matches | Needs an active Flow. |
 | WaitForStepCompletion | Wait until a named Step execution completes | Returns no Step output. |
 | WaitForFlow | Wait for terminal status and output | Can return a long-poll timeout while still open; call again. |
-| DescribeFlow | Current or latest run status, type, start time | Does not wait. |
+| DescribeFlow | Current or latest run status, type, start time | Does not wait. With a run ID, describes that run. |
 | SearchFlows | Find Flows by query over indexed fields | Eventually consistent. |
 | StopFlow | Close a run: cancel (default), fail with a reason, or terminate | Closes as soon as it commits. |
 | SkipTimer | Make a pending Timer fire | See [timer.md](timer.md#skip-a-timer). |
@@ -38,7 +38,7 @@ The Client Attribute read returns committed values of known Attributes and exact
 
 - **One server read.** All requested keys go in one request and come from the same commit.
 - **No Worker.** Dex serves it directly. It works while no Worker runs and costs less latency than an RPC.
-- **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. It takes no run ID.
+- **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. With a run ID it reads that run, even when a newer run exists.
 - **Committed state.** It never sees writes that a running Step or RPC has staged. Hard-delete values are the exception: they are stored before commit, so the read can return a value from an attempt that later failed.
 - **Batch only.** There is no single-Attribute method. Pass every Attribute and map instance the response needs in one call; one call per Attribute costs round trips and can read different commits. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
 - **Exact keys.** Each read is a singleton Attribute or one exact map instance. It cannot enumerate a map and does not read Channels.
