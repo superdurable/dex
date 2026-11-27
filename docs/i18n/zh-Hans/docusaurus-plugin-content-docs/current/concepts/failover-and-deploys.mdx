@@ -30,7 +30,7 @@ Dex 保存每个已完成的 Step，所以崩溃或部署只会重复正在进�
 
 active 节点崩溃后，standby 在 lease 到期再过 1 秒后接管。lease 默认是 10 秒。接着，恢复过程会让 Worker 已经收到的每次尝试以 `NOT_COMPLETED` 失败，每次尝试都消耗一次重试。所以故障转移期间正在运行的 Step 会再运行一次，即使它的 Worker 一直在运行。原因是这些尝试不是新节点分发出去的。旧节点的任务 stream 随它一起结束了，新节点无法知道每次尝试是否已经完成，所以全部重试。
 
-有一个例外。节点还没有保存开始记录的 ASYNC 尝试，会用同一个尝试编号再运行一次，不消耗重试。见 [Lease, hot standby, and step down](/reference/server/high-availability#lease)（英文）。
+ASYNC 方法要能安全地重复运行；见 [Failure and redelivery](/reference/python/failure-and-retries#same-attempt-redelivery)（英文）。
 
 如果原来的 Worker 在恢复过程让它的尝试失败之后才完成，Dex 会忽略这个迟到的结果。它丢弃这个结果中的 Attribute 写入、Channel 发布和决定。方法发出的外部调用已经发生了，所以重新运行必须使用同样的[幂等键](/concepts/step#idempotency-keys)。
 

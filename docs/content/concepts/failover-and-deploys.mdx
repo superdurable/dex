@@ -44,9 +44,8 @@ even if its Worker kept running. The reason is that the new node did not hand
 out those attempts. The old node's task streams ended with it, so the new node
 cannot learn whether each attempt finished, and it retries them all.
 
-There is one exception. An ASYNC attempt whose start the node had not yet
-saved runs again with the same attempt number and consumes no retry. See
-[Lease, hot standby, and step down](/reference/server/high-availability#lease).
+Keep ASYNC methods safe to repeat; see
+[Failure and redelivery](/reference/python/failure-and-retries#same-attempt-redelivery).
 
 If the original Worker finishes after recovery failed its attempt, Dex ignores
 that late result. It discards the result's Attribute writes, Channel

@@ -164,6 +164,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - The default heartbeat timeout is short; see each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults). If the attempt reaches its heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out the attempt; raising only the method timeout keeps that deadline. A non-streaming provider call, such as a long LLM generation, sends neither for its whole duration. Either raise the heartbeat timeout above the longest acceptable silent interval, or heartbeat from a background task while the call runs. A background heartbeat proves only that the Worker runs, so a hung call then ends at the method timeout.
 - A loop of short calls that heartbeats between them, such as the [Polling pattern](patterns.md#polling), keeps the longest gap between heartbeats, including the slowest healthy call and the interval, below the heartbeat timeout, with a margin. Check that against the default before keeping it. The defaults are in each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Act on cancellation promptly. Dex cancels a handler that exceeds its heartbeat timeout even if it records none.
+- A stand-in for an external service keeps the real call's heartbeat timeout and is never modeled as a Timer.
 
 ### Retry and failure policy
 
@@ -219,7 +220,7 @@ Exact option names and defaults are in the language's Developer reference.
 - Key each external effect by an ID that is stable across attempts, such as the Flow ID plus the Step execution ID, or a business key. Send it to the target service.
 - On a possibly-run failure, reconcile at the target by that key before you repeat or report.
 - Record the outcome in the Flow.
-- One attempt does not make an effect exactly once; the stable key does.
+- One attempt does not make an effect exactly once; send a stable key that the receiver recognizes and deduplicates.
 - Never keep correctness state only in Worker memory.
 
 ## Verify
