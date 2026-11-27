@@ -421,7 +421,15 @@ class Client:
             flow_id: The non-empty target Flow ID.
             input: The annotated RPC input, or ``None`` for an input-free RPC.
             run_id: Optional exact run. With ``""``, the server resolves the current
-                execution.
+                execution. Pass a run ID, such as one ``start_flow`` returned, to
+                invoke the RPC on that run of ``flow_id`` even when a newer run
+                exists. A query-only RPC, one without locks, transactional
+                execution, or durable effects, can read a closed run that Dex still
+                retains. An RPC that needs an active execution raises
+                ``FlowNotActiveOrNotFoundError`` when that run is closed; it never
+                runs on a newer run of the same Flow ID. Request IDs are recorded
+                per run, so a retry with the same ``options.request_id`` and
+                ``run_id`` deduplicates against that run only.
             options: Additive runtime AttributeMap locks and exact map-instance loads,
                 and an optional request ID. They cannot change timeout or
                 transactionality. The Client unions, sorts, and deduplicates these
@@ -437,10 +445,13 @@ class Client:
             WorkerInvocationError: If the application handler fails.
             ValueMappingError: If input or output mapping fails.
             FlowNotActiveOrNotFoundError: If the Flow is missing or the selected path
-                cannot use its closed execution.
+                cannot use its closed execution. With ``run_id``, also if that run
+                does not exist, belongs to another Flow ID, or is being deleted.
             DexServiceError: If the service call otherwise fails. Dex Server 0.1.36
                 and earlier raise it with ``grpc.StatusCode.INVALID_ARGUMENT`` for
-                a different request under a recorded ``options.request_id``.
+                a different request under a recorded ``options.request_id``. A
+                ``run_id`` that is not a run ID in its canonical 36-character form
+                raises it with ``grpc.StatusCode.INVALID_ARGUMENT``.
             RuntimeError: If the Server reports a protocol range without protocol 4.
 
         .. versionchanged:: 1.45.17
@@ -724,6 +735,8 @@ class Client:
         self,
         flow_id: str,
         timeout: timedelta | None = None,
+        *,
+        run_id: str = "",
     ) -> FlowResult:
         """Block until a Flow closes and return its terminal result.
 
@@ -731,21 +744,44 @@ class Client:
         retryable by calling this method again. Parallel completion order is not
         deterministic; select results by Step identity rather than position.
 
+        By default the call waits for the latest run of ``flow_id``. Pass
+        ``run_id`` to wait for one exact run instead, such as a child run whose
+        run ID the caller recorded from ``start_flow``. When that run has already
+        closed, the call returns its result at once, even while a newer run of
+        the same Flow ID is running.
+
+        Examples:
+            >>> from dex import FlowNotFoundError
+            >>> try:
+            ...     result = client.wait_for_flow("order-42", run_id=child_run_id)
+            ... except FlowNotFoundError:
+            ...     result = None  # The tracked run is gone.
+
         Args:
             flow_id: The non-empty target Flow ID.
             timeout: Optional non-negative server-side wait duration.
+            run_id: The run ID of one exact run of ``flow_id``, such as one
+                ``start_flow`` returned. ``""``, the default, waits for the latest
+                run.
 
         Returns:
             The terminal status, failure detail, and output-bearing completions.
 
         Raises:
             LongPollTimeoutError: If the Flow remains open when the wait expires.
-            FlowNotFoundError: If ``flow_id`` does not exist.
+            FlowNotFoundError: If ``flow_id`` does not exist. With ``run_id``, also
+                if that run does not exist, belongs to another Flow ID, or is
+                being deleted after its retention period.
             ValueMappingError: If Dex returns a malformed or incompatible hydrated value.
-            DexServiceError: If FlowService cannot perform the wait.
+            DexServiceError: If FlowService cannot perform the wait. A ``run_id``
+                that is not a run ID in its canonical 36-character form raises it
+                with ``grpc.StatusCode.INVALID_ARGUMENT``.
             RuntimeError: If the Server reports a protocol range without protocol 4.
+
+        .. versionchanged:: 1.45.18
+           Accepts ``run_id`` to wait for one exact run.
         """
-        response = self._wait_for_flow_response(flow_id, timeout)
+        response = self._wait_for_flow_response(flow_id, run_id, timeout)
         mapped = self._hydrator.flow_result(
             flow_id, response, PayloadContext("", flow_id)
         )
@@ -760,6 +796,8 @@ class Client:
         self,
         flow_id: str,
         options: StopFlowOptions = StopFlowOptions(),
+        *,
+        run_id: str = "",
     ) -> None:
         """Request cancellation, termination, failure, or completion of an active Flow.
 
@@ -772,55 +810,101 @@ class Client:
         Flow with ``StopFlowOptions.output`` as a result, like the graceful and force
         complete Step decisions; see :class:`StopType`.
 
+        By default the call stops the active run of ``flow_id``. Pass ``run_id``
+        to stop exactly the run the caller tracks. A stop with ``run_id`` never
+        affects a newer run of the same Flow ID. When that run has already closed,
+        the call raises ``FlowNotActiveOrNotFoundError``, so the caller can treat
+        the tracked run as already stopped.
+
         Examples:
-            >>> from dex import StopFlowOptions, StopType
+            >>> from dex import FlowNotActiveOrNotFoundError, StopFlowOptions, StopType
             >>> client.stop_flow("order-42", StopFlowOptions(type=StopType.CANCEL))
             >>> result = client.wait_for_flow("order-42")
+            >>> try:
+            ...     client.stop_flow("shipment-42", run_id=claimed_run_id)
+            ... except FlowNotActiveOrNotFoundError:
+            ...     pass  # The claimed run had already closed.
 
         Args:
             flow_id: The non-empty target Flow ID.
             options: Stop mode, optional recorded reason, and optional output.
+            run_id: The run ID of one exact run of ``flow_id``, such as one
+                ``start_flow`` returned. ``""``, the default, stops the active run.
 
         Raises:
             ValueError: If ``options.output`` is set for a stop type that does not
                 complete the Flow.
             ValueMappingError: If ``options.output`` cannot be encoded.
-            FlowNotActiveOrNotFoundError: If no active run exists.
+            FlowNotActiveOrNotFoundError: If no active run exists. With ``run_id``,
+                if that run has already closed, does not exist, or belongs to
+                another Flow ID.
             DexServiceError: If FlowService rejects or cannot perform the request.
+                A ``run_id`` that is not a run ID in its canonical 36-character
+                form raises it with ``grpc.StatusCode.INVALID_ARGUMENT``.
             RuntimeError: If the Server reports a protocol range without protocol 4.
 
         .. versionchanged:: 1.45.4
             Accepts ``StopType.GRACEFUL_COMPLETE``, ``StopType.FORCE_COMPLETE``, and
             ``StopFlowOptions.output``.
+
+        .. versionchanged:: 1.45.18
+            Accepts ``run_id`` to stop one exact run.
         """
         self._call(
             self._service.StopFlow,
-            map_stop_flow_request(flow_id, options, self._values),
+            map_stop_flow_request(flow_id, run_id, options, self._values),
             "stop_flow",
             flow_id,
             "active",
             payload_context=PayloadContext("", flow_id),
         )
 
-    def describe_flow(self, flow_id: str) -> FlowInfo:
-        """Return summary metadata for the current or latest Flow run.
+    def describe_flow(self, flow_id: str, *, run_id: str = "") -> FlowInfo:
+        """Return summary metadata for the current or latest Flow run, or one exact run.
+
+        The call reads committed state once and does not wait. Pass ``run_id`` to
+        read one exact run instead, such as a child run whose run ID the caller
+        recorded from ``start_flow``. The result describes that run even when a
+        newer run of the same Flow ID exists, so the caller does not need to
+        check that the latest run is still the tracked one. A closed run returns
+        its final status.
+
+        Examples:
+            >>> from dex import FlowNotFoundError, FlowStatus
+            >>> try:
+            ...     info = client.describe_flow("shipment-42", run_id=claimed_run_id)
+            ... except FlowNotFoundError:
+            ...     info = None  # The tracked run is gone.
+            >>> if info is not None and info.status is FlowStatus.RUNNING:
+            ...     result = client.wait_for_flow("shipment-42", run_id=info.run_id)
 
         Args:
             flow_id: The non-empty Flow ID to describe.
+            run_id: The run ID of one exact run of ``flow_id``, such as one
+                ``start_flow`` returned. ``""``, the default, describes the
+                current run, or the latest run when no run is open.
 
         Returns:
-            Flow ID, run ID, Flow type, status, and UTC start time.
+            Flow ID, run ID, Flow type, status, and UTC start time. With
+            ``run_id``, the returned run ID equals ``run_id``.
 
         Raises:
-            FlowNotFoundError: If ``flow_id`` does not exist.
-            DexServiceError: If FlowService cannot return the summary.
+            FlowNotFoundError: If ``flow_id`` does not exist. With ``run_id``, also
+                if that run does not exist, belongs to another Flow ID, or is
+                being deleted after its retention period.
+            DexServiceError: If FlowService cannot return the summary. A
+                ``run_id`` that is not a run ID in its canonical 36-character form
+                raises it with ``grpc.StatusCode.INVALID_ARGUMENT``.
             RuntimeError: If the Server reports a protocol range without protocol 4.
+
+        .. versionchanged:: 1.45.18
+           Accepts ``run_id`` to describe one exact run.
         """
         response = cast(
             pb.GetFlowSummaryResponse,
             self._call(
                 self._service.GetFlowSummary,
-                pb.GetFlowSummaryRequest(flow_id=require_name(flow_id)),
+                pb.GetFlowSummaryRequest(flow_id=require_name(flow_id), run_id=run_id),
                 "describe_flow",
                 flow_id,
                 "existing",
@@ -909,10 +993,14 @@ class Client:
         self,
         flow_id: str,
         *reads: Attribute[Any] | AttributeMapInstance[Any],
+        run_id: str = "",
     ) -> AttributeValues:
-        """Read committed Attribute values from the current or latest Flow run.
+        """Read committed Attribute values from the current or latest run, or one exact run.
 
         .. versionadded:: 1.29.0
+
+        .. versionchanged:: 1.45.18
+           Accepts ``run_id`` to read one exact run.
 
         Use ``get_attributes`` to read Flow state from outside the Flow without
         defining an RPC. Pass one or more reads. A read is a singleton
@@ -925,6 +1013,11 @@ class Client:
         closed run stays readable until Dex purges it. The call sees only committed
         state. Unlike reading inside an RPC handler, it never sees writes that a
         running Step or RPC has staged but not yet committed.
+
+        Pass the keyword argument ``run_id`` to read one exact run instead, such as
+        a child run whose run ID the caller recorded from ``start_flow``. The call
+        reads that run's values even when a newer run of the same Flow ID exists.
+        A closed run returns the values it held when it closed.
 
         Each read must use a definition that some Flow in this Client's Registry
         declares in its ``PersistenceSchema``. The definition matches when it is
@@ -957,10 +1050,18 @@ class Client:
             if NOTES.instance("n1") in values:
                 note = values[NOTES.instance("n1")]
 
+            # Read the run this caller tracks, even after a newer run starts.
+            tracked = client.get_attributes(
+                "order-42", ORDER_STATUS, run_id=claimed_run_id
+            )
+
         Args:
             flow_id: The non-empty Flow ID.
             *reads: At least one ``Attribute`` or ``AttributeMapInstance``. Two
                 reads of the same Attribute or AttributeMap instance are rejected.
+            run_id: Keyword-only. The run ID of one exact run of ``flow_id``, such
+                as one ``start_flow`` returned. ``""``, the default, reads the
+                current run, or the latest run when no run is open.
 
         Returns:
             The set values, keyed by the reads passed to this call. An Attribute or
@@ -977,18 +1078,22 @@ class Client:
                 definition, including a same-named definition with another value
                 type.
             FlowNotFoundError: If the Flow does not exist or its latest run is
-                being purged.
+                being purged. With ``run_id``, also if that run does not exist,
+                belongs to another Flow ID, or is being deleted after its
+                retention period.
             ValueMappingError: If a returned value cannot be resolved or decoded
                 as its value type. This includes an empty or non-finite value, an
                 unsupported object encoding, and a large value that LoadBlobs omits.
             DexServiceError: If FlowService or LoadBlobs otherwise fails. A LoadBlobs
-                failure for a missing Flow raises ``FlowNotFoundError``.
+                failure for a missing Flow raises ``FlowNotFoundError``. A
+                ``run_id`` that is not a run ID in its canonical 36-character form
+                raises it with ``grpc.StatusCode.INVALID_ARGUMENT``.
             RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         plan = plan_attribute_reads(self.registry, self._values, flow_id, reads)
         try:
             self._negotiate_server_protocol()
-            response = self._service.GetAttributes(plan.request())
+            response = self._service.GetAttributes(plan.request(run_id))
         except grpc.RpcError as error:
             raise plan.service_error(error, "GetAttributes") from error
         entries = plan.set_entries(response)
@@ -1717,10 +1822,12 @@ class Client:
     def _wait_for_flow_response(
         self,
         flow_id: str,
+        run_id: str,
         timeout: timedelta | None,
     ) -> pb.FlowResult:
         request = pb.WaitForFlowRequest(
             flow_id=require_name(flow_id),
+            run_id=run_id,
             needs_results=True,
         )
         if timeout is not None:

@@ -400,6 +400,13 @@ The call reads the current run, or the latest run when no run is open, and a
 closed run stays readable until Dex purges it. Unlike a read inside an RPC
 handler, it never sees writes that a running Step or RPC has not committed.
 
+To work with one exact run of a Flow ID, such as a child run whose run ID the
+caller recorded, pass the keyword argument `run_id` to `describe_flow`,
+`get_attributes`, `wait_for_flow`, `stop_flow`, or `invoke_rpc`. These calls
+address that run even when a newer run exists. A stop with a run ID never
+affects a newer run. A closed run raises `FlowNotActiveOrNotFoundError` to a
+stop, and a missing run raises the call's not-found error. Since 1.45.18.
+
 The result `AttributeValues` is keyed by the reads passed to the call, and type
 checkers infer each value type from its key. An unset Attribute or map instance
 is absent: `values[key]` raises `KeyError`, `values.get(key)` returns `None`,
