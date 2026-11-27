@@ -136,7 +136,42 @@ type typeScriptLockedMethodCase struct {
 	executeBody string
 	deliverBody string
 	extraSource string
+	// projectFiles are other project source files, by path relative to workflow.ts.
+	projectFiles map[string]string
 }
+
+const typeScriptReminderStateSource = `import { jsonCodec } from "@superdurable/dex";
+
+interface ReminderState {
+  sent: string[];
+}
+
+const emptyState: ReminderState = {sent: []};
+const reminderState = new Attribute("ReminderState", jsonCodec<ReminderState>());`
+
+const typeScriptFallbackExecuteBody = `const current = reminderState.get(context) ?? emptyState;
+    const other = reminderState.get(context) || {sent: []};
+    const chosen = input === "" ? current : emptyState;
+    counter.set(context, current.sent.filter(Boolean).length + other.sent.slice(0).length + chosen.sent.map(String).length);`
+
+const typeScriptTicketsModule = `export interface Ticket {
+  id: string;
+}
+
+export function ticketLabel(text: string): string {
+  return text.trim().toUpperCase();
+}
+
+export function notifyCustomer(text: string): Promise<Response> {
+  return fetch("https://example.com/" + text);
+}
+`
+
+const typeScriptTicketHelperSource = `import { notifyCustomer, ticketLabel, type Ticket } from "./tickets.js";
+
+function ticketIds(tickets: readonly Ticket[]): string[] {
+  return tickets.map(ticket => ticket.id.trim());
+}`
 
 const typeScriptPureExecuteBody = `const names: string[] = [input.trim().toUpperCase(), String(counter.get(context)), context.flowId.toLowerCase()];
     names.sort((left, right) => left.localeCompare(right));
@@ -193,6 +228,8 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 		source typeScriptLockedMethodCase
 		// messages lists every locked_method_external_call message fragment, in report order.
 		messages []string
+		// isExecuteClean requires a checked SendReminderStep execute with no possible external call.
+		isExecuteClean bool
 	}{
 		"execute calls an injected service while holding an RPC lock": {
 			source:   typeScriptLockedMethodCase{rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void this.flow.mailer.send(input);"},
@@ -255,6 +292,28 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			},
 			messages: []string{"Execute of SendReminderStep holds lock Ending, which RPC stopReminders also takes, and calls this.flow.mailer.send" + typeScriptLockedMessageSuffix},
 		},
+		"Attribute values with fallbacks use collection methods": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: typeScriptFallbackExecuteBody,
+				extraSource: typeScriptReminderStateSource,
+			},
+			isExecuteClean: true,
+		},
+		"pure helper and data type from a project file": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()",
+				executeBody: "counter.set(context, ticketIds([{id: input}]).length + ticketLabel(input).length);",
+				extraSource: typeScriptTicketHelperSource, projectFiles: map[string]string{"tickets.ts": typeScriptTicketsModule},
+			},
+			isExecuteClean: true,
+		},
+		"project file helper calls fetch": {
+			source: typeScriptLockedMethodCase{
+				rpcLock: "ending.lock()", executeLock: "ending.lock()", executeBody: "void notifyCustomer(input);",
+				extraSource: typeScriptTicketHelperSource, projectFiles: map[string]string{"tickets.ts": typeScriptTicketsModule},
+			},
+			messages: []string{"and calls notifyCustomer (calls fetch)" + typeScriptLockedMessageSuffix},
+		},
 	}
 	for _, name := range slices.Sorted(maps.Keys(testCases)) {
 		testCase := testCases[name]
@@ -271,6 +330,13 @@ func TestTypeScriptLockedMethodExternalCall(t *testing.T) {
 			require.Len(t, messages, len(testCase.messages), "%+v", graph.Diagnostics)
 			for index, fragment := range testCase.messages {
 				require.Contains(t, messages[index], fragment)
+			}
+			if testCase.isExecuteClean {
+				executeIndex := slices.IndexFunc(graph.methodExternalCalls, func(marker methodExternalCalls) bool {
+					return marker.NodeID == "step:SendReminderStep" && marker.Phase == "execute"
+				})
+				require.NotEqual(t, -1, executeIndex, "%+v", graph.methodExternalCalls)
+				require.Empty(t, graph.methodExternalCalls[executeIndex].Calls)
 			}
 			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
 		})
@@ -318,7 +384,11 @@ func analyzeTypeScriptLockedMethodSource(t *testing.T, source typeScriptLockedMe
 		"DELIVER_BODY", source.deliverBody,
 		"EXTRA_SOURCE", source.extraSource,
 	)
-	sourcePath := filepath.Join(t.TempDir(), "workflow.ts")
+	sourceDirectory := t.TempDir()
+	for relativePath, contents := range source.projectFiles {
+		writeTestFile(t, filepath.Join(sourceDirectory, relativePath), contents)
+	}
+	sourcePath := filepath.Join(sourceDirectory, "workflow.ts")
 	writeTestFile(t, sourcePath, replacer.Replace(typeScriptLockedMethodSource))
 	graph, err := Analyze(t.Context(), sourcePath, AnalyzeOptions{FlowType: "ReminderFlow", TypeScriptCompilerDirectory: compilerDirectory})
 	require.NoError(t, err)

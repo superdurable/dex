@@ -38,9 +38,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let path = request["path"].as_str().ok_or("missing path")?;
     let source = request["source"].as_str().ok_or("missing source")?;
     let requested_flow = request["flowType"].as_str().unwrap_or_default();
+    let dex_sdk_crate_aliases: Vec<String> = request["dexSdkCrateAliases"]
+        .as_array()
+        .map(|aliases| {
+            aliases
+                .iter()
+                .filter_map(|alias| alias.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut graph = RustFlowGraph::new(path);
     match syn::parse_file(source) {
-        Ok(file) => RustFlowSource::new(source, &file.items).analyze(requested_flow, &mut graph),
+        Ok(file) => RustFlowSource::new(source, &file.items, dex_sdk_crate_aliases)
+            .analyze(requested_flow, &mut graph),
         Err(error) => graph.diagnostic(
             "error",
             "rust_parse_failed",
@@ -128,6 +138,8 @@ struct RustFlowSource<'source> {
     /// Full use paths by the local name they bring into scope.
     use_paths: BTreeMap<String, Vec<String>>,
     glob_imports: Vec<Vec<String>>,
+    /// Names under which the package's Cargo.toml depends on dex-sdk, such as `dex`.
+    dex_sdk_crate_aliases: Vec<String>,
     attribute_lines: BTreeSet<usize>,
     implementations: Vec<&'source ItemImpl>,
     flows: Vec<WorkflowImplementation<'source>>,
@@ -144,7 +156,11 @@ struct WorkflowImplementation<'source> {
 }
 
 impl<'source> RustFlowSource<'source> {
-    fn new(source: &'source str, items: &'source [Item]) -> Self {
+    fn new(
+        source: &'source str,
+        items: &'source [Item],
+        dex_sdk_crate_aliases: Vec<String>,
+    ) -> Self {
         let mut workflow = Self {
             lines: source.lines().collect(),
             declarations: BTreeMap::new(),
@@ -152,6 +168,7 @@ impl<'source> RustFlowSource<'source> {
             import_aliases: BTreeMap::new(),
             use_paths: BTreeMap::new(),
             glob_imports: Vec::new(),
+            dex_sdk_crate_aliases,
             attribute_lines: BTreeSet::new(),
             implementations: Vec::new(),
             flows: Vec::new(),

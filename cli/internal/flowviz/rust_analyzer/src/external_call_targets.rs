@@ -135,6 +135,117 @@ const COLLECTION_TYPES: &[&str] = &[
 /// Dex SDK items that reach the Dex server, other Flows, or the file system.
 const DEX_SDK_EXTERNAL_ITEMS: &[&str] = &["BlobCache", "Client", "FileCredential", "Worker"];
 
+/// Names exported at the dex_sdk crate root; a glob import of dex_sdk supplies them even beside other globs.
+const DEX_SDK_ROOT_EXPORTS: &[&str] = &[
+    "ActiveStepSearchMode",
+    "ApiKeyCredential",
+    "ApiKeyCredentialBuilder",
+    "ApiKeyCredentialError",
+    "Attribute",
+    "AttributeIndex",
+    "AttributeLock",
+    "AttributeMap",
+    "AttributeMapInstance",
+    "AttributeMapLoad",
+    "AttributeMatch",
+    "AttributeRead",
+    "AttributeReads",
+    "BlobCache",
+    "BlobCacheConfig",
+    "BufferedTextStream",
+    "BufferedTextStreamOptions",
+    "Channel",
+    "ChannelGuard",
+    "ChannelMap",
+    "ChannelMapLoad",
+    "ChannelMessage",
+    "Client",
+    "ClientOptions",
+    "CloneForkFlowOptions",
+    "CloneForkFlowResult",
+    "Condition",
+    "ConditionCombination",
+    "Context",
+    "Credential",
+    "CredentialError",
+    "ErrorSubStatus",
+    "FileCredential",
+    "Flow",
+    "FlowConfig",
+    "FlowDefinitionDocument",
+    "FlowDefinitionUploadOutcome",
+    "FlowDefinitionUploadResult",
+    "FlowErrorType",
+    "FlowInfo",
+    "FlowResult",
+    "FlowServiceTlsOptions",
+    "FlowStatus",
+    "FlowTimeoutHandler",
+    "FlowTimeoutHandlerFailure",
+    "FlowTimeoutHandlerOptions",
+    "FlowTimeoutPolicy",
+    "GracefulCompletionConditionUnsupportedError",
+    "GrpcCode",
+    "HandlerError",
+    "HandlerResult",
+    "IdReusePolicy",
+    "Join",
+    "JoinRound",
+    "MissingAttributeLockAccess",
+    "MissingAttributeLockAccessKind",
+    "MissingAttributeLockError",
+    "MissingAttributeLockInvocation",
+    "PersistenceSchema",
+    "PullQueueRegistrationState",
+    "PullRegistrationError",
+    "PullRegistrationState",
+    "PullSlotStreamState",
+    "PullWorkerOptions",
+    "RecoveryErrorInfo",
+    "Registry",
+    "RetryPolicy",
+    "Rpc",
+    "RpcDefinition",
+    "RpcInvokeOptions",
+    "RpcList",
+    "RpcResult",
+    "SdkError",
+    "SdkResult",
+    "SearchFlowEntry",
+    "SearchFlowsPage",
+    "ServiceError",
+    "StartFlowOptions",
+    "Step",
+    "StepAttemptProgress",
+    "StepCompletion",
+    "StepDecision",
+    "StepDurability",
+    "StepExecutionId",
+    "StepList",
+    "StepMovement",
+    "StepOptions",
+    "StopFlowOptions",
+    "Stream",
+    "StreamMessage",
+    "StreamMessagesPage",
+    "SubFlow",
+    "SubFlowOptions",
+    "SubFlowResetPolicy",
+    "SubFlowReusePolicy",
+    "TimeTravelOptions",
+    "TimeTravelStepMethod",
+    "Timer",
+    "TimerId",
+    "Value",
+    "Wait",
+    "WaitForAttributeOptions",
+    "WaitForFailurePolicy",
+    "WaitForStepCompletionOptions",
+    "Worker",
+    "WorkerError",
+    "WorkerOptions",
+];
+
 /// serde_json functions that read or write through an I/O reader or writer.
 const SERDE_JSON_EXTERNAL_FUNCTIONS: &[&str] = &["from_reader", "to_writer", "to_writer_pretty"];
 
@@ -479,6 +590,12 @@ impl RustFlowSource<'_> {
     pub(crate) fn path_target(&self, segments: &[String], scope: &TypeScope) -> PathTarget {
         let mut segments = segments.to_vec();
         for _ in 0..8 {
+            if segments
+                .first()
+                .is_some_and(|first| self.is_dex_sdk_crate_name(first))
+            {
+                segments[0] = "dex_sdk".to_owned();
+            }
             let Some(first) = segments.first() else {
                 return PathTarget::External;
             };
@@ -517,7 +634,10 @@ impl RustFlowSource<'_> {
                     if PRELUDE_NAMES.contains(&name) {
                         return PathTarget::PureStandardLibrary;
                     }
-                    if self.has_only_dex_sdk_glob() {
+                    // Two globs supplying one used name fail to compile (E0659), so a dex_sdk export is unambiguous.
+                    let is_dex_sdk_export =
+                        self.has_dex_sdk_glob() && DEX_SDK_ROOT_EXPORTS.contains(&name);
+                    if self.has_only_dex_sdk_glob() || is_dex_sdk_export {
                         let mut resolved = vec!["dex_sdk".to_owned()];
                         resolved.extend(segments);
                         return dex_sdk_target(&resolved);
@@ -541,7 +661,20 @@ impl RustFlowSource<'_> {
             .filter_map(|path| path.first().map(String::as_str))
             .filter(|root| !matches!(*root, "std" | "core" | "alloc"))
             .collect();
-        !roots.is_empty() && roots.iter().all(|root| *root == "dex_sdk")
+        !roots.is_empty() && roots.iter().all(|root| self.is_dex_sdk_crate_name(root))
+    }
+
+    /// Reports whether any glob import, such as `use dex_sdk::*`, reads from dex_sdk.
+    fn has_dex_sdk_glob(&self) -> bool {
+        self.glob_imports
+            .iter()
+            .filter_map(|path| path.first())
+            .any(|root| self.is_dex_sdk_crate_name(root))
+    }
+
+    /// Reports whether name refers to the dex-sdk crate, directly or through a Cargo.toml rename.
+    fn is_dex_sdk_crate_name(&self, name: &str) -> bool {
+        name == "dex_sdk" || self.dex_sdk_crate_aliases.iter().any(|alias| alias == name)
     }
 
     /// Returns the value type of a same-file Attribute, Channel, or Stream static, such as T in `LazyLock<Attribute<T>>`.
