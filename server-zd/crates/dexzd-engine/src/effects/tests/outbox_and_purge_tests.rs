@@ -616,7 +616,7 @@ fn short_retention_settings() -> RunSettings {
     }
 }
 
-fn terminate_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
+pub(super) fn terminate_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
     let command = FlowCommand {
         flow_id: flow_id.to_owned(),
         run_id: run_id.as_bytes().to_vec(),

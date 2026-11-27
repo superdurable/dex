@@ -248,6 +248,8 @@ pub(super) struct InMemoryFlowEffectOperations {
     pub(super) committed_queue_seeks: Arc<AtomicUsize>,
     /// Counts Timer index rows that committed scans return.
     pub(super) committed_timer_rows: Arc<AtomicUsize>,
+    /// Counts Retention index rows that committed scans return.
+    pub(super) committed_retention_rows: Arc<AtomicUsize>,
     /// Runs once on the committed state right after the next committed reader takes its snapshot.
     pub(super) committed_reader_hook: Mutex<Option<CommittedReaderHook>>,
     /// Counts `flow_state_reader` calls that leave out speculative state.
@@ -635,6 +637,7 @@ impl FlowEffectOperations for InMemoryFlowEffectOperations {
             state: snapshot,
             queue_seeks: Arc::clone(&self.committed_queue_seeks),
             timer_rows: Arc::clone(&self.committed_timer_rows),
+            retention_rows: Arc::clone(&self.committed_retention_rows),
             committed_read_gate: Arc::clone(&self.committed_read_gate),
             row_count_gate: Arc::clone(&self.row_count_gate),
             _open_read: StateReadInProgress::begin(&self.state_read_gate),
@@ -803,6 +806,7 @@ struct CountingStateReader {
     state: MemoryState,
     queue_seeks: Arc<AtomicUsize>,
     timer_rows: Arc<AtomicUsize>,
+    retention_rows: Arc<AtomicUsize>,
     committed_read_gate: Arc<StateReadGate>,
     row_count_gate: Arc<StateReadGate>,
     /// Counts the reader as open, so `settle` waits for its blocking read.
@@ -854,6 +858,11 @@ impl FlowStateReader for CountingStateReader {
             && start.get(2) == Some(&(dexzd_keyspace::IndexKind::Timer as u8))
         {
             self.timer_rows.fetch_add(rows.len(), Ordering::SeqCst);
+        }
+        if column_family == ColumnFamily::PartitionIndex
+            && start.get(2) == Some(&(dexzd_keyspace::IndexKind::Retention as u8))
+        {
+            self.retention_rows.fetch_add(rows.len(), Ordering::SeqCst);
         }
         Ok(rows)
     }
@@ -1596,6 +1605,7 @@ impl EffectHarness {
             committed_reader_failures: AtomicUsize::new(0),
             committed_queue_seeks: Arc::new(AtomicUsize::new(0)),
             committed_timer_rows: Arc::new(AtomicUsize::new(0)),
+            committed_retention_rows: Arc::new(AtomicUsize::new(0)),
             committed_reader_hook: Mutex::new(None),
             committed_flow_reads: AtomicUsize::new(0),
             proposal_delay: Mutex::new(Duration::ZERO),
