@@ -31,6 +31,10 @@ use crate::effects::state_reads::{
 use crate::effects::{EffectContext, EffectError, RouterMessage};
 use crate::flow_coordination::FlowAddress;
 
+/// Covers runs a stale Retention fire marks purging up to one postponement (one hour) early
+/// ([#2322](https://github.com/superdurable/dex/issues/2322)).
+const RETENTION_REBUILD_MARGIN_MICROS: i64 = 60 * 60 * 1_000_000;
+
 /// Rebuilds the partition's work and submits it to the router as committed effects.
 pub(crate) async fn rebuild_partition(
     context: &Arc<EffectContext>,
@@ -311,10 +315,9 @@ fn rebuild_run_purges(
 ) -> Result<(), EffectError> {
     let prefix = partition_index_prefix(partition, IndexKind::Retention);
     let end = match last_command_timestamp_micros(reader, partition)? {
-        // A Retention timer fires no earlier than its deadline, in a command at or
-        // before the watermark.
         Some(watermark) => {
-            prefix_successor(&[&prefix[..], &ordered_timestamp_bytes(watermark)].concat())
+            let delete_at_bound = watermark.saturating_add(RETENTION_REBUILD_MARGIN_MICROS);
+            prefix_successor(&[&prefix[..], &ordered_timestamp_bytes(delete_at_bound)].concat())
         }
         None => prefix_successor(&prefix),
     };

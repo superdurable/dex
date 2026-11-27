@@ -669,8 +669,10 @@ const READ_NO_RETENTION_ROW: PurgeRebuildReads = PurgeRebuildReads {
     run_purges: 0,
 };
 
+const ONE_HOUR_MICROS: i64 = 60 * 60 * SECOND_MICROS;
+
 #[tokio::test(start_paused = true)]
-async fn a_rebuild_reads_only_retention_rows_due_by_the_partition_watermark() {
+async fn a_rebuild_skips_retention_rows_for_runs_kept_for_a_week() {
     let reads = rebuild_with_one_purging_run(20, |deadline| Some(deadline + SECOND_MICROS)).await;
     assert_eq!(
         reads, FOUND_PURGING_RUN_ONLY,
@@ -679,14 +681,15 @@ async fn a_rebuild_reads_only_retention_rows_due_by_the_partition_watermark() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_rebuild_finds_a_purging_run_due_exactly_at_the_watermark() {
-    let reads = rebuild_with_one_purging_run(1, Some).await;
+async fn a_rebuild_finds_a_purging_run_due_one_hour_after_the_watermark() {
+    let reads = rebuild_with_one_purging_run(1, |deadline| Some(deadline - ONE_HOUR_MICROS)).await;
     assert_eq!(reads, FOUND_PURGING_RUN_ONLY);
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_rebuild_reads_no_retention_row_due_one_microsecond_after_the_watermark() {
-    let reads = rebuild_with_one_purging_run(1, |deadline| Some(deadline - 1)).await;
+async fn a_rebuild_skips_a_retention_row_due_one_microsecond_beyond_the_margin() {
+    let reads =
+        rebuild_with_one_purging_run(1, |deadline| Some(deadline - ONE_HOUR_MICROS - 1)).await;
     assert_eq!(reads, READ_NO_RETENTION_ROW);
 }
 
