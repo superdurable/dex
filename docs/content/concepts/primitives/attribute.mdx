@@ -386,9 +386,7 @@ requests that lock during the call fails with a lock conflict. The same holds fo
 calling another Flow is an external call too.
 
 A lock that only Steps share may cover an external call. Those Steps wait for
-the lock and run one at a time. A polling Step should not hold a lock that its
-deadline watchdog also needs, because the watchdog would wait until the loop
-ends. A failing locked Step holds its lock through every retry, so set a short
+the lock and run one at a time. A failing locked Step holds its lock through every retry, so set a short
 total duration, such as a few minutes, in its `StepOptions` retry policy; see
 [Lock holding](/reference/server/runtime-data#lock-holding).
 

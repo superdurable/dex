@@ -8,4 +8,5 @@ bump: patch
 - A concurrent RPC never locks and rewrites shared state such as a list, a counter, or an admission deadline. Never keep state that a later handler reads on one Worker's disk.
 - Stopping an already-decided action is a two-row choice by what the business promises. Drop the state-snapshot timing from reply windows, reminders, and the stop grace.
 - Drop caveats that invited extra guards: late timeout-handler commits, Timer drift, stale queued-attempt snapshots, heartbeat acknowledgment, same-attempt ASYNC reruns, loose dispatch order, and the run-ID double read. Steps need no deadline check when the timeout handler force-closes the Flow.
+- The deadline watchdog is simpler: the polling loop runs as the only branch of a Join, and the join Step waits on its result or the deadline Timer, then decides alone. No shared lock, no losing Step, and no rule that a polling Step avoid the watchdog's lock.
 - Rust: pass a cancellation check into a call that can poll it, so a canceled branch ends its open request.
