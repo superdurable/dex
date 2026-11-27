@@ -68,7 +68,7 @@ Rules:
 - Conditions in Until, AnyOf, and AllOf need no names. Read Channel results from the Channel definition and Timer outcomes from the Context.
 - Every Condition in AnyCombinationOf needs a unique Condition ID.
 - A Timer needs an ID when another operation selects it by ID. SkipTimer can also select by zero-based Condition index.
-- Dex checks a wait when it starts and whenever a Condition it waits on changes, such as a publish or a Timer firing. A message queued before the wait starts wins at once; otherwise the first event to commit wins. Between Channels that are both queued, the first declared wins. The full tie-break order is edge-case semantics; see [AnyOf selection order](https://docs.superdurable.io/reference/go/waits#anyof-selection-order). Do not build business priority between a Timer and a Channel on the selection order. An Execute that re-checks Channels after a Timer won sees what is committed in its first state snapshot, which retries reuse, not what was ready when the wait was evaluated.
+- Dex checks a wait when it starts and whenever a Condition it waits on changes, such as a publish or a Timer firing. A message queued before the wait starts wins at once; otherwise the first event to commit wins. Between Channels that are both queued, the first declared wins. The full tie-break order is edge-case semantics; see [AnyOf selection order](https://docs.superdurable.io/reference/go/waits#anyof-selection-order). Do not build business priority between a Timer and a Channel on the selection order.
 - Consumption is not greedy. Only the winning AnyOf alternative, or the winning AnyCombinationOf group, consumes Channel messages. The others stay pending.
 - AnyOf is a race. For strict priority, return only the high-priority Condition until it resolves. For a business priority between events, state which definition of "the same moment" applies; see [patterns.md](patterns.md#arbitrate-by-business-priority).
 - In Execute, check which Condition won before reading its result. When a Timer wins, no Channel message was consumed, and a message can still commit before Execute runs. When that matters, close a reply window with an Attribute lock; see [patterns.md](patterns.md#close-a-reply-window-with-an-attribute-lock).
@@ -91,7 +91,6 @@ Rules:
 - Dex never closes a Flow because no Step is active. Without a pending GracefulComplete, such a Flow keeps running until something else closes it, such as its Flow timeout, a stop, or a Step that an RPC starts. End the last branch with a completing decision, and give a Flow that must not wait forever a Flow timeout.
 - GracefulComplete and ForceComplete can carry output. The Flow result lists each output with its Step type and Step execution ID.
 - Keep data that must survive a failure in an Attribute, not in an output. A Flow that does not complete has no outputs; see [Flow outputs](https://docs.superdurable.io/reference/server/step-and-flow-close#flow-outputs).
-- A Channel stays non-empty for ForceCompleteIfChannelsEmpty while a consumed message's Step has not finished Execute.
 - A decision can also cancel active Steps: by Step type, or the siblings started by the same parent Step execution. Use cancellation deliberately, for example after a first-winner branch.
 - Dex selects the Steps to cancel after the decision commits. Steps that the same decision starts are never canceled by it, so one decision can cancel a Step type and start a fresh execution of it.
 - A canceled Step's consumed Channel messages normally return to the front of their Channels, so a message can reach Execute twice. Keep Execute idempotent. When Dex drops them instead, see [the reference](https://docs.superdurable.io/reference/server/runtime-data#canceled-step-messages).
@@ -108,7 +107,6 @@ Durability resolves in this order: the WaitFor or Execute override in StepOption
 | Attempt start | persisted before the Worker receives the task | task handed out first; start persisted in a later batch |
 | Result | persisted before the Flow advances | Flow advances first; commit is batched shortly after |
 | Server node crash | no lost result | a recent result is lost; the method and the work after it run again |
-| Crash before the start is persisted | not possible | the same attempt number runs again, consuming no retry; the two runs can overlap and see different input |
 | Recovery attempt progress | can report NOT_STARTED | always NOT_COMPLETED |
 | Latency | higher | lower; a single Flow runs faster |
 | Throughput | about the same | about the same |
@@ -127,7 +125,8 @@ Both modes run the same attempts. Retry policy, method timeout, heartbeat timeou
 A method call is one logical execution. Its attempts share the maximum attempts, the retry total duration, and 1-based attempt numbers.
 
 - An attempt starts when Dex hands it to a Worker. Time spent waiting for locks or in the task queue does not count.
-- A Step that no Worker takes waits in a durable task queue. It does not fail and consumes no retry. Only a Flow timeout or a stop ends that wait. Steps are dispatched roughly in ready order, not strictly.
+- A Step that no Worker takes waits in a durable task queue. It does not fail and consumes no retry. Only a Flow timeout or a stop ends that wait.
+- Do not rely on the order in which ready Steps start. Use a Channel or an Attribute lock when order matters.
 - Dex never hands the same attempt number to a second Worker. A Worker crash or disconnect after hand-out fails the attempt as possibly run and consumes a retry, in both modes.
 - An attempt goes back to the queue without consuming a retry only when the Worker certainly never ran it: an unregistered Step type, a task never delivered, or a graceful Worker shutdown.
 - Attempts of one Step can overlap in time, because cancellation is cooperative. Keep handlers idempotent.
@@ -137,10 +136,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 
 - Dex takes the state snapshot when it hands the first attempt to a Worker. Every retry of that method call reuses the first snapshot, including its selections, and keeps its Attribute locks.
 - A retry does not see writes made after that snapshot. Do not retry a Step to wait for an RPC or another Step to fix state. Have the writer publish a Channel message and wait on it in the next Step's WaitFor, or fail to a recovery route.
-- Locks stay held through retry backoff and are released when the method call ends. A writing RPC that needs the lock gets a lock conflict for that whole time. Under a lock that an RPC takes, make no external call; under a lock that only Steps share, the other Steps wait for that whole time.
-- A returned or retrying attempt keeps its locks while queued. If no Worker can run it, it holds them until the Flow times out or stops.
-- An attempt returned without running keeps its snapshot and may run much later. Locked values cannot change meanwhile, but unlocked values may be stale.
-- A first attempt not yet handed out holds no locks, but later Steps that need the same lock wait behind it.
+- Locks stay held through retry backoff and while a retrying attempt waits for a Worker, and are released when the method call ends. A writing RPC that needs the lock gets a lock conflict for that whole time. Under a lock that an RPC takes, make no external call; under a lock that only Steps share, the other Steps wait for that whole time.
 
 ### Time bounds
 
@@ -164,7 +160,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - A long-running Execute must record a heartbeat or write a Stream message before its heartbeat timeout. A Stream message is an implicit heartbeat.
 - A heartbeat value is a retry checkpoint. The next attempt receives the last stored value.
 - An explicit valueless heartbeat clears the checkpoint. A Stream message keeps the current one.
-- Heartbeats are not acknowledged. A returned heartbeat call does not prove Dex stored it, even for SYNC. Checkpoints are batched; the next attempt may get an older value. Never use a checkpoint as the only record of an external effect.
+- A checkpoint is resume state and may be older than the last heartbeat. Key each external effect by a stable ID, never by the checkpoint alone.
 - The default heartbeat timeout is short; see each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults). If the attempt reaches its heartbeat deadline without a heartbeat or a Dex Stream write, Dex times out the attempt; raising only the method timeout keeps that deadline. A non-streaming provider call, such as a long LLM generation, sends neither for its whole duration. Either raise the heartbeat timeout above the longest acceptable silent interval, or heartbeat from a background task while the call runs. A background heartbeat proves only that the Worker runs, so a hung call then ends at the method timeout.
 - A loop of short calls that heartbeats between them, such as the [Polling pattern](patterns.md#polling), keeps the longest gap between heartbeats, including the slowest healthy call and the interval, below the heartbeat timeout, with a margin. Check that against the default before keeping it. The defaults are in each SDK's StepOptions reference, such as [Go](https://docs.superdurable.io/reference/go/step-options#defaults).
 - Act on cancellation promptly. Dex cancels a handler that exceeds its heartbeat timeout even if it records none.
@@ -223,7 +219,7 @@ Exact option names and defaults are in the language's Developer reference.
 - Key each external effect by an ID that is stable across attempts, such as the Flow ID plus the Step execution ID, or a business key. Send it to the target service.
 - On a possibly-run failure, reconcile at the target by that key before you repeat or report.
 - Record the outcome in the Flow.
-- A single-attempt Step is at-most-once only within these limits.
+- One attempt does not make an effect exactly once; the stable key does.
 - Never keep correctness state only in Worker memory.
 
 ## Verify
