@@ -301,7 +301,7 @@ For non-trivial work, check the runnable examples and [patterns](references/core
 - **No grace window after the decision.** Once the decision's snapshot or the closed window fixes the candidates, a later event changes nothing; never wait for later events with a clock or Timer grace window. A next Step that takes a reply admitted before that boundary is not such a wait.
 - **No provider writes or polling in WaitFor.** WaitFor may run more than once, so it never mutates an external system, including through Connector write operations, and never polls a provider; waiting for an external system uses a [Polling](references/core/patterns.md#polling) shape. Every provider write runs in Execute, idempotent or compensatable, keyed by an ID that is stable across attempts.
 - **No external call under a lock that an RPC takes.** Make no external call, including starting or calling another Flow, in a WaitFor, Execute, or timeout handler that holds a lock an RPC also takes. Dex holds the lock for the whole method call, through retries and backoff, so the RPC fails with a lock conflict meanwhile. Decide and commit under the lock, then make the call in the next, unlocked Step.
-- **Stop an already-decided action by the business requirement.** When an RPC stops an action that a Step decides, such as a reminder, choose by what the business promises; details are in [attribute.md](references/core/attribute.md#locks).
+- **Stop an already-decided action by the business requirement.** When an RPC stops an action that a Step decides, such as a reminder, choose by what the business promises; parallel waiters and the per-branch grace follow the [Reminder](references/core/patterns.md#reminder) rules.
 
   | The business accepts | Design |
   | --- | --- |

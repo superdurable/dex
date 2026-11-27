@@ -1,0 +1,11 @@
+---
+bump: patch
+---
+- App Builder SKILL.md groups its rules under Must, Fine: no extra guard needed, and Prefer. Each Must states the rule and its consequence in at most three sentences. Recipes and edge cases moved into the pattern sections.
+- The pattern table gives each pattern a one-sentence shape; the rules live in the pattern sections. A new row maps "keep trying for up to X" to the retry total duration plus an Execute failure route.
+- State four default limits that shape a design, each with its recommended action: a Flow run's active state, one value, pending messages per Channel, and active Step executions per Flow run.
+- An ID reuse policy decides only by how the latest run closed, not by what it saved. A child that records a business failure and completes is closed as completed.
+- A concurrent RPC never locks and rewrites shared state such as a list, a counter, or an admission deadline. Never keep state that a later handler reads on one Worker's disk.
+- Stopping an already-decided action is a two-row choice by what the business promises. Drop the state-snapshot timing from reply windows, reminders, and the stop grace.
+- Drop caveats that invited extra guards: late timeout-handler commits, Timer drift, stale queued-attempt snapshots, heartbeat acknowledgment, same-attempt ASYNC reruns, loose dispatch order, and the run-ID double read. Steps need no deadline check when the timeout handler force-closes the Flow.
+- Rust: pass a cancellation check into a call that can poll it, so a canceled branch ends its open request.
