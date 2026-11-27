@@ -144,8 +144,10 @@ impl Step for AwaitApproval {
 - `.cancel_sibling_step(&Step)` cancels executions of that Step type scheduled
   by the same predecessor. `.cancel_step(&Step)` cancels every execution of
   it. Steps created by the same decision are not canceled.
-- First-win losers and branches of a cancelling join give each call a short
-  timeout and check `context.is_cancelled()` after it returns.
+- First-win losers and branches of a cancelling join pass a cancellation
+  check, such as a closure over `context.is_cancelled()`, into a call that can
+  poll it, so a canceled branch ends its open request. Give a call that cannot
+  poll a short timeout.
 - Clone owned input only where two movements need it.
 
 ## StepOptions

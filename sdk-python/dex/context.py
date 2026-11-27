@@ -182,8 +182,7 @@ class Context(Protocol):
     def first_attempt_at(self) -> datetime:
         """Return when the first attempt of this handler invocation started.
 
-        The value is stable across retries of the same invocation, so a handler
-        can derive a deadline that a retry does not reset.
+        It is the same for every retry of this handler invocation.
 
         Returns:
             A timezone-aware UTC time with one-second precision.

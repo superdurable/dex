@@ -93,7 +93,7 @@ StartChildJob.execute(job)                    // Client injected through the Flo
                      reuse = disallow, ignore already started, Flow timeout = the job's limit)
     if result is started: claim result.runId
     if result is already started:             // another logical request, even from this entry point
-        if the business identity stored in the latest run, read by that run's ID, matches job: claim that run ID
+        if a stored business identity read from one run matches job: claim that run ID
         else: record job.number in a rejected state, never ended or failed; deadEnd()   // never wait for, count, or stop it
     goTo(AwaitChildJob, job)
 AwaitChildJob.waitFor(job) -> AnyOf(ChildReports[job.number].ForOne(), Timer(reconcile interval))
@@ -112,16 +112,16 @@ ChildJobFlow:
 ```
 
 - Start the child with a stable Flow ID and Request ID, so a retried Execute repeats the same start.
-- Skip the identity check only when the mapping from business identity to child Flow ID guarantees that a Flow ID is only ever started again by a replay of the same logical request; people who retry or start the child by its own number break that guarantee. Otherwise another logical request can start a run with the same Flow ID with a different Request ID, even from the same entry point or the same parent run. Catch the typed already-started error, read the existing run, and claim it only when its stored business identity matches; bind that identity to one run by describing the Flow ID for its latest run ID and reading the identity of that run by its run ID. Otherwise record a rejected admission that the parent lists as rejected in any report but never waits for, counts, or stops; it is its own state, never ended or failed.
+- Skip the identity check only when the mapping from business identity to child Flow ID guarantees that a Flow ID is only ever started again by a replay of the same logical request; people who retry or start the child by its own number break that guarantee. Otherwise another logical request can start a run with the same Flow ID with a different Request ID, even from the same entry point or the same parent run. Catch the typed already-started error, read the existing run, and claim it only when its stored business identity matches. Otherwise record a rejected admission that the parent lists as rejected in any report but never waits for, counts, or stops; it is its own state, never ended or failed.
 - Receive the result durably. The child reports through a parent RPC that publishes to a Channel, or a [Polling](patterns.md#polling) Step waits for the child's terminal state through the Client. Never keep the result only in Worker memory.
 - Keep the Execute of the outcome Step and the report Step SYNC, the default, even when the Flow defaults to ASYNC. Under ASYNC durability the report Step could start before the outcome commit is stored; see [Durability](https://docs.superdurable.io/reference/go/step-options#durability).
 - The report carries a stable Request ID derived from the child Flow ID, its run ID, and its purpose, such as `report:<child Flow ID>:<run ID>`. The parent keeps one record per child, keyed by its Flow ID, with the outcome and the terminal status as separate fields; a report or a reconcile read fills in what is missing, and a repeat changes nothing.
 - When people reopen a child by its own business number, that number stays the child Flow ID:
   - A resend of the same start request keeps its Request ID. A deliberate reopen is a new start request with a new Request ID; resends of that request keep the new one. The Request ID of the latest run's start replays that start, so a reopen with it starts nothing.
-  - Every entry point uses an ID reuse policy that rejects an active run and allows only the closed states the business reopens from. The outcome of each policy is in the [ID reuse policy reference](https://docs.superdurable.io/reference/go/start-flow-options#flow-id-request-id-and-already-started).
+  - Every entry point uses an ID reuse policy that rejects an active run and allows only the closed states the business reopens from. A policy reads only how the latest run closed: a child that records a business failure and then completes is closed as completed. To reopen it after that failure, close it with ForceFail or allow a completed run. The outcome of each policy is in the [ID reuse policy reference](https://docs.superdurable.io/reference/go/start-flow-options#flow-id-request-id-and-already-started).
   - Whether the parent ties reads, reports, and stops to the claimed run ID is a business decision. Tie them when a reopen can happen while the parent still waits and the parent must not mix runs. When a child number has only one run, the Flow ID is enough. A parent that ties them records the run ID that its start returned or that it claimed. It accepts a report only when the report carries that run ID.
-  - A parent that ties runs reads, waits for, and stops the claimed run by its run ID. The Client's describe, Attribute read, wait, stop, and RPC calls take an optional run ID; with it they address that run even when a newer run of the Flow ID exists, and a closed run keeps its final status and Attribute values. Without it, reads and waits address the latest run and a stop addresses the active run, which may be a newer run.
-  - A stop with the claimed run ID never affects a newer run. When the claimed run has already closed, the stop returns the typed not-found error; treat it as "already stopped".
+  - DescribeFlow and the Client Attribute read address the latest run of the Flow ID, so a parent that ties runs records a read only while the latest run is the claimed one. A query that returns the status and the outcome by run ID can be used directly.
+  - StopFlow stops the active run of the Flow ID, which may be a newer run. To stop only the claimed run, call a child stop RPC that carries the claimed run ID; the child compares it with its own run ID before it commits the stop.
 - Give every child its own Flow timeout. Even when the child must report its timeout, use the Flow timeout and a timeout handler that reports, never a Timer Step inside the child. The Flow timeout is a start option, so each starter sets it. A closing parent never stops its children. Keep the child's timeout longer than its retry budget, so retries can finish before the timeout fires.
 - A child that fails or times out on its own does not report either, because its report Step never runs. Route the child's terminal failure to a recovery Step, or its timeout to a timeout handler, that reports the failure to the parent; or keep the parent's reconcile Timer so it reads the child's terminal state. A timeout handler that holds a lock an RPC takes records the outcome and moves to an unlocked Step that reports idempotently and then force-closes. Keep that handler SYNC, even when the Flow defaults to ASYNC, so the outcome is stored before the report. A handler that force-closes at once only records the outcome, and the parent reconciles it, unless the handler holds no such lock and reports itself.
 - When the parent does not need to know how a stopped child ended, stop the child and move on; a parent that needs only a quorum stops the remaining children this way. StopFlow (cancel, fail, or terminate) starts no new handlers in the child, so it may never report; a running handler can ignore cancellation, and a report already sent can still arrive.
@@ -129,7 +129,7 @@ ChildJobFlow:
   - Run `reconcile` after any StopFlow result and when the reconcile Timer fires:
     1. Describe the claimed run by its run ID. A typed not-found result means the run is gone, for example deleted after its retention period; it goes to the business policy, for example record "unavailable".
     2. The claimed run is RUNNING: read again at the next interval.
-    3. The claimed run is terminal: record its status, then read its outcome Attribute by the claimed run ID. An absent Attribute is an absent outcome. A typed not-found result keeps the recorded status and the reports already received.
+    3. The claimed run is terminal: record its status and its outcome. An absent Attribute is an absent outcome.
     4. Return any other error so the Step retries.
   - A report that arrives after the stop, or from a child that finished after a quorum, fills the same record; a repeat changes nothing.
   - The errors are in the Client reference: [Stop a Flow](https://docs.superdurable.io/reference/server/runtime-client#stop-a-flow), [Describe a Flow](https://docs.superdurable.io/reference/server/runtime-client#describe-a-flow), and [Target one run](https://docs.superdurable.io/reference/server/runtime-client#target-one-run).
@@ -170,13 +170,13 @@ Choose "allow if not running" explicitly when a Flow ID must start again after c
 The timeout handler is the Flow's last chance to record a business outcome and clean up. It has Execute semantics:
 
 - Configure its method timeout, heartbeat timeout, retry, failure route, durability, locks, and state loads in its timeout handler options. These need a positive Flow timeout and the handler policy.
-- Its timing starts after the deadline fires, so it can run past the original deadline.
-- Active Steps, including Steps that wait on a Channel or Timer, keep running while it runs. When it commits ForceComplete or ForceFail, Dex starts closing the Flow and cancels the other Steps. GracefulComplete, or a GoTo to a Step that completes gracefully, waits until every other active Step ends. The handler can commit well after the deadline, because it waits for a Worker and may retry. To start closing the Flow when the Timer fires, use the fail or cancel timeout policy.
+- Its timing starts after the deadline fires.
+- Active Steps, including Steps that wait on a Channel or Timer, keep running until the handler commits. ForceComplete or ForceFail then starts closing the Flow and cancels them, so those Steps need no deadline check of their own. GracefulComplete, or a GoTo to a Step that completes gracefully, waits until every other active Step ends. To start closing the Flow when the Timer fires, use the fail or cancel timeout policy.
+- When no work may start after the deadline, use the fail or cancel timeout policy, or give the handler a short retry budget and let it withdraw work by its stable reference.
 - It runs once per run. There is no Flow-level retry.
 - It may stage Attribute writes, Channel deletions, and Channel publications with its decision.
 - It receives ordinary Attributes and Channel sizes. AttributeMap values and pending messages need explicit selections in its options.
 - When its retries are exhausted, it can route only to a registered no-input recovery Step. The recovery Step reads the final failure from its Context. Without a route, the Flow fails.
-- A handler that no Worker takes also waits in the task queue. Dex tries to dispatch it ahead of other queued Steps but does not guarantee the order.
 
 ### Behaviors Dex does not offer
 

@@ -132,7 +132,7 @@ SplitItems.execute(items) -> goToMany(for each item: ProcessItem(item))
 ProcessItem.execute(item) -> do the work; deadEnd()
 ```
 
-- Bound the fan-out. Batch when it can grow large.
+- Bound the fan-out. Batch when it can grow large. A Flow run allows 1000 active Step executions by default, waiting ones included; split a very large fan-out across [Parallel SubFlows](#parallel-subflows) or top-level Flows. Current values are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits).
 - Keep a durable correlation between each input item and its result.
 
 ### Await parallel Steps
@@ -270,7 +270,7 @@ CloseIntake.waitFor -> Until(CloseRequests.ForOne())
 CloseIntake.execute -> gracefulComplete()
 ```
 
-- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter. A waiting list held in one Channel must fit the Server's per-Channel message limit. When the waiting list can be longer, split it across Channels; this does not depend on Server configuration.
+- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter. A waiting list held in one Channel must fit the Server's per-Channel limit on pending messages, 1000 by default; see the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). When the waiting list can be longer, split it across Channels; this does not depend on Server configuration.
 - Each worker owns the request it consumed. Under the `intakeClosed` lock it only commits its next move: to `HandleChild`, which starts the child without the lock and finishes even after the close, or, after the close, to `ReturnRequest`, which sends the returned request back without the lock through an idempotent path keyed by the request. The RPCs take that lock, so the locked Execute calls no other system or Flow. A queued request is never silently dropped or handed back twice.
 - The runnable long-lived parent examples show the basic variant: a later Step starts each child, and a stop RPC ends the workers. They have no closable intake, shared admission lock, or returned-request reply.
 - After the close, Channel Conditions still win over the graceful completion Condition, so workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion Condition and end with DeadEnd. Running children finish first, and the Flow completes when the last branch ends.
@@ -416,7 +416,7 @@ WatchDeadline.execute(jobId)       [lock JobOutcome]
 - This extends the polling skeleton above only when a deadline spans rounds.
 - The cancel by Step type assumes one poller and one watchdog. After the completion request, the Flow starts closing once its remaining Steps end. With several watchdogs of one type, wake each through its own completion Channel.
 - Later rounds come from goTo, not from the fork, so a sibling cancel does not reach the watchdog.
-- The Timer starts when the watchdog's WaitFor result commits, and Execute can start late after it fires; see [Timer firing time](https://docs.superdurable.io/reference/server/runtime-data#timer-firing-time).
+- The Timer is business time: it fires at or shortly after the deadline, and the watchdog needs no second clock check or drift correction.
 
 ### Polling with long-running Step heartbeat
 
@@ -499,13 +499,15 @@ Send reminders until the recipient opts out. Go folder: `reminders`.
 ```text
 Remind.waitFor(occurrence) -> AnyOf(Timer(interval), OptOut.ForOne())
 Remind.execute(occurrence) -> if the Timer did not fire: gracefulComplete()
-                              if OptOut.size() > 0: gracefulComplete()   // in this Execute's first snapshot
+                              if OptOut.size() > 0: gracefulComplete()   // the Timer won, but an opt-out is queued
                               send the reminder, keyed by Flow ID + occurrence; goTo(Remind, occurrence + 1)
 rpc optOutReminders -> OptOut.publish()
 ```
 
-- Only one Step consumes the opt-out Channel. The decision point is the Execute's first state snapshot; retries reuse it, and `OptOut.size()` reads it. An opt-out in that snapshot stops this reminder. An opt-out committed after the snapshot may let this already-decided reminder go out once, and the next wait still includes the opt-out Condition, so it stops the following one.
+- Only one Step consumes the opt-out Channel. The Execute checks `OptOut.size()` also when the Timer won. An opt-out that arrives while this reminder is being sent may not stop it; the next wait includes the opt-out, so it stops the following one.
 - When the business needs the opt-out to stop the reminder up to the decision commit, the opt-out RPC and the deciding Step share a lock, and an unlocked Step sends after the commit.
+- The grace counts per decided action or branch. When the business allows only one such action overall after the opt-out, decide actions one at a time.
+- One message reaches one consumer, so parallel waiters each get their own stop message, such as one per branch on a ChannelMap. A stop Attribute records the fact but wakes no waiter, because WaitFor has no Attribute Condition.
 - Key each send by a stable occurrence ID that the receiver recognizes and deduplicates, so a retried Execute does not deliver twice.
 - The runnable reminders examples show the single-consumer relative-Timer loop. Their send call has no occurrence idempotency key.
 
@@ -627,7 +629,9 @@ Handle the overall Flow deadline with application logic. Go folder: `timeout`.
 - The deadline belongs to the Flow, not a competing Step. Start the Flow with a positive timeout and the handler policy, and implement the Flow's timeout handler.
 - The handler has Execute semantics and its own options. On success, Dex applies its staged writes, deletions, publications, and decision. If it exhausts its retries, the Flow fails, or it routes to a no-input recovery Step.
 - Record a business outcome and perform bounded cleanup. See [flow.md](flow.md#timeout-handler).
-- Active Steps keep running while the handler runs, including Steps that wait on a Channel or a Timer. When the handler commits ForceComplete or ForceFail, Dex starts closing the Flow and cancels them. GracefulComplete, or a GoTo to a Step that completes gracefully, waits until every other active Step ends. The handler can commit after the deadline, because it waits for a Worker and may retry; to start closing when the Timer fires, use the fail or cancel timeout policy.
+- Active Steps, including Steps that wait on a Channel or a Timer, keep running until the handler commits. ForceComplete or ForceFail then starts closing the Flow and cancels them, so those Steps need no deadline check of their own. GracefulComplete, or a GoTo to a Step that completes gracefully, waits until every other active Step ends. To start closing when the Timer fires, use the fail or cancel timeout policy.
+- When no work may start after the deadline, use the fail or cancel timeout policy, or give the handler a short retry budget and let it withdraw work by its stable reference.
+- When the handler must also report to another system and holds a lock an RPC takes, it records the outcome and moves to an unlocked Step that reports idempotently and then force-closes. Keep that handler SYNC, so the outcome is stored before the report.
 
 ## Drain Channels
 
@@ -755,7 +759,7 @@ RouteResponseBeforeExpiry.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected
 - When the wait is evaluated, Dex selects one ready Condition: a ready Timer first, otherwise the first ready Channel in declaration order. When Conditions become ready at different times, the first event to satisfy the wait wins. Declare the decision Channels in business priority order.
 - Declaration order ranks only Channels that are ready when the wait is evaluated. When the business ranks responses, keep that rule and state which definition of "the same moment" the design uses; see [Arbitrate by business priority](#arbitrate-by-business-priority).
 - A response can commit after the Timer won and before Execute runs. Without the window lock its RPC succeeds and the Flow still expires the offer. Two responses can also both be accepted before the wait takes one. With the window, the first response closes it: it is recorded and decides, and every later caller gets "window closed". See [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
-- The Timer branch's size check selects a response committed in Execute's first state snapshot, even one that committed after the Timer won; retries reuse that snapshot. Execute takes the shared window lock before Dex builds that snapshot. That is the window's commit-order boundary, not the wait-evaluation moment.
+- The Timer branch's size check takes a response that committed before the locked Execute closed the window, even one that committed after the Timer won.
 - The runnable deferred-choice examples show only this first-committed-response window. They have no ranked rounds, recovery route, or reply Step.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
@@ -791,11 +795,9 @@ TakeLateReply.execute -> goTo(HandleReply, the consumed reply)
 
 Why it holds:
 
-- Execute takes its Attribute locks before Dex hands out its first attempt, and its state snapshot is taken after that. So a reply RPC that committed earlier is in the snapshot's Channel size.
-- While the Execute holds the lock, a reply RPC that declares the lock gets a lock conflict. It is rejected, not queued.
-- While a reply RPC holds the lock, the Execute waits for it, and then sees its message. An Execute that is still waiting for the lock does not block the RPC; that window is why Execute checks the size.
-- A transactional RPC commits its handler, its publish, and its window write together. The first reply closes the window, so at most one reply is ever queued, and the wait or the size check takes exactly that one. Every later reply sees the closed window and gets "window closed".
-- The business deadline is the moment the locked Execute closes the window, not the instant the Timer fires. Without a first reply, the admission boundary is the moment Execute takes the lock. A first reply that commits after the Timer fired and before that moment is accepted and decides. A reply after that moment gets a lock conflict while Execute runs; when Execute commits, the closed state persists and every later reply gets "window closed". This is deliberate: every caller gets a truthful answer. The window is not a hard cutoff at the Timer instant.
+- Execute takes the window lock, closes the window, and checks the reply Channel size. A reply that committed before that is taken through `TakeLateReply`, and every later reply gets a lock conflict while Execute runs and "window closed" after it commits.
+- A transactional RPC commits its handler, its publish, and its window write together. The first reply closes the window, so at most one reply is ever queued, and the wait or the size check takes exactly that one.
+- The business deadline is the moment the locked Execute closes the window, not the instant the Timer fires. This is deliberate: every caller gets a truthful answer.
 
 Rules:
 
@@ -817,7 +819,7 @@ Use this when the business ranks events against each other, such as a withdrawal
 - **(a) Server commit order.** A reply window or lock admits replies one commit at a time. The first committed reply wins, so ties never occur.
 - **(b) Competing Channels ready when the wait is evaluated.** Among the Channel Conditions of one AnyOf that are ready together, the first declared wins, and Execute uses the messages it consumed. This ranks Channels strictly at that moment. It does not rank a Channel against a Timer: a ready Timer is selected first.
 
-When a Timer wins and Execute then re-checks the Channels, for example by their size, it selects the events committed in Execute's first state snapshot, and its retries reuse that snapshot. That is a later moment than the wait evaluation: a message that committed after the Timer won, and before Dex built the snapshot, is included. A locked Execute takes its locks before the snapshot is built. Say so when the design relies on it, as the [Decision with Deadline](#decision-with-deadline) skeleton does.
+When a Timer wins, Execute may still take a reply that committed before it closed the window; see [Close a reply window with an Attribute lock](#close-a-reply-window-with-an-attribute-lock).
 
 To rank every event admitted before the decision, use a locked round instead: its closed window defines which events are eligible, and the arbitration Step ranks them. A reply window can be combined with ranked replies this way.
 
@@ -1030,7 +1032,7 @@ rpc getPage(token)             // invocation option loads only chunks[token]
 ```
 
 - For an append-only history, archive bounded chunks and load only the requested page.
-- For a long-lived Flow, also bound the total, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. Size limits per value and per Flow are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
+- For a long-lived Flow, also bound the total, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. By default, one value holds up to 16 MiB and a Flow run's active state up to 64 MiB; current values are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 - The `current` token is always valid; an empty `current` returns an empty page.
 - Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
 - Retry only the rejected invocation after a lock conflict. A few writers share this lock on `current`.
