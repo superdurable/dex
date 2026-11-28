@@ -5,13 +5,13 @@ Write application tests when the user asks for them or the project already has t
 ## Dex facts for tests
 
 - Workers that register the same Flow type in one task queue share its tasks, and a repeated Flow ID goes to the ID reuse policy ([Workers](../../SKILL.md#workers-attempts-and-time-bounds), [Starting a Flow](../../SKILL.md#starting-a-flow-and-id-reuse)).
-- A clean Worker shutdown returns the attempt to pending without using a retry, while a crash or disconnect after delivery fails the attempt and uses a retry, so the two exercise different recovery paths ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)). SkipTimer makes a waiting Timer ready at once ([Timers](../../SKILL.md#timers)).
+- A Worker drain lets running handlers finish and commit. A task returned during a clean shutdown without having run goes back to pending without using a retry. A delivered attempt interrupted after it may have run, including at the drain deadline or on a disconnect, fails and uses a retry. A crash and a drain therefore exercise different recovery paths ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)). SkipTimer makes a waiting Timer ready at once ([Timers](../../SKILL.md#timers)).
 
 ## Assertions
 
 - Assert the user-visible SDK error type, the final Flow status, the recovery Step, and the durable state. Do not just assert that an error occurred.
 - When an external effect has an unknown outcome, test that the code records and handles the unknown state.
-- A direct read after an RPC write returned sees that write ([Runs and reads](../../SKILL.md#runs-reads-and-outputs)), so read it once; search and Attribute Store tables lag commits and need bounded polling.
+- A direct read of the same run after a successful RPC write sees that write ([Runs and reads](../../SKILL.md#runs-reads-and-outputs)), so read it once; search and Attribute Store tables lag commits and need bounded polling.
 
 ## Optional correctness checks
 

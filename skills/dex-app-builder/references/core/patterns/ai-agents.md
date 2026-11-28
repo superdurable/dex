@@ -60,6 +60,9 @@ CallModel.execute(turn)              // no turn-state lock; cancelable
 CommitModelResult.execute(result)    // locks turnState; fresh snapshot
     record result
     if turnState.stopRequestedFor == turn: goTo(ResolveStoppedTurn, turn)
+    else if result asks for a tool:
+        turnState.calls[call.id] = admitted   // same commit as the goTo
+        goTo(RunTool, call)
     else: decide the next Step
 RunTool.execute(call)                // no turn-state lock; not canceled when non-idempotent
     output = tool.run(call, call.id); goTo(CommitToolResult, output)
@@ -74,9 +77,10 @@ rpc stopTurn(turn)                   // transactional, locks turnState
 
 - CallModel and RunTool make the long call and hold no turn-state lock that Stop uses. The next CommitModelResult or CommitToolResult Step takes the lock on a fresh snapshot, records the result, checks the turn-bound stop request, and decides the next Step.
 - Stop is a transactional RPC that takes the turn-state lock, records the stop request bound to the turn ID, cancels only explicitly cancelable compute or wait Step types, such as model calls, Timer waits, and approval or input waits, and schedules one Step that resolves the turn. See [rpc.md](../rpc.md#cancel-running-steps-from-an-rpc).
-- Stop does not cancel a Step that runs a non-idempotent tool: cancellation cannot undo its external effect. Its call stays in flight until its CommitToolResult, or a later resolve path, records the outcome and settles the turn.
-- Dex picks the Steps to cancel when Stop commits, so a model Step may already have committed. Each commit Step checks the stop request, so the loop starts no new work after a Stop.
-- The resolution Step takes the turn-state lock, reloads committed messages and pending calls, keeps every committed message and result, records calls that never started as canceled, leaves in-flight calls to their commit Step, clears approval and Timer state, and marks the turn stopped once no call is in flight. It is idempotent.
+- The commit Step that schedules a tool checks the stop request under the turn-state lock and marks the call admitted in the same commit as its move to RunTool. The call counts as in flight from then on, even while RunTool still waits in the queue.
+- Stop does not cancel a Step that runs a non-idempotent tool: cancellation cannot undo its external effect. An admitted call stays in flight until its CommitToolResult, or a later resolve path, records the outcome and settles the turn.
+- Dex picks the Steps to cancel when Stop commits, so a model Step may already have committed. Each commit Step checks the stop request, so no new tool call is admitted after Stop commits. Calls admitted earlier may still start or finish and must be resolved. When an external action must never start after Stop, the receiver needs its own fence.
+- The resolution Step takes the turn-state lock, reloads committed messages and pending calls, keeps every committed message and result, records as canceled only planned calls that were never admitted, leaves admitted calls to their commit Step, clears approval and Timer state, and marks the turn stopped once no call is in flight. It is idempotent.
 
 ### Long waits and the browser
 

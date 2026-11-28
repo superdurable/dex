@@ -82,13 +82,15 @@ rpc stopTurn(turnId)                   // transactional, locks turnState
 
 ResolveStoppedTurnStep.execute         // locks turnState
     reload committed messages and pending calls
-    record calls that never started as canceled; leave in-flight calls to their commit Step
+    record planned calls that were never admitted as canceled; leave admitted calls to their commit Step
     mark the turn stopped once no call is in flight; idempotent
 ```
 
+A commit Step that schedules a tool checks the stop request and marks the call admitted in the same locked commit, so no tool call is admitted after Stop commits; calls admitted earlier may still start and must be resolved. See [Durable AI agents](patterns/ai-agents.md#stop-a-turn-with-canceling-steps).
+
 ## Retries and request identity
 
-- Request ID behavior is in [RPCs](../../SKILL.md#rpcs): by default each call gets a new one, so a retry is a new request. When one logical call must apply at most once, pass the same stable ID, such as an event ID, on every attempt where the SDK accepts a caller request ID. A transactional or locking RPC answers a repeated request ID with its recorded reply, including a refusal it returned, such as `false`, and even after the run closes while it is retained. Another RPC that returns no Flow changes runs again and returns a fresh output; nothing is recorded. A business retry after a refusal, such as offering again later, is a new logical call with a new request ID. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids).
+- Request ID behavior is in [RPCs](../../SKILL.md#rpcs): by default each call gets a new one, so a retry is a new request. When one logical call must apply at most once, pass the same stable ID, such as an event ID, on every attempt where the SDK accepts a caller request ID. A transactional or locking RPC answers a repeated request ID with its recorded reply, including a refusal it returned, such as `false`, and even after the run closes while it is retained. Another RPC runs its handler again; when it returns durable effects (Flow changes or recorded events), the commit returns the recorded reply, and when it returns no Flow changes and records no event, it returns a fresh output and nothing is recorded. A business retry after a refusal, such as offering again later, is a new logical call with a new request ID. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids).
 - Make handlers safe to repeat, or reconcile with a typed read before you retry a write.
 - A failed handler that committed nothing records nothing, so a retry runs it again. A caller timeout, a cancellation, or UNAVAILABLE leaves the outcome unknown: the first call may still commit while a retry runs the handler again.
 - An RPC that no Worker takes within the dispatch wait fails with UNAVAILABLE. An RPC name that no connected Worker registers fails with FAILED_PRECONDITION naming the RPC. RPCs never wait in the Step task queue.
