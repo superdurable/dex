@@ -4,7 +4,9 @@ Part of the [design patterns](../patterns.md), which hold the pseudocode convent
 
 ## Parallel Steps
 
-Parallel Steps are the default when branches share one Flow identity and lifecycle. Every shape fans out with GoToMany. Do not turn a fixed graph into runtime fan-out only to shorten source code. Go folder: `parallel`.
+Derived from: [Joins](../../../SKILL.md#joins), [Cancellation](../../../SKILL.md#flow-timeout-completion-and-cancellation), [Snapshots](../../../SKILL.md#repeated-execution-snapshots-and-locks).
+
+Parallel Steps are the default when branches share one Flow identity and lifecycle. Every shape fans out with GoToMany. Go folder: `parallel`.
 
 ### Static parallel Steps
 
@@ -17,7 +19,7 @@ ReserveStock.execute  -> deadEnd() or gracefulComplete(...)
 ```
 
 - Add a join only when the business outcome needs one.
-- Prefer one domain-named Step type per fixed kind of work, even when the branches look alike. One Step type with a kind field hides them from the graph, and they cannot have their own StepOptions or failure routes.
+- Usually give each fixed kind of work its own domain-named Step type, even when the branches look alike, rather than one Step type with a kind field and runtime fan-out. The graph then shows them, and each can have its own StepOptions and failure route.
 
 ### Dynamic parallel Steps
 
@@ -28,7 +30,7 @@ SplitItems.execute(items) -> goToMany(for each item: ProcessItem(item))
 ProcessItem.execute(item) -> do the work; deadEnd()
 ```
 
-- Bound the fan-out. Batch when it can grow large. A Flow run allows 1000 active Step executions by default, waiting ones included; split a very large fan-out across [Parallel SubFlows](#parallel-subflows) or top-level Flows. Current values are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits).
+- Bound the fan-out by the [active Step executions limit](../../../SKILL.md#default-limits), which counts waiting Steps too. Batch when it can grow large, and split a very large fan-out across [Parallel SubFlows](#parallel-subflows) or top-level Flows.
 - Keep a durable correlation between each input item and its result.
 
 ### Await parallel Steps
@@ -47,13 +49,12 @@ AwaitAllItems.execute(round) -> gracefulComplete(combine(Completed.branchResults
 ```
 
 - Fork starts the branches and the join Step in one decision and gives all of them one round token: the round key and the branch count. The application keeps no counter and no key. Pass the token unchanged in Step inputs.
-- Each branch reports exactly one result per round, on every exit path: success, early exit, and the failure recovery route. endBranch reports and ends the branch; reportBranchResult only reports.
+- Each branch that ends while the Flow stays open reports exactly one result per round, on every such exit: success, early exit, and the failure recovery route. endBranch reports and ends the branch; reportBranchResult only reports.
 - A branch of several Steps passes the token to its last Step, and only that Step reports. A branch never waits on the join's conditions. Exactly one join Step waits for each round; two waiters split the results.
-- Fork a given Join at most once per Step method. For a second independent join, define a second Join or fork with an explicit round key. An RPC fork needs an explicit round key; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
-- Do not join an empty branch list. Continue without a join when nothing was selected. A first-branch or n-branch wait on an empty round fails; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
-- A canceled branch never reports, and its failure route does not run, so a join that waits for every branch never fires. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
+- Do not join an empty branch list; continue without a join when nothing was selected. Forking more than once per method and forking from an RPC have their own rules in the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
+- A canceled branch never reports, so a join that waits for every branch never fires. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
 - The Join's ChannelMap accessor reads a round's pending results, for example in a read-only RPC. Never publish to it directly.
-- Decide whether an exhausted branch fails the operation, or routes to a recovery Step that reports a failed result so the join still fires.
+- An exhausted branch without a failure route fails the Flow. When the operation must continue, route it to a recovery Step that reports a failed result so the join still fires.
 
 ### Partial join and reset
 
@@ -84,9 +85,9 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
-- Each branch is its own Step execution, with its own retries, failure route, and durable result. Collect the first k of n inside one Execute with in-process concurrency only for idempotent reads that succeed or retry together.
+- Each branch is its own Step execution, with its own retries, failure route, and durable result. In-process concurrency inside one Execute fits only idempotent reads that succeed or retry together, because the whole method retries.
 - In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
-- In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
+- In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
 
 ### First-win parallel Steps
@@ -100,12 +101,14 @@ FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 
 - When branches make their own external effects or need their own retries, failure routes, or durable results, race them as Steps: GoToMany with a sibling cancel, or a Join. In-process concurrency inside one Execute, such as `Promise.any`, asyncio tasks, or threads, is fine for idempotent reads that succeed or retry together.
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
-- Make the winning result durable. Losers must be safe to cancel or harmless to finish. Cancelling a local task does not reverse an external effect.
-- Each loser watches its Step's cancellation signal. Pass it to calls that accept cancellation; otherwise use short call timeouts and check the signal between calls. Withdraw a reservation that already took effect with a separate, bounded, idempotent call. A reservation that must be released uses an expiring lease or a durable compensation branch keyed by the business ID. The language reference names the signal.
+- Make the winning result durable. Losers must be safe to cancel or harmless to finish, because cancellation is cooperative and undoes no external effect.
+- Each loser watches its Step's cancellation signal and passes it to calls that accept it. A canceled loser runs no failure route, so release a reservation it already made from a durable branch keyed by the business ID. The language reference names the signal.
 
 ## Parallel SubFlows
 
-Use these when the children need their own lifecycle, history, or retries; see [subflow.md](../subflow.md#when-to-use-a-subflow). Define parent completion, child reuse, cancellation, duplicate submission, and concurrency explicitly. Go folder: `parallel-subflows`.
+Derived from: [SubFlows and child Flows](../../../SKILL.md#subflows-and-child-flows), [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Default limits](../../../SKILL.md#default-limits).
+
+Use these when the children need their own lifecycle, history, or retries, or when one fan-out is very large; see [subflow.md](../subflow.md#when-to-use-a-subflow). Go folder: `parallel-subflows`.
 
 ### Basic
 
@@ -117,6 +120,8 @@ RunChildren.execute -> gracefulComplete(results)
 ```
 
 ### Short-lived parent
+
+Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Flow completion](../../../SKILL.md#flow-timeout-completion-and-cancellation), [RPCs](../../../SKILL.md#rpcs), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks).
 
 Drain an admitted batch, then complete without racing new requests.
 
@@ -145,6 +150,8 @@ rpc sendRequest(request)                         // reads admission; takes no lo
 
 ### Long-lived parent
 
+Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Default limits](../../../SKILL.md#default-limits), [RPCs](../../../SKILL.md#rpcs), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks).
+
 The parent stays available to admit and coordinate children over time.
 
 ```text
@@ -159,21 +166,26 @@ ReturnRequest.execute(request)                   // no lock: reply keyed by the 
 HandleChild.waitFor(request) -> Until(SubFlow(ChildFlow, request))   // no lock
 HandleChild.execute -> record the result; goTo(HandleRequest)
 rpc sendRequest(request)                         // locks intakeClosed
+    if request.id is already admitted: return true                   // business request ID
     if intakeClosed or Requests.size >= buffer limit: return false
-    Requests.publish(request); return true
+    Requests.publish(request); record request.id as admitted; return true
 rpc closeIntake() -> intakeClosed = true; CloseRequests.publish()   // locks intakeClosed
 CloseIntake.waitFor -> Until(CloseRequests.ForOne())
 CloseIntake.execute -> gracefulComplete()
 ```
 
-- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter. A waiting list held in one Channel must fit the Server's per-Channel limit on pending messages, 1000 by default; see the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). When the waiting list can be longer, split it across Channels; this does not depend on Server configuration.
-- Each worker owns the request it consumed. Under the `intakeClosed` lock it only commits its next move: to `HandleChild`, which starts the child without the lock and finishes even after the close, or, after the close, to `ReturnRequest`, which sends the returned request back without the lock through an idempotent path keyed by the request. The RPCs take that lock, so the locked Execute calls no other system or Flow. A queued request is never silently dropped or handed back twice.
-- The runnable long-lived parent examples show the basic variant: a later Step starts each child, and a stop RPC ends the workers. They have no closable intake, shared admission lock, or returned-request reply.
+- The N workers are interchangeable and each takes one message, so they share one Requests Channel; which worker gets a request depends on timing. See [several waiters on one Channel](../../../SKILL.md#conditions-and-channel-messages).
+- The admission RPC checks the Channel size, which every RPC receives. Do not keep a separate waiting counter. A waiting list held in one Channel must fit the [pending messages limit](../../../SKILL.md#default-limits); split a longer list across Channels.
+- The admission RPC deduplicates by the business request ID it records, because a submitter may retry with a new RPC request ID and a run keeps only its newest RPC request IDs; see [Default limits](../../../SKILL.md#default-limits). In a long-lived parent the record grows, so keep it in a [hash-partitioned AttributeMap](flow-shapes-and-state.md#hash-partitioned-attributemap) that the RPC locks and loads per instance, and prune it after a business retention window. A pruned ID can be admitted again, so the window outlasts the submitter's retry period.
+- Each worker owns the request it consumed. Under the `intakeClosed` lock it only commits its next move: to `HandleChild`, which starts the child without the lock and finishes even after the close, or, after the close, to `ReturnRequest`, which sends the returned request back without the lock through an idempotent path keyed by the request. The RPCs take that lock and fail at once on a conflict, so the locked Execute calls no other system or Flow. A queued request is never silently dropped or handed back twice.
+- The runnable long-lived parent examples show the basic variant: a later Step starts each child, and a stop RPC ends the workers. They have no closable intake, shared admission lock, admitted-ID record, or returned-request reply.
 - After the close, Channel Conditions still win over the graceful completion Condition, so workers keep taking and returning queued requests. Once the queue is empty, idle workers wake through the graceful completion Condition and end with DeadEnd. Running children finish first, and the Flow completes when the last branch ends.
 - An admission RPC that sees the intake closed rejects the request, so the caller can resubmit to a new parent run.
-- The graceful completion Condition needs SDK and Server support; see the [Server reference](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition) and the language's Waits reference, such as [Go](https://docs.superdurable.io/reference/go/waits#graceful-completion-requests). Without it, the close Step publishes one message per worker to a Wake Channel, and each worker waits `AnyOf(Requests.ForOne(), Wake.ForOne())` and ends when it takes a Wake message.
+- Where the graceful completion Condition is unavailable (see the [Server reference](https://docs.superdurable.io/reference/server/step-and-flow-close#graceful-completion-condition)), the close Step publishes one message per worker to a Wake Channel, and each worker waits `AnyOf(Requests.ForOne(), Wake.ForOne())` and ends when it takes a Wake message.
 
 ### Wait for half
+
+Derived from: [SubFlows and child Flows](../../../SKILL.md#subflows-and-child-flows), [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Cancellation](../../../SKILL.md#flow-timeout-completion-and-cancellation).
 
 A quorum of children is enough; the rest are stopped.
 
@@ -194,11 +206,12 @@ WaitForQuorum.execute -> publish one AllDone message per unfinished child; grace
 ```
 
 - The parent does not complete at the threshold. Every unfinished child Step stops its own child, then completes.
-- Define what happens to children outside the quorum.
 - When the parent's result or a follow-up action depends on how each child ended, such as counting results, undoing side effects, or showing every outcome, read the child's terminal status and stored result after every stop, as in the skeleton, and record every child, finished or stopped, in one record keyed by its SubFlow ID. When the parent needs only the quorum, stop the remaining children and move on without the read. A child can finish at the same moment its stop message arrives, and a Channel Condition wins over a SubFlow Condition, so this read is what counts every child that finished. The runnable examples are simplified: they skip the read after a successful stop.
 - With [top-level child Flows](../flow.md#child-jobs-with-their-own-identity), the quorum Step stops each child that has not reported and, when the parent needs its outcome, reconciles it by the rules there. Normal reports and reconciled outcomes go into one record keyed by the child Flow ID.
 
 ### Partitioning
+
+Derived from: [Starting a Flow and ID reuse](../../../SKILL.md#starting-a-flow-and-id-reuse), [RPCs](../../../SKILL.md#rpcs).
 
 Spread children across several parent Flow IDs to raise total concurrency.
 
@@ -213,13 +226,26 @@ The parent's first Step publishes its start input to Requests, so nothing is los
 
 - The same key always reaches the same parent. Each parent bounds its own buffer and concurrency.
 - A lost start race makes the start fail; the Step retries and then reaches the RPC.
-- Changing the parent count or order remaps keys. Use a versioned parent set or consistent hashing when affinity matters.
+- Changing the parent count or order remaps keys.
 
 ### Back pressure
 
+Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Default limits](../../../SKILL.md#default-limits), [RPCs](../../../SKILL.md#rpcs), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks), [Timers](../../../SKILL.md#timers), [Workers and time bounds](../../../SKILL.md#workers-attempts-and-time-bounds).
+
 Separate admission from processing and make admission durable.
 
-- The Client starts a short submit Flow instead of retrying an RPC in memory.
-- When the parent's RPC returns false (buffer full), the submit Step returns an error so its retry policy backs off durably; each retry sends a new RPC request ID, which is the SDK default. An already-started error is handled the same way. This retry backs off a full admission inside Dex; it is not polling an external system.
+```text
+// The Client starts one SubmitFlow per business request; flowId and Request ID derive from request.id.
+SubmitRequest.waitFor(attempt) -> if attempt.round == 0: skipImmediately()
+                                  else: Until(Timer(interval))
+SubmitRequest.execute(attempt)
+    accepted = invokeRPC(parentId, sendRequest, request)   // new RPC request ID per call, the SDK default
+    if accepted: gracefulComplete(parentId)
+    goTo(SubmitRequest, attempt.round + 1)                 // buffer full: a normal loop, not a retry
+```
+
+- The Client starts a short submit Flow instead of retrying an RPC in memory. Submissions survive submitter and Worker restarts.
+- When the parent's RPC returns false (buffer full), the submit Step loops with a WaitFor Timer and a normal GoTo to itself. Returning an error instead spends the retry budget, 4 hours by default, and a parent that stays full longer fails the submit Flow and loses the submission; see [Workers and time bounds](../../../SKILL.md#workers-attempts-and-time-bounds).
+- `sendRequest` holds a lock, so a repeated RPC request ID returns the recorded reply without running the handler. Each round therefore sends a new RPC request ID, and the parent deduplicates by the business request ID, as in [Long-lived parent](#long-lived-parent), so a retry after an unknown outcome is not admitted twice.
+- An already-started error or a lock conflict from the parent loops the same way. Bound the loop with a round limit or the submit Flow's timeout when the business must give up.
 - On acceptance, the submit Flow completes with the parent ID.
-- Submissions survive submitter and Worker restarts.

@@ -4,6 +4,8 @@ Part of the [design patterns](../patterns.md), which hold the pseudocode convent
 
 ## Workflow DSL
 
+Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Repeated execution](../../../SKILL.md#repeated-execution-snapshots-and-locks), [Joins](../../../SKILL.md#joins), Must 1 and Must 4 ([Must](../../../SKILL.md#must)).
+
 Use when operators, customers, partners, or another system must define workflows at runtime from the same set of actions and external conditions. Give definitions a serializable schema, usually JSON, and version them in the application's own definition store. Users can edit, copy, import, and export definitions. A new JSON document adds a workflow without a code change or release. One interpreter Flow runs them all. Go folder: `products/deal-dsl`.
 
 ```text
@@ -19,8 +21,8 @@ EvaluateTransition.execute(state) -> merge the message; choose the next state fr
                                      goTo(WaitForState(nextState)) or complete
 ```
 
-- Validate definitions on save and before submitting a Flow start. Check that referenced states, actions, and condition names exist and that each condition name belongs to one wait. Reject an invalid definition at the application boundary so it never starts a Flow.
-- Keep one active position per run. Use a fixed set of Step types for startup, waiting before state entry, running one action, and evaluating a transition. Advance with `GoTo`. After startup, pass only the position in Step input, such as state name and action index.
+- Reject an invalid definition at the application boundary, before StartFlow.
+- Keep one active position per branch; a run without parallel branches has exactly one. Use a fixed set of Step types for startup, waiting before state entry, running one action, and evaluating a transition. Advance with `GoTo`. After startup, pass only the position in Step input, such as state name and action index.
 - Give each action its own Step execution, checkpoint, and retries. A retry leaves earlier completed actions intact. Run the registered handler or script in `Execute`. Treat scripts as external calls with timeouts, retries, and idempotency.
 - Declare one `ChannelMap` in the Flow's persistence schema in code. Use the condition names supplied at runtime as keys. The receiving RPC validates the name against the definition and publishes to that key. Each wait takes one message.
 - Keep one shared state data map. Merge condition messages and action results into it and read it when evaluating transitions.
@@ -36,21 +38,25 @@ For parallel branches, use `GoToMany` to start them with a separate position in 
 Anti-patterns:
 
 - **One Channel per condition.** Channel declarations live in code, and the workflow provides condition names at runtime. Use keys on the shared `ChannelMap`.
-- **Actions or state changes in an RPC.** Keep the RPC to validation and publishing. Perform actions and update state in the interpreter Steps.
+- **Actions or state changes in an RPC, in this interpreter pattern.** Keep the RPC to validation and publishing. Perform actions and update state in the interpreter Steps.
 - **Flow ID and action name as the key for a repeated action.** In a request-documents loop, the provider receives `claim-77/send-letter` for both letters and drops the second as a repeat. Use the Flow ID and `StepExecutionID`, as in `claim-77/ExecuteClaimAction-5`. Each round gets a new execution ID, and retries of that round keep it.
 
 ## Root Flow admission
 
+Derived from: [Starting a Flow and ID reuse](../../../SKILL.md#starting-a-flow-and-id-reuse).
+
 Start one domain-named root Flow directly from the application boundary.
 
-- Use a stable Flow ID for the logical operation, a Request ID derived from the complete start request, and an explicit ID reuse policy.
-- A retry of the same request reuses both identities. The same Flow ID with a different Request ID is a conflict, unless the domain intentionally routes commands to one coordinator.
-- Never add a table, row, outbox, lease, lock, cache, or admission projection to deduplicate or serialize starts. Store request fingerprints only when they are real fields of the owning domain record.
+- Use a stable Flow ID for the logical operation and a Request ID derived from the complete start request. Set a reuse policy from the [ID reuse table](../../../SKILL.md#starting-a-flow-and-id-reuse) when the default does not fit the lifecycle.
+- A retry of the same request reuses both identities. Under a policy that rejects the existing run, the same Flow ID with a different Request ID is another logical request, unless the domain intentionally routes commands to one coordinator. A deliberate reopen after close is a new request with a new Request ID.
+- Never add a table, row, outbox, lease, lock, cache, or admission projection to deduplicate or serialize starts. When the uniqueness key is not the Flow ID, route starts through a Flow whose ID is that key. Store request fingerprints only when they are real fields of the owning domain record.
 - When the caller needs durable acceptance before completion, wait for the named admission Step, then read the domain record.
 
 Full rules: [error-handling.md](../error-handling.md#start-identity-and-duplicate-starts).
 
 ## Entity Flow with Attribute Sync
+
+Derived from: [Starting a Flow](../../../SKILL.md#starting-a-flow-and-id-reuse), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks), [Runs and reads](../../../SKILL.md#runs-reads-and-outputs), [Attributes](../../../SKILL.md#attributes-loading-and-secrets).
 
 One Flow per entity, whose Attributes the Attribute Store syncs into a SQL table for queries. Go folder: `entity-store`.
 
@@ -65,6 +71,8 @@ The plain Entity Flow is the same shape without the SQL table: one long-lived Fl
 
 ## Partitioned AttributeMap state
 
+Derived from: [Default limits](../../../SKILL.md#default-limits), [Loading](../../../SKILL.md#attributes-loading-and-secrets), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks).
+
 A single Attribute that grows rewrites its whole value on every write. Split it into bounded AttributeMap instances.
 
 | | Sequentially chunked | Hash-partitioned |
@@ -77,6 +85,8 @@ A single Attribute that grows rewrites its whole value on every write. Split it 
 Neither creates server-side map pagination or a secondary index. The layout is persisted schema: changing it needs a migration or a new Flow version.
 
 ### Sequentially chunked AttributeMap
+
+Derived from: [Default limits](../../../SKILL.md#default-limits), [Loading](../../../SKILL.md#attributes-loading-and-secrets).
 
 Go folder: `sequentially-chunked-attribute-map`.
 
@@ -102,15 +112,17 @@ rpc getPage(token)             // invocation option loads only chunks[token]
            (no older token at state.oldestRetainedToken)
 ```
 
+- Use it for a collection that can grow without a small business bound; a collection with a small bound fits in one Attribute.
 - For an append-only history, archive bounded chunks and load only the requested page.
-- For a long-lived Flow, also bound the total, or storage keeps growing. Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. By default, one value holds up to 16 MiB and a Flow run's active state up to 64 MiB; current values are in the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits). Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
+- For a long-lived Flow, also bound the total, because one value and a run's active state each have a [size limit](../../../SKILL.md#default-limits). Choose a limit by chunk count or age. Archive the full chunk, delete the chunks past the limit by key, after archiving them outside the Flow when the business must keep them, and record the oldest retained token in one commit. Retained pages are immutable. At the oldest retained chunk, return no older token. A request for a pruned token returns a page-not-found result.
 - The `current` token is always valid; an empty `current` returns an empty page.
-- Archive tokens are fixed-width digits at a chunk boundary. A malformed or missing token is an explicit error.
 - Retry only the rejected invocation after a lock conflict. A few writers share this lock on `current`.
 - Updating old records needs another pattern or an index.
 - Route frequent concurrent appenders through an RPC that publishes to a Channel consumed by one writing Step, as in the [Idle Timer with Resolution](polling-and-timers.md#idle-timer-with-resolution), instead of having each RPC lock and rewrite `current`.
 
 ### Hash-partitioned AttributeMap
+
+Derived from: [Default limits](../../../SKILL.md#default-limits), [Loading](../../../SKILL.md#attributes-loading-and-secrets), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks).
 
 Go folder: `hash-partitioned-attribute-map`.
 
@@ -131,9 +143,7 @@ rpc getProfile(email)          // invocation options: load only chunks[partition
     return bucket[canonical email] or not found
 ```
 
-- Define the partition count as one named constant with a code comment that it is persisted layout and that changing it moves keys to other partitions. Changing it needs a complete rehash or a new Flow version.
-- Every SDK and service must use the identical canonicalization and hash.
-- A collision only shares a bucket, because the bucket is a dictionary keyed by the full canonical key.
+- The partition count and hash are persisted layout. Changing them needs a complete rehash or a new Flow version.
 - Every writer uses the same instance-lock rule. Locks are cooperative.
 - Retry an idempotent upsert after a lock conflict.
 - For a map-wide invariant, use the singleton coordination lock in [attribute.md](../attribute.md#whole-map-coordination).

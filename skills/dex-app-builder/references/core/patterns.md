@@ -1,6 +1,8 @@
 # Design patterns
 
-Choose the smallest tested Flow shape that meets the requirement. Prefer the nearest pattern below to an ad hoc coordination loop. Keep its Flow shape and replace the domain and integrations. Then read the selected language's pattern guidance and copy API usage from the runnable example.
+A pattern combines several [facts](../../SKILL.md#facts) for a common business shape: when the business needs X, a shape that works is Y, because of the facts it names. Patterns are suggestions. Each pattern names its facts in a `Derived from:` line; when the business differs, derive a variant from the same facts. The [Must rules](../../SKILL.md#must) hold in every variant.
+
+Choose the smallest Flow shape that meets the requirement. Prefer the nearest pattern below to an ad hoc coordination loop. Keep its Flow shape and replace the domain and integrations. Then read the selected language's pattern guidance and copy API usage from the runnable example.
 
 Skeletons in the pattern files are language-neutral pseudocode. `A.waitFor` and `A.execute` are the two methods of Step `A`.
 
@@ -8,7 +10,7 @@ This page is the index. Each pattern lives in one file under `patterns/`; open o
 
 ## Runnable examples
 
-Every pattern has a runnable example in each SDK:
+Most patterns have a runnable example in each SDK; a section says when its example is partial, simplified, or missing:
 
 | Language | Pattern root | Folder naming |
 | --- | --- | --- |
@@ -65,7 +67,6 @@ Use Channels for durable commands, Attributes for durable state, and Streams for
 - Does the graph expose every success, wait, retry exhaustion, cancellation, timeout, and terminal path?
 - Is every runtime-sized fan-out bounded?
 - Are losing or abandoned branches safe?
-- Are side effects idempotent or compensated?
 - Is progress classified as durable or best effort?
-- Can a replacement Worker resume from durable state alone?
-- Is every external wait one of the two Polling shapes and bounded, with "not ready" preferably a normal loop branch rather than a retry?
+- Is every loop and external wait bounded, or given an explicit stop path?
+- Does each pattern you used still fit the business, checked against the facts its `Derived from:` line names?
