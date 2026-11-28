@@ -6,10 +6,56 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-impl FrameApplier {
-    pub(crate) fn pre_replay_semantic_points(
+use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
+use dexzd_apply::{ApplyContext, ApplyOutcome};
+use dexzd_keyspace::{ColumnFamily, RunId, RunTable, parse_run_key};
+use dexzd_protocol::dexzd::v1::{FlowCommand, HistoryRecord, LogPosition, flow_command::Command};
+use dexzd_storage::{LocalReadView, ScanDirection, StorageError};
+use prost::Message;
+
+use crate::commit::extension_record::FrameRecordHandling;
+use crate::commit::partition_applier::FrameFailure;
+use crate::commit::replay_checks::{compare_semantic_point_hash, semantic_metadata_points};
+use crate::commit::staged_state_reader::StagedStateReader;
+
+pub(crate) struct FlowReplayDiagnostics {
+    semantic_point_hashes: Mutex<BTreeMap<(RunId, u32, u64), [u8; 16]>>,
+    pre_replay_semantic_points: BTreeSet<(RunId, u32, u64)>,
+    verified_time_travels: AtomicU64,
+    unverifiable_time_travels: AtomicU64,
+}
+
+impl FlowReplayDiagnostics {
+    /// Returns the store error of indexing semantic points when replay checks are on.
+    pub(crate) fn new(
+        store: &dyn LocalReadView,
+        records: &FrameRecordHandling,
+        is_checking_replay: bool,
+    ) -> Result<Self, StorageError> {
+        // Extension rows do not parse as run keys.
+        let is_flow_command_node = matches!(records, FrameRecordHandling::FlowCommand { .. });
+        let pre_replay_semantic_points = if is_checking_replay && is_flow_command_node {
+            Self::pre_replay_semantic_points(store)?
+        } else {
+            BTreeSet::new()
+        };
+        tracing::debug!(
+            unverifiable_semantic_points = pre_replay_semantic_points.len(),
+            "semantic points present before log replay lack independent hashes"
+        );
+        Ok(Self {
+            semantic_point_hashes: Mutex::new(BTreeMap::new()),
+            pre_replay_semantic_points,
+            verified_time_travels: AtomicU64::new(0),
+            unverifiable_time_travels: AtomicU64::new(0),
+        })
+    }
+
+    fn pre_replay_semantic_points(
         store: &dyn LocalReadView,
     ) -> Result<BTreeSet<(RunId, u32, u64)>, StorageError> {
         let mut points = BTreeSet::new();
@@ -149,5 +195,12 @@ impl FrameApplier {
             );
         }
         Ok(())
+    }
+
+    pub(super) fn time_travel_verification_counts(&self) -> (u64, u64) {
+        (
+            self.verified_time_travels.load(Ordering::Relaxed),
+            self.unverifiable_time_travels.load(Ordering::Relaxed),
+        )
     }
 }

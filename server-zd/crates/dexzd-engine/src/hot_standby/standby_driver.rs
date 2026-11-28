@@ -21,8 +21,8 @@ use tokio_util::sync::CancellationToken;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
 use crate::commit::{
-    CommitState, CommittedRecordHandling, EngineLocalStore, FrameApplier, FrameApplierParts,
-    NodeStopReason, PartitionApplierPool,
+    CommitState, CommittedRecordHandling, EngineLocalStore, FlowReplayDiagnostics, FrameApplier,
+    FrameApplierParts, NodeStopReason, PartitionApplierPool,
 };
 use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::EngineNodeConfig;
@@ -251,17 +251,24 @@ impl StandbyDriver {
             partition_count,
             LeaseValidityDeadline::disarmed(),
         ));
+        let records = self
+            .applier
+            .standby_frame_records(Arc::clone(&self.committed_commands));
+        let flow_replay_diagnostics = FlowReplayDiagnostics::new(
+            store.as_ref(),
+            &records,
+            config.commit.debug_replay_checks,
+        )?;
         let frame_applier = FrameApplier::new(FrameApplierParts {
             metrics: self.metrics.clone(),
             store: store.clone(),
-            records: self
-                .applier
-                .standby_frame_records(Arc::clone(&self.committed_commands)),
+            records,
             hasher: metadata.cluster.partition_hasher.clone(),
             state: write_fence.clone(),
             is_checking_replay: config.commit.debug_replay_checks,
             blocking_work: config.blocking_work,
-        })?;
+            flow_replay_diagnostics,
+        });
         // Recorded before any lane exists, so dropping the handle fences every lane.
         self.following.set_write_fence(Some(write_fence.clone()));
         let appliers = Arc::new(PartitionApplierPool::start(

@@ -23,8 +23,8 @@ use tokio_util::sync::CancellationToken;
 use crate::commit::{
     AppliedPositionAdvancer, AppliedPositionSource, CommandCommitter, CommandCommitterParts,
     CommitProgress, CommitState, CommittedBatchRouter, CommittedRecordKind, EngineLocalStore,
-    FrameApplier, FrameApplierParts, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason,
-    PartitionApplierPool, run_log_proposer,
+    FlowReplayDiagnostics, FrameApplier, FrameApplierParts, LEASE_VALIDITY_EXPIRED_DETAIL,
+    NodeStopReason, PartitionApplierPool, run_log_proposer,
 };
 use crate::engine_node::{
     EngineNode, EngineNodeConfig, EngineNodeDependencies, LeasedParts, LocalStoreCloseWaiter,
@@ -379,6 +379,11 @@ where
                          node's applier"
                     .to_owned(),
             })?;
+        let flow_replay_diagnostics = FlowReplayDiagnostics::new(
+            store.as_ref(),
+            &records,
+            config.commit.debug_replay_checks,
+        )?;
         let appliers = Arc::new(PartitionApplierPool::start(
             FrameApplier::new(FrameApplierParts {
                 metrics: metrics.clone(),
@@ -388,7 +393,8 @@ where
                 state: state.clone(),
                 is_checking_replay: config.commit.debug_replay_checks,
                 blocking_work: config.blocking_work,
-            })?,
+                flow_replay_diagnostics,
+            }),
             config.commit.applier_lanes,
             config.commit.applier_queue_frames,
         ));

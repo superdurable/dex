@@ -35,7 +35,7 @@ pub(crate) use extension_record::CommittedRecordKind;
 pub(crate) use log_proposer::{CommitProgress, CommittedBatchRouter, run_log_proposer};
 pub(crate) use partition_applier::{
     AppliedPositionAdvancer, AppliedPositionSource, ApplierPoolClosed, BatchEnqueueError,
-    FollowedBatch, FrameApplier, FrameApplierParts, PartitionApplierPool,
+    FlowReplayDiagnostics, FollowedBatch, FrameApplier, FrameApplierParts, PartitionApplierPool,
 };
 
 /// Local store type the engine runs on: RocksDB in production, in memory in simulations.

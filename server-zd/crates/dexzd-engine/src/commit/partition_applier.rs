@@ -6,18 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
-use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
 use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, StateWrite, WaitableChange};
 use dexzd_keyspace::row_keys::SEARCH_ORDER_INDEX_VERSION;
 use dexzd_keyspace::{
-    ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, parse_run_key,
+    ColumnFamily, PartitionHasher, PartitionId, RunTable, TenantId, parse_run_key,
 };
 use dexzd_log::{DecodedBatch, StreamIdentity};
 use dexzd_metrics::{
@@ -28,7 +27,7 @@ use dexzd_protocol::dexzd::v1::{
     FlowCommand, HistoryRecord, LogPosition, LogRecord, PartitionMeta, StepAttemptFailedCommand,
     StepAttemptFailureKind, StepExecutionRecord, command_reply, flow_command::Command, log_record,
 };
-use dexzd_storage::{LocalReadView, LocalStore, ScanDirection, StorageError};
+use dexzd_storage::{LocalReadView, LocalStore};
 use prost::Message;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -43,9 +42,7 @@ use crate::commit::commit_state::{
 use crate::commit::extension_record::{
     AppliedExtensionRecord, ExtensionFrameApplier, FrameRecordHandling,
 };
-use crate::commit::replay_checks::{
-    compare_repeated_apply, compare_semantic_point_hash, semantic_metadata_points,
-};
+use crate::commit::replay_checks::compare_repeated_apply;
 use crate::commit::staged_state_reader::StagedStateReader;
 use crate::commit::{CommitProgress, EngineLocalStore};
 use crate::flow_coordination::{CommitError, CommittedCommand, CommittedFlowCommand};
@@ -54,6 +51,8 @@ use crate::recovery::CommittedCommandSink;
 mod flow_replay_diagnostics;
 #[path = "partition_applier_metrics.rs"]
 mod metrics;
+
+pub(crate) use flow_replay_diagnostics::FlowReplayDiagnostics;
 
 /// The records of one partition in one committed log batch.
 pub(crate) struct PartitionFrame {
@@ -90,10 +89,7 @@ pub(crate) struct FrameApplier {
     pub(crate) state: Arc<CommitState>,
     pub(crate) is_checking_replay: bool,
     pub(crate) blocking_work: BlockingWorkPlacement,
-    pub(crate) semantic_point_hashes: Mutex<BTreeMap<(RunId, u32, u64), [u8; 16]>>,
-    pub(crate) pre_replay_semantic_points: BTreeSet<(RunId, u32, u64)>,
-    pub(crate) verified_time_travels: AtomicU64,
-    pub(crate) unverifiable_time_travels: AtomicU64,
+    flow_replay_diagnostics: FlowReplayDiagnostics,
 }
 
 /// What a [`FrameApplier`] applies frames with.
@@ -107,13 +103,12 @@ pub(crate) struct FrameApplierParts {
     pub(crate) state: Arc<CommitState>,
     pub(crate) is_checking_replay: bool,
     pub(crate) blocking_work: BlockingWorkPlacement,
+    pub(crate) flow_replay_diagnostics: FlowReplayDiagnostics,
 }
 
 impl FrameApplier {
     /// Creates an applier whose metrics stay off until [`PartitionApplierPool::enable_metrics`].
-    ///
-    /// Returns the store error of indexing semantic points when replay checks are on.
-    pub(crate) fn new(parts: FrameApplierParts) -> Result<Self, StorageError> {
+    pub(crate) fn new(parts: FrameApplierParts) -> Self {
         let FrameApplierParts {
             metrics,
             store,
@@ -122,19 +117,9 @@ impl FrameApplier {
             state,
             is_checking_replay,
             blocking_work,
+            flow_replay_diagnostics,
         } = parts;
-        // Extension rows do not parse as run keys.
-        let is_flow_command_node = matches!(records, FrameRecordHandling::FlowCommand { .. });
-        let pre_replay_semantic_points = if is_checking_replay && is_flow_command_node {
-            Self::pre_replay_semantic_points(store.as_ref())?
-        } else {
-            BTreeSet::new()
-        };
-        tracing::debug!(
-            unverifiable_semantic_points = pre_replay_semantic_points.len(),
-            "semantic points present before log replay lack independent hashes"
-        );
-        Ok(Self {
+        Self {
             metrics,
             metrics_enabled: AtomicBool::new(false),
             store,
@@ -143,11 +128,8 @@ impl FrameApplier {
             state,
             is_checking_replay,
             blocking_work,
-            semantic_point_hashes: Mutex::new(BTreeMap::new()),
-            pre_replay_semantic_points,
-            verified_time_travels: AtomicU64::new(0),
-            unverifiable_time_travels: AtomicU64::new(0),
-        })
+            flow_replay_diagnostics,
+        }
     }
 }
 
@@ -279,14 +261,9 @@ impl PartitionApplierPool {
     }
 
     pub(crate) fn time_travel_verification_counts(&self) -> (u64, u64) {
-        (
-            self.frame_applier
-                .verified_time_travels
-                .load(Ordering::Relaxed),
-            self.frame_applier
-                .unverifiable_time_travels
-                .load(Ordering::Relaxed),
-        )
+        self.frame_applier
+            .flow_replay_diagnostics
+            .time_travel_verification_counts()
     }
 }
 
@@ -688,11 +665,17 @@ impl FrameApplier {
                     Some(command_reply::Reply::TimeTravel(_))
                 )
             {
-                self.check_time_travel_target(&context, reader, &command, &frame.position)?;
+                self.flow_replay_diagnostics.check_time_travel_target(
+                    &context,
+                    reader,
+                    &command,
+                    &frame.position,
+                )?;
             }
             reader.stage(&outcome.writes);
             if self.is_checking_replay {
-                self.record_semantic_point(&context, reader, &outcome, &command)?;
+                self.flow_replay_diagnostics
+                    .record_semantic_point(&context, reader, &outcome, &command)?;
             }
             applied.push(AppliedCommand {
                 command,
