@@ -219,6 +219,10 @@ impl Step for ManualStep {
 </SdkSnippet>
 </SdkTabs>
 
+## When only one decision may count {#when-only-one-decision-may-count}
+
+The example's **Retry** and **Skip** RPCs only publish. When a retry and a skip must not both count, the decision RPC checks that the work waits for a decision and claims it in the same commit. It does this under a lock on that work's record, as in the [response window](/design-patterns/external-interaction/decision-with-deadline#close-the-response-window).
+
 ## Next
 
 - [Failure Handling](/design-patterns/failure-handling)

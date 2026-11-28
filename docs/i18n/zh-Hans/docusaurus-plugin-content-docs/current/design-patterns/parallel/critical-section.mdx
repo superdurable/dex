@@ -39,7 +39,7 @@ Attribute lock（例如 `ExecuteLockAttributes`）只覆盖一个 Step 方法。
 
 ## 每个出口都要归还 token
 
-token 只是一条普通消息。如果某个分支离开这段流程时没有把它发布回去，其他所有分支会永远等待。列出离开这段流程的每一种方式，并在每一种方式上发布 token。
+token 只是一条普通消息。如果某个分支离开这段流程时没有把它发布回去，其他所有分支会永远等待。列出离开这段流程、但 Flow 仍在运行的每一种方式，并在每一种方式上发布 token。
 
 - **正常退出。** 这段流程的最后一个 Step 发布 token。
 - **Execute 失败。** 用 `ExecuteFailure` 把失败路由到一个发布 token 的 Step。这段流程的每个 Step 都要配置这条路由。在示例中，`EnterContractEdit`、`EditContract` 和 `SaveContractEdit` 都会进入 `ReleaseContractEditToken`。

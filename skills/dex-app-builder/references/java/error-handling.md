@@ -6,7 +6,8 @@ rules. This page maps them to Java. Keep three kinds of failure apart:
 | Kind | Where | Java form |
 | --- | --- | --- |
 | Business outcome | Step `execute` | Return a `StepDecision` (`forceFail`, a recovery `goTo`, a result DTO) |
-| Retryable handler failure | Step or RPC handler | Throw an exception |
+| Retryable handler failure | Step handler or timeout handler | Throw an exception |
+| RPC handler failure | RPC handler | Throw an exception; it fails that call for its caller, and Dex does not retry it |
 | Client or service failure | Code that calls `Client` | Catch a concrete exception from `io.superdurable.dex.exceptions` |
 
 ## Handler failures

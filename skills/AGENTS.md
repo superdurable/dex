@@ -47,30 +47,36 @@ directly at the repository root.
   acceptance, release, and pull-request rules; `dex-app-builder` owns
   application use of released connectors.
 - App Builder constraints are stricter: strict FDG 2.0 with only the
-  directives the Flow visualization reference lists for the language,
-  provider effects only in `Execute`, and no provider or Dex mutations in
-  `WaitFor`. App Builder treats Go, Python, TypeScript, Java, and Rust
+  directives the Flow visualization reference lists for the language.
+  App Builder treats Go, Python, TypeScript, Java, and Rust
   equally and never tells users what a language lacks.
 
 ## Skill content: the stable layer for agents
 
-The Skills are the coding-agent version of Dex's stable docs layer. They cover
-the same scope as the docs Primitives, Components, and Design pattern pages.
+The Skills are the coding-agent version of Dex's stable docs layer. They state
+the concepts and patterns of the docs Primitives, Components, and Design
+pattern pages, plus the design-relevant facts that the docs keep in the
+Developer reference.
 Write that content for agents: mental models, decision tables, rules,
 anti-patterns, code skeletons, and checklists. Keep every stable fact an agent
 needs to write correct code. Each rule must be complete without its links.
 
-A fact belongs here only if it will still hold in the next minor release.
-Skills contain no Dex version numbers and no release-tag pins. APIs,
-parameters, defaults, limits, configuration, flags, error codes, and version
-differences belong in SDK doc comments and the versioned docs Developer
-reference. Link to the Developer reference and to `examples/` for those
-details. Never link to the docs Primitives, Components, or Design pattern
+State design-relevant Dex facts inline, including stable behavior tables and
+defaults. Test each fact with one question: without it, would an agent design
+wrongly? If yes, state it here. A stated default gives its value, what happens
+when a design exceeds it, and the recommended action, and links the Developer
+reference page that holds the current value. Per-language API names,
+signatures, parameter details, version differences, and configuration that
+does not change a design belong in SDK doc comments and the versioned docs
+Developer reference. Link to the Developer reference and to `examples/` for
+those details. Skills contain no Dex version numbers and no release-tag pins.
+Hard rules are very few: only rules that hold in every reasonable business
+scenario and whose violation always breaks correctness. Never link to the docs Primitives, Components, or Design pattern
 pages. Link examples that show a mechanism, such as primitives, patterns,
 configuration, and tests, not product examples under `examples/*/products/`.
 
 Change the Skills only when a stable programming rule, a Primitive concept or
-relation, a Component, or a design pattern changes. Update the matching docs
+relation, a Component, a design pattern, or a design-relevant fact changes. Update the matching docs
 pages in the same pull request, or state in the pull request why they need no
 change. A skills change does not wait for a Dex release.
 
@@ -115,13 +121,16 @@ Never add a skill submodule or a floating branch reference to an application
 repository; the coding-agent host supplies the installed Dex Skills release.
 
 A stable content change (a rule, a Primitive concept or relation, a
-Component, a design pattern, skill routing, or packaging) adds a change-log
+Component, a design pattern, a design-relevant fact (a behavior table, a
+default, or a limit stated in the skills), skill routing, or packaging) adds a change-log
 fragment under the Dex repository's `changelog.d/skills/` with its bump level.
 A typo, link, or wording-only change needs no fragment; its pull request
 description contains a line `skills-release: no bump needed: <reason>`, which
 Check Gate CI accepts instead. Never edit `VERSION`, `dex-app-builder/VERSION`, the
 manifests, or `CHANGELOG.md` by hand; a release-prep pull request assembles
-the fragments and writes them. A Dex release never requires a skills change.
+the fragments and writes them. A Dex release that changes a design-relevant
+fact, such as a behavior table, a default, or a limit stated in the skills,
+updates the skills; other releases do not.
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
 stable knowledge. Check Gate CI fails a pull request that changes a mapped

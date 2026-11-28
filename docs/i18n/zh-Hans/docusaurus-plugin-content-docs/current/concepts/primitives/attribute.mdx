@@ -340,9 +340,9 @@ lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 
 
 Step 声明的 lock 也被某个 RPC 使用时，Step 持有 lock 期间不调用外部系统。它在 lock 下做决定并提交，由下一个不持有 lock 的 Step 调用外部系统。否则调用期间请求这把 lock 的 RPC 都会遇到 lock conflict。声明这种 lock 的 `WaitFor` 和 Flow timeout handler 也一样。启动或调用另一个 Flow 也算外部调用。
 
-只在 Step 之间共享的 lock 可以覆盖外部调用。这些 Step 会等待 lock，一个接一个运行。polling Step 不应持有它的截止时间 watchdog 也需要的 lock，否则 watchdog 要等到循环结束。反复失败的加锁 Step 在每次重试期间都持有 lock，所以在它的 `StepOptions` 重试策略里设置较短的总时长，例如几分钟；见 [Lock holding](/reference/server/runtime-data#lock-holding)（英文）。
+只在 Step 之间共享的 lock 可以覆盖外部调用。这些 Step 会等待 lock，一个接一个运行。反复失败的加锁 Step 在每次重试期间都持有 lock，所以在它的 `StepOptions` 重试策略里设置较短的总时长，例如几分钟；见 [Lock holding](/reference/server/runtime-data#lock-holding)（英文）。
 
-有些流程接受已经决定的动作可能还会发生一次，例如停止请求到达时，一条提醒正要发出。这样的流程不需要 lock。RPC 发布请求并回答“已收到”。决定时点是做决定的 `Execute` 的首次状态快照，它的重试沿用这个快照。`Execute` 检查这个快照里的停止请求，Timer 先被选中的分支也一样。快照之后才提交的停止请求，可能让已经决定的动作再发生一次。之后每个可中断的等待仍要包含停止 Condition。
+RPC 要停止一个由 Step 决定的动作时，按业务的承诺选择设计。有些流程接受已经决定的动作可能还会发生一次，例如停止请求到达时，一条提醒正要发出。这样的流程不需要 lock。RPC 发布请求并回答“已收到”。做决定的 `Execute` 检查停止请求，Timer 先被选中的分支也一样。在已决定的动作执行期间才到达的停止请求，可能阻止不了它。之后每个可中断的等待仍要包含停止 Condition。
 
 一条消息只到达一个消费者，所以并行的消费者各自收到自己的停止消息，例如每个分支的 Channel 上一条。这条消息会唤醒正在等待的分支。持久的停止状态 Attribute 可以把停止记录为事实，但它不会唤醒正在等待的分支，因为 `WaitFor` 没有 Attribute Condition。业务接受等待不被立即打断时，分支可以在因其他事件继续时再读这个 Attribute。这时宽限按每个已决定的动作或分支计算。业务只允许全局发生一次这样的动作时，一次只决定一个动作。已决定的动作带着稳定的 occurrence ID，由接收方识别并去重。
 
@@ -425,7 +425,7 @@ lock 的获取时机，以及 `WaitFor`、`Execute` 和 RPC 的 lock，见 [Lock
 
 ## 短期 secret {#hard-delete-attributes}
 
-**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 Dex 保存 handler 的结果之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
+**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入一样，hard-delete 写入只在 Dex 保存 handler 的结果时才生效。每个 Flow run 有自己的值。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
 
 <a id="与其他组件的关系"></a>
 <a id="配置"></a>

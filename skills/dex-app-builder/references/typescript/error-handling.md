@@ -8,8 +8,9 @@ and `invoiceEmailWasSent` are application declarations.
 
 ## Matching errors
 
-- A thrown error or rejected Promise from `waitFor`, `execute`, an RPC, or
+- A thrown error or rejected Promise from `waitFor`, `execute`, or
   `handleTimeout` fails that attempt. StepOptions decide retry and recovery.
+  One from an RPC handler fails that call for its caller; Dex does not retry it.
 - In a `catch` block keep the value `unknown` and narrow with `instanceof` on
   the exported classes. Never compare `error.message`. Keep `cause` when you
   wrap.

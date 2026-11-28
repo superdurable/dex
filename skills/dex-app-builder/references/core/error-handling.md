@@ -6,22 +6,7 @@ Read [client.md](client.md#read-after-write) for which reads observe which write
 
 ## Classify at the decision boundary
 
-Classify a failure at the narrowest boundary that has enough context to decide what it means.
-
-| Class | Examples | Handling |
-| --- | --- | --- |
-| Business outcome | expected rejection, conflict, terminal domain decision | Return the domain result. |
-| Dex or provider failure | typed service, transport, authentication, availability, capacity error | Retry within a bounded policy, or translate. |
-| Local defect | invalid input handling, incompatible definitions, serialization, programming error | Let it surface. Never convert it to a retryable or success result. |
-
-Rules:
-
-- Prefer catching the concrete SDK errors whose outcome the code can decide.
-- Do not enumerate every Client failure just to turn them all into one retryable response. Leave an unclassified failure to ordinary server-error handling.
-- A narrow reconciliation boundary after a failed mutation may handle documented remote failures only when each one leaves the same mutation outcome uncertain.
-- Use a named status or sub-status only when the SDK has no more specific error type.
-- Never branch on human-readable error detail or raw numeric codes.
-- Prefer not to catch a language's broad runtime or exception base for service-error translation; it hides local defects.
+Branch on the SDK's typed Dex errors; the error families are below. Usually use a named status or sub-status only when the SDK has no more specific error type.
 
 The error model is language-specific. Python, Java, and TypeScript have a remote-only service-error base. Go concrete remote errors unwrap to a service error type. Rust uses one error enum for service and local failures. Never copy a catch pattern between SDKs.
 
@@ -31,12 +16,12 @@ Every SDK maps these server outcomes to typed errors. The language files give th
 
 | Family | Meaning | Typical handling |
 | --- | --- | --- |
-| Flow already started | A start hit an existing Flow ID that the reuse policy rejects. | See [start identity](#start-identity-and-duplicate-starts). |
+| Flow already started | A start was rejected by the reuse policy, or retried the latest run's start without ignore-already-started. | See [start identity](#start-identity-and-duplicate-starts). |
 | Combined missing-or-inactive target | No readable target, or the target is closed for an operation that needs an active Flow. | Interpret by operation. See [closed-Flow races](#closed-flow-races). |
 | Flow not found | No readable run exists. Used by DescribeFlow and the Client Attribute read. | Return the contract's not-found result. |
 | Flow closing | A request arrived while the Flow was closing, such as a transactional RPC, a wait, or a Channel publish. The request was not accepted. | Read the terminal state, then decide. |
-| RPC lock conflict | Another Step or RPC holds a required Attribute lock now. | Retry the RPC with bounded backoff. It is contention, not a queue. |
-| Channel message not found | A pending-message delete or transactional move named a message that is no longer pending. | Treat the view as stale. Refresh and let the user choose again. |
+| RPC lock conflict | Another Step or RPC holds a required Attribute lock now; Dex does not queue the RPC. | Retry with bounded backoff, or return a busy result to the caller. See [locks](attribute.md#locks). |
+| Channel message not found | A pending-message delete or transactional move named a message that is no longer pending: consumed, deleted, or moved by an earlier attempt of this call. | Pass a stable RPC request ID so a retried move returns its recorded reply; otherwise reload the pending list before deciding. |
 | Request timeout | A Client wait reached its caller-set request timeout. | Not a failure of the Flow. See [waits](client.md#waits). |
 | Flow definition error | A definition is not registered or does not match. | Local defect. |
 | Value mapping error | A value cannot be encoded or decoded. | Local defect. |
@@ -47,9 +32,9 @@ Every SDK maps these server outcomes to typed errors. The language files give th
 The Server reports capacity and rate-limit failures as RESOURCE_EXHAUSTED, not INTERNAL. The response keeps the message and any retry-delay hint.
 
 - Use the SDK's named status and the available details. Do not parse text.
-- Treat it as retryable. When the SDK has not already retried, retry with backoff inside the caller's deadline, honoring a retry hint when present.
+- It is not always retryable. When it reports load, retry with backoff inside the caller's deadline when the SDK has not already retried, honoring a retry hint when present. A Flow over its active-state budget, or a value over the size limit, fails again on retry until the state or value shrinks; see [default limits](../../SKILL.md#default-limits).
 - A failed mutation can still have an uncertain outcome. Reconcile through its stable identity before you repeat an effect.
-- SDK-managed retries can already use up the deadline. Do not stack unbounded retry loops.
+- SDK-managed retries can already use up the deadline.
 - A pull Worker stream rejected with RESOURCE_EXHAUSTED is a registration problem, not a Client API failure. See [application.md](application.md#worker-registration-and-readiness).
 
 ### Indexed search limits
@@ -64,30 +49,25 @@ If the SDK has no typed error for these, they surface as a generic service error
 
 ## Start identity and duplicate starts
 
-### Start first; reconcile only after an error
+### StartFlow decides repeats
 
-Call StartFlow first, with a stable Flow ID. Do not call a read-only RPC, a search, or DescribeFlow first just to check existence or to avoid an AlreadyStarted edge case. That adds a round trip to every start and still races with other callers. A read that the business contract needs for its own reason is different.
-
-Dex is the start deduplication boundary:
+StartFlow decides repeats itself, atomically per Flow ID: the reuse policy and Request ID tables in [Starting a Flow and ID reuse](../../SKILL.md#starting-a-flow-and-id-reuse) give the outcome of every start, including concurrent ones. Dex compares only the Request ID, not the input or options.
 
 - Derive the Flow ID from the logical operation or resource.
-- Derive the start Request ID from the complete logical start request. Keep it the same across retries of that request. Never reuse it for a different request.
-- The default ID reuse policy rejects a second run. Choose another one only when the lifecycle needs it.
-- Never add a table, row, outbox, lease, lock, cache, or admission projection only to deduplicate or serialize starts.
+- Give each logical start one stable Request ID, such as an operation ID the caller stores or one derived from the complete logical request. Keep it the same across retries of that start. A different logical start with the same Request ID, even one with an identical payload, is treated as a retry of the earlier start.
+- Starts are atomic per Flow ID only. To serialize starts across Flow IDs, start them from one owner Flow.
 
-A stable Request ID alone does not suppress AlreadyStarted. For a retry that may attach to the existing Flow run, also enable the SDK's ignore-already-started option and use a reuse policy that rejects a new run even after the original closes. Dex then returns the existing run for a matching Request ID instead of starting a second run. The matching rules and the result of each combination are in the [StartFlowOptions reference](https://docs.superdurable.io/reference/python/start-flow-options#flow-id-request-id-and-already-started).
+A stable Request ID alone does not suppress AlreadyStarted; add the SDK's ignore-already-started option, and a retry of the latest run's start returns that run. The exact option names are in the [StartFlowOptions reference](https://docs.superdurable.io/reference/python/start-flow-options#flow-id-request-id-and-already-started).
 
 Handle each result:
 
-- **Success.** If the contract only acknowledges acceptance, return the accepted response from validated request fields and known initial values. Do not reread identity, initial Attributes, or status to verify the start. Do not use a snapshot to decide which Flow to start next. Success does not mean the work finished or that state is still initial.
+- **Success.** If the contract only acknowledges acceptance, return the accepted response from validated request fields and known initial values. Success does not mean the work finished or that state is still initial.
 - **AlreadyStarted.** Keep it as a domain conflict unless the contract allows reuse. When the outcome needs existing business state, read it in this error branch with a Client Attribute read or a typed read-only RPC. Verify the request identity or invariant before you report success. Do not retry a proven conflict forever or report it as unavailability.
-- **Unknown acceptance** (transport failure or timeout). Retry within a bounded policy with the same Flow ID, Request ID, and options. A replay-safe start needs no read before the retry. Without a stable Request ID, do not claim deduplication across calls. Report an unknown outcome when the contract cannot prove acceptance.
+- **Unknown acceptance** (transport failure or timeout). Retry within a bounded policy with the same Flow ID, Request ID, and options. A replay-safe start needs no read before the retry. Under a policy that starts a new run after close, a retry that arrives after a newer run started counts as a new request. Without a stable Request ID, do not claim deduplication across calls. Report an unknown outcome when the contract cannot prove acceptance.
 
 ```text
-Wrong: read status or snapshot -> decide whether to StartFlow
-Wrong: StartFlow succeeds -> reread identity -> start another Flow from the API
-Right: StartFlow with stable identity -> return accepted response from request fields
-       -> only on a relevant error, reconcile through a typed read, or return conflict/unknown
+StartFlow with stable identity -> return accepted response from request fields
+  -> on a relevant error, reconcile through a typed read, or return conflict/unknown
 ```
 
 ### Wait for a required business milestone
@@ -127,7 +107,7 @@ API choice for a known Flow ID:
 
 | Need | API |
 | --- | --- |
-| Current or latest run status, type, start time | DescribeFlow. It does not wait. A missing Flow returns Flow not found. |
+| Current or latest run status, type, start time | DescribeFlow. It does not wait. With a run ID, it describes that run. A missing Flow returns Flow not found. |
 | Business state | Client Attribute read or typed read-only RPC |
 | Terminal result and output | WaitForFlow |
 | Find Flow IDs | SearchFlows |
@@ -136,13 +116,11 @@ Which RPCs need an active Flow:
 
 - An RPC with no Attribute locks, no transactional execution, and no returned durable effects runs on a snapshot. It can read a retained closed run. Success does not prove the Flow is active.
 - A non-transactional RPC that returns durable effects runs its handler first. If the Flow closes in between, applying the effects fails as not active after the handler ran. Keep its external effects idempotent.
-- Locked and transactional RPCs, and every RPC under a Server policy that runs RPCs transactionally, need an active run. Dex rejects them before any handler runs.
-
-A completed child satisfies an idempotent cleanup only when its success guarantees the requested condition. An unsuccessful or missing child is an explicit domain failure or unknown outcome. Do not retry a terminal fact forever.
+- A new invocation of a locked or transactional RPC needs an active run. Dex rejects it before any handler runs. A retained recorded request ID of such an RPC still replays its reply after close; see [RPCs](../../SKILL.md#rpcs).
 
 ### Terminal read RPC rule
 
-Before you handle a not-active error from an RPC, check its registered options, invocation locks, handler result, and Server policy. A business snapshot RPC with no locks, no transactional execution, no durable effects, and no active-only Server policy must read the retained run directly. Closure alone is not a reason for it to fail.
+Before you handle a not-active error from an RPC, check its registered options, invocation locks, and handler result. A business snapshot RPC with no locks, no transactional execution, and no durable effects must read the retained run directly. Closure alone is not a reason for it to fail.
 
 Never add a `not-active -> WaitForFlow -> decode an earlier Step output` fallback to a business read. Execution history is not the entity's read contract. An intermediate Step output can omit later committed state.
 
@@ -180,9 +158,9 @@ While a Flow closes, Dex rejects some new requests with the Flow closing error. 
 
 ## Ambiguous mutations
 
-After an ambiguous provider or Client mutation, reconcile authoritative state before you repeat an effect whose safe replay is not established. A StartFlow retry with a stable Flow ID, Request ID, and the same options can replay without a read. Bound retries and keep the repeated mutation idempotent.
+After an ambiguous provider or Client mutation, reconcile authoritative state before you repeat an effect whose safe replay is not established. A StartFlow retry replays as described in [start identity](#start-identity-and-duplicate-starts). Bound retries and keep the repeated mutation idempotent.
 
-By default, the SDK generates a new request ID for each RPC call, so a retried RPC is a new request and can run the handler again. Where the SDK accepts a caller request ID, pass the same stable ID on every attempt so the retried RPC's Flow changes take effect at most once; see [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids). Make RPC handlers safe to repeat, or reconcile with a typed read before you retry a write. An RPC that times out or returns UNAVAILABLE has an unknown outcome: the handler may run again on retry while the first call may still commit. Never promise unconditional eventual success.
+By default, the SDK generates a new request ID for each RPC call, so a retried RPC is a new request and can run the handler again. Where the SDK accepts a caller request ID, pass the same stable ID on every attempt so the retried RPC's Flow changes take effect at most once; see [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids). Make RPC handlers safe to repeat, or reconcile with a typed read before you retry a write. A failed handler that committed nothing records nothing. A caller timeout, a cancellation, or UNAVAILABLE leaves the outcome unknown: the handler may run again on retry while the first call may still commit.
 
 ## Best-effort output
 
@@ -208,7 +186,7 @@ Rules:
 - A Worker failure keeps the error type the Worker reported, such as an application error type.
 - A Dex time limit (method timeout, heartbeat timeout, retry total duration) uses an error type that each Dex backend may spell differently. Never compare the error type with a fixed string.
 - Where the SDK offers timeout predicates on the recovery error, use them. A Worker API failure, such as an unreachable Worker, is not a method timeout.
-- Where it does not, record the detail and error type for operators and branch only on error types the application defines. Treat any other type as an infrastructure failure.
+- Where it does not, record the detail and error type for operators. Usually branch on error types the application or its provider libraries define, and treat unknown types as infrastructure failures.
 - Give application error types names that cannot collide with Dex time-limit names.
 
 ### Attempt progress
@@ -235,7 +213,7 @@ Diagnosis is read-only. Capture the Flow ID, run ID, run attempt, Flow type, SDK
 2. Inspect the Flow in Dex Web: active Steps, pending reasons, routing, and history. See [web.md](web.md).
 3. Use `dexcli flow summary`, `state`, `history`, or `inspect` for a bounded JSON view. Use `--no-hydrate` when payloads are not needed or are sensitive.
 4. Compare the active Step, Conditions, Attributes, pending Channels, Timers, and recent events with the intended graph.
-5. Reproduce with the smallest real-Server integration test.
+5. When the cause is in Flow code, usually reproduce it with the smallest real-Server integration test.
 6. Fix code or configuration before you decide whether an open run needs recovery.
 
 | Symptom | Check |
@@ -270,7 +248,7 @@ Time travel (reset):
 
 - Use it after a code fix, when replaying from a safe Step boundary will not duplicate an unprotected side effect.
 - It keeps the run ID and creates a new run attempt.
-- Keep the original Flow ID and operation identity. Reconcile provider objects and accepted writes first.
+- Keep the original Flow ID and operation identity. Reconcile provider objects and accepted writes first. A Step execution ID created after the point can name other work, and a random operation ID committed after the point is generated again; see [Time travel](../../SKILL.md#time-travel).
 - It cannot invent a missing method boundary or rewrite the original start options. Decide whether replaying later writes is safe before you skip them.
 - Which points are available and what it restores are in the [time travel reference](https://docs.superdurable.io/reference/server/runtime-client#time-travel).
 
@@ -280,7 +258,7 @@ Clone fork:
 - It copies state, not history. The new run gets the Attributes, pending Channel messages, Steps, and waits of that point, and starts a history of its own.
 - It only reads the source. A running source keeps running.
 - Use a distinct Flow ID for the fork; keep the new Flow ID, Request ID, and options stable across retries.
-- Steps that were running at the point run again in the new Flow. Apply the same idempotency rules as for time travel, and key external effects by the new Flow ID, not the source's.
+- Steps that were running at the point run again in the new Flow. Apply the same idempotency rules as for time travel, and decide per effect: key it by the new Flow ID when the fork must make its own effect; keep the source's key when the fork must not repeat an effect the source already made.
 
 | Need | Use |
 | --- | --- |
@@ -289,7 +267,7 @@ Clone fork:
 | Try another path from a past point and keep the original | Clone fork |
 | Start a Flow from fresh input with no source state | StartFlow |
 
-Give the forked Flow its own business identity; the two Flows are not one business resource. When Workers pick Flows by task queue, such as for an agent session, give the fork its own task queue, and fork an agent session with the agent session fork, not a raw clone fork.
+The fork has its own Flow ID; whether it is a new business resource decides its effect keys, as above. When Workers pick Flows by task queue, such as for an agent session, give the fork its own task queue, and fork an agent session with the agent session fork, not a raw clone fork.
 
 SubFlow reset policy, for time travel and clone fork: a restored or copied Step may wait on a SubFlow Condition, and the policy decides whether that wait attaches to the original child, restarts it, fails, or rejects the call. A restart repeats the child's start, so the child's external effects need idempotency keys. Pick the policy explicitly when the default does not fit; see [SubFlows across a time travel](https://docs.superdurable.io/reference/server/runtime-client#sub-flows-across-a-time-travel) and [across a clone fork](https://docs.superdurable.io/reference/server/runtime-client#sub-flows-across-a-clone-fork).
 
@@ -306,17 +284,15 @@ Do not cross an external side effect unless it is idempotent, compensated, or ex
 
 ## Self-check
 
-- Does every caught error change a domain decision, a retry, or a boundary translation?
 - Are typed conflicts handled before a generic remote-error fallback?
 - Can an accepted mutation lose its response? Which authoritative fact reconciles it?
 - Does start deduplication rely only on Dex identity?
 - Does the normal start call StartFlow first and return without a preflight or a verification read?
 - Do start retries keep the Request ID and the ignore-already-started option together?
 - Does a milestone-confirming API wait for a condition published after the milestone commits, with a bounded wait?
-- Does one owning Flow, not the API handler, start dependent Flows?
+- Does one owning Flow, not the API handler, usually start dependent Flows?
 - Are retries bounded and idempotent?
 - Do terminal snapshot reads use query-only RPCs or Client Attribute reads, with no history fallback?
 - Does a query-only Get map missing or not-active directly to not found?
 - Does best-effort output stay separate from business state?
-- Do local defects stay visible?
 - Does recovery that relies on NOT_STARTED run only on SYNC methods?

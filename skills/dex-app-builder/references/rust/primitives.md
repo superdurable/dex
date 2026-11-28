@@ -144,8 +144,10 @@ impl Step for AwaitApproval {
 - `.cancel_sibling_step(&Step)` cancels executions of that Step type scheduled
   by the same predecessor. `.cancel_step(&Step)` cancels every execution of
   it. Steps created by the same decision are not canceled.
-- First-win losers and branches of a cancelling join give each call a short
-  timeout and check `context.is_cancelled()` after it returns.
+- First-win losers and branches of a cancelling join pass a cancellation
+  check, such as a closure over `context.is_cancelled()`, into a call that can
+  poll it, so a canceled branch ends its open request. Give a call that cannot
+  poll a short timeout.
 - Clone owned input only where two movements need it.
 
 ## StepOptions
@@ -523,7 +525,7 @@ building blocks:
 | Polling with WaitFor Timer | `wait_for` returns a Timer; `execute` checks once and returns `go_to` to the same Step with the next round | `patterns/polling/timer` |
 | Polling with long-running Step heartbeat | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, Idle Timer (Inactivity tracker) | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
-| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns.md#idle-timer-with-resolution)) | [`control_patterns/inbound_event_loop`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/inbound_event_loop) |
+| Idle Timer with Resolution (Inbound event loop) | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back; the closing Steps return `StepDecision::force_complete_if_channels_empty` on `replies` with a fallback to the waiting Step ([rules](../core/patterns/polling-and-timers.md#idle-timer-with-resolution)) | [`control_patterns/inbound_event_loop`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/inbound_event_loop) |
 | Execute recovery | `on_execute_failure_proceed_to(&Recovery)` | `patterns/recovery` |
 | Fail fast on permanent errors | `execute` routes a confirmed permanent provider error instead of returning it into retry | [`control_patterns/fail_fast`](https://github.com/superdurable/dex/tree/main/examples/rust/src/control_patterns/fail_fast) |
 | WaitFor recovery | `WaitForFailurePolicy::Proceed` plus `context.wait_for_method_failed()` | `primitives/proceed_on_wait_failure` |
@@ -574,7 +576,7 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 
 ### Polling an external job
 
-Follow the polling rules in [../core/patterns.md](../core/patterns.md).
+Follow the polling rules in [../core/patterns/polling-and-timers.md](../core/patterns/polling-and-timers.md#polling).
 
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {

@@ -182,7 +182,7 @@ dex.DefineRPC(flow.SubmitDecision, &dex.RPCOptions{
 ```
 
 - The label, permission, and condition values are compile-time constants.
-- Declare exactly one permission.
+- Declare exactly one permission. Use stable, granular permission names.
 - The condition uses a scalar Attribute declared in this file.
 - There are no `dex:action` or `dex:when` comments.
 - The handler rechecks current state under the business locks that atomic

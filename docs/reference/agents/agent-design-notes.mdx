@@ -1,0 +1,73 @@
+---
+description: "Model, tool, and UI guidance for an application that builds its own agent loop on the Dex SDK: model context, reasoning output, plans, tool calls, approvals, and the browser view."
+title: Agent design notes
+sidebar_label: Agent design notes
+---
+
+# Agent design notes {#agent-design-notes}
+
+These notes are for an application that builds its own agent loop on the Dex
+SDK. The Dex Agents packages already implement a loop. The notes are model and
+tool guidance, so each one is a choice for the application to make.
+[Agent Frameworks](/agent-frameworks) explains how a durable agent session
+maps to Flows and Steps.
+
+## Model context {#model-context}
+
+- Store user, assistant, tool-call, and tool-result messages in a
+  provider-neutral format. Then the application can change providers or models
+  without migrating stored sessions.
+- Rebuild the model input for every call from a configured system prompt, a
+  cumulative summary, and recent messages. A retry or a replacement Worker then
+  builds the same input from stored state.
+- Prefer the stored messages as the source of the model context. A provider
+  conversation ID fits only when the provider keeps that state as long as the
+  session needs it.
+- Compaction changes the model context, not the stored record. First commit a
+  summary that covers an explicit range of message sequence numbers. Then
+  delete only whole archived message chunks that the summary covers.
+
+## Reasoning output {#reasoning-output}
+
+- Write provider reasoning summaries, visible text, and structured events to
+  separate outputs, such as one buffered writer for each. A UI can then show
+  each kind in its own place.
+- Show a Thinking surface only for an explicit provider reasoning-summary
+  event. Ordinary text stays ordinary text, and hidden reasoning stays hidden.
+- Some providers return opaque encrypted reasoning items that later calls must
+  send back. Store them with the assistant message, and send them back
+  unchanged.
+
+## Plans {#plans}
+
+- Derive plan completion from the states of the plan's tasks. Keep it separate
+  from whether the session is still running.
+- For a planning-only interaction, remove the executable tools from the model
+  call. A prompt alone leaves the model able to call them.
+
+## Tool calls {#tool-calls}
+
+- Run tool calls in a deliberate order, with bounded concurrency.
+- Read-only and idempotent tools can retry. Give a non-idempotent write tool
+  one attempt, unless the business accepts duplicates.
+- Give every requested tool call a result before the next model call: its real
+  result, an error, or a canceled result for a call that never started. Many
+  provider APIs reject a model input that holds a tool call without a result.
+  When a turn stops, a call that is still running gets its result when it
+  settles.
+- Register trusted MCP servers in Worker configuration, and let the Flow select
+  from that list. Executable MCP commands, remote URLs, and credentials from
+  untrusted Flow input stay out of the tool list.
+
+## Approvals and questions {#approvals-and-questions}
+
+- An unknown, destructive, or write tool waits for approval, unless a trusted
+  policy allows it.
+- When the model asks the user a question, offer the known choices. Allow free
+  text when the answers cannot be listed.
+
+## Browser view {#browser-view}
+
+- Refresh the session snapshot after each mutation and each live event, on
+  focus or reconnect, and with a slow fallback poll. Live Stream events can be
+  lost, so the refresh brings the view back to stored state.

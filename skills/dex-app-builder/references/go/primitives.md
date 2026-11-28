@@ -513,7 +513,8 @@ func waitForCaseRevision(ctx context.Context, client *dex.Client, flowID string,
   cancels the context on timeout, heartbeat loss, Step cancellation, or when a
   stopping Worker reaches its drain deadline.
 - `ctx.FlowID()` plus `ctx.StepExecutionID()` is stable across retries of one
-  Step execution. Use it as an idempotency key. `ctx.Attempt()` is not one.
+  Step execution. Use it as an idempotency key, with `ctx.RunID()` when the
+  Flow ID can have later runs. `ctx.Attempt()` is not one.
 - `ctx.FlowStartedAt()` is the run's start time. Use it, not `time.Now()`, for
   deterministic identities.
 

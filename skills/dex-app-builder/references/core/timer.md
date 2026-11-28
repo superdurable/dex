@@ -10,12 +10,12 @@ A Timer is a durable Dex Server timer used as a WaitFor Condition. It survives W
 | A deadline that races a user action | AnyOf(Timer, Channel) |
 | A recurring schedule | The cron pattern: AnyOf(Timer, trigger Channel, skip Channel) in a loop |
 | A deadline for the whole Flow | The Flow timeout and timeout handler, not a competing Step. See [flow.md](flow.md#flow-timeout). |
-| Waiting for an external system to become ready | A [Polling](patterns.md#polling) shape: a bounded Timer loop that calls the provider once per Execute, or one long-running Execute with heartbeats. |
+| Waiting for an external system to become ready | A [Polling](patterns/polling-and-timers.md#polling) shape: a bounded Timer loop that calls the provider once per Execute, or one long-running Execute with heartbeats. |
 | Delay before the first work | A start Step that waits on a Timer. Dex has no start delay. |
 
 ## Rules
 
-- A Timer is a Condition, not an in-process timer. Never sleep in a handler to model a business delay.
+- A Timer is a Condition, not an in-process timer. A sleep in a handler is lost with its Worker and wakes no Flow ([Workers](../../SKILL.md#workers-attempts-and-time-bounds), [Timers](../../SKILL.md#timers)). Deadline and late-firing facts are in [Timers](../../SKILL.md#timers).
 - In Execute, check whether the Timer fired, through the Context, before you assume which Condition won.
 - Timers in Until, AnyOf, and AllOf need no names. Give a Timer an ID when an operation selects it by ID, and always inside AnyCombinationOf.
 - After each accepted activity in an inactivity window, return to a Step that creates a new Timer.
@@ -28,9 +28,9 @@ SkipTimer makes a pending Timer behave as fired. It selects the Step execution a
 
 - Acceptance is not proof of execution. The Timer may fire on its own before the skip applies.
 - The Execute that follows runs asynchronously. Confirm it with a Step-completion wait or a business read.
-- The Flow timeout is also a Timer. SkipTimer can fire it early by index.
+- The Flow timeout is also a Timer. SkipTimer can fire it early, which starts the timeout policy at once; it takes a dedicated selector, given in [Skip a Timer](https://docs.superdurable.io/reference/server/runtime-client#skip-a-timer).
 
 ## Self-check
 
-- Does a Timer loop that polls an external system call it only in Execute, and is it bounded by a round limit, the Flow timeout, or a watchdog Timer?
+- Does a Timer loop that polls an external system usually call it in Execute, and is it bounded by a round limit, the Flow timeout, or a watchdog Timer?
 - Does Execute check Timer outcomes through the Context?

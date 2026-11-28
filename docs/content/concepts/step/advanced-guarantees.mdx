@@ -54,7 +54,8 @@ SDK:
   happened. A server restart or failover does the same to every attempt that
   a Worker had.
 - **Heartbeats are fire-and-forget.** A heartbeat checkpoint can be lost, so a
-  rerun can start from an older checkpoint.
+  rerun can start from an older checkpoint. Key each external effect by a
+  stable ID, never by the checkpoint alone.
 - **An ASYNC Step can repeat an attempt.** See
   [SYNC and ASYNC Steps](#sync-and-async).
 - **Retries can run out without an answer.** The recovery Step then learns
@@ -82,7 +83,7 @@ A Step's **durability** chooses when Dex stores its progress.
   start and the result are stored. Dex batches these writes over about 20
   milliseconds, so a single Flow runs faster. If a Dex Server node fails before
   the write, Dex runs the same attempt again on a new state snapshot, so it
-  can read different Attribute values.
+  can read different Attribute values. Keep ASYNC methods idempotent.
 - **A lost ASYNC result reruns later work only up to the first SYNC Step.** Dex
   writes a Flow's commands to its log in order. Once a SYNC Step's start is
   stored, every earlier command of that Flow is stored too, so a SYNC Step that

@@ -40,13 +40,15 @@ A Step has one or two methods.
 
 If a Step has no `WaitFor`, `Execute` runs immediately.
 
-Prefer calls that can fail in `Execute`. `WaitFor` never changes an external
-system. Every provider change, including a Connector write operation, runs in
-`Execute`. `WaitFor` may make read-only, idempotent calls with a timeout. For
-example, it can read a due date from a provider and return a Timer for it. The
-Timer is durable once the result of `WaitFor` commits. When the deadline must
-be auditable or visible, or needs its own failure route, read it in the
-previous Step's `Execute` and pass it as the next Step's input instead.
+Prefer calls that can fail in `Execute`. Usually every provider change,
+including a Connector write operation, runs in `Execute`. An `Execute` failure
+can route to another Step, and Dex Web shows `WaitFor` as the wait. When the
+retries of `WaitFor` run out, its failure policy fails the Flow, which is the
+default, or proceeds to `Execute`. That `Execute` sees the failure and can
+route it. `WaitFor` itself returns no decision. `WaitFor` may make read-only,
+idempotent calls with a timeout. For example, it can read a due date from a
+provider and return a Timer for it. The Timer is durable once the result of
+`WaitFor` commits.
 
 If a read in `WaitFor` gets a permanent error, it
 records the error in a Step execution local value and returns a wait that is
@@ -307,6 +309,11 @@ drop a repeat. Build the key from values that stay the same on every attempt:
 - the Flow ID and the `StepExecutionID`, such as `order-1042/Charge-2`,
   when the Step runs more than once in the Flow.
 
+A Time Travel numbers the Step executions it creates again from the restored
+point. A `StepExecutionID` then names the same call only when Steps of that
+type always start in the same order. Otherwise, build the key from business
+data, such as the order number and an iteration count kept in an Attribute.
+
 The attempt number, the time, and a random value change on each retry, so leave them out of the key.
 
 ## StepOptions {#stepoptions}
@@ -355,9 +362,14 @@ its heartbeat timeout itself, and checks its retry total duration:
 
 "Keep trying for up to X" is the retry total duration plus an Execute
 failure route to a Step that handles the failure. The total duration counts
-from the first attempt, so the Step computes no deadline of its own. When work
-must happen at the deadline, such as a notice or a withdrawal, use a
+from the first attempt. Dex checks it after an attempt fails, so the last
+attempt can run past X: by about one method timeout while Workers are
+available, and longer when a retry waits in the queue. When work must happen
+at the deadline, such as a notice or a withdrawal, use a
 [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules).
+It requests the deadline action independently of the retrying method. A Timer
+can fire late, and cancellation cannot undo or force-stop an external call, so
+a strict external cutoff also needs a deadline check at the receiver.
 
 These timeouts end a hung attempt. Dex sends cancellation to the handler and
 retries the attempt by its retry policy. Pass the cancellation signal into

@@ -199,9 +199,10 @@ A Flow closes in one of these ways:
   [Flow close by a new start](/reference/server/runtime-data#flow-close-by-new-start).
 
 Instead of failing or canceling the Flow, a timeout can run a handler that
-decides the outcome. Active Steps keep running while the handler runs. When
-the handler commits a force-complete or force-fail decision, Dex starts
-closing the Flow. The handler can commit after the deadline. While the Flow runs, clients read and change it through
+decides the outcome. Active Steps keep running until the handler commits.
+When the handler commits a force-complete or force-fail decision, Dex starts
+closing the Flow and cancels those Steps, so they need no deadline check of
+their own. While the Flow runs, clients read and change it through
 its RPCs.
 
 ## Child Flows with their own identity {#child-flows}
@@ -229,6 +230,10 @@ The parent receives each child's result durably:
   with a new request ID. It uses an ID reuse policy that allows the needed
   earlier closed state and rejects an active run; see
   [ID reuse policies](/reference/go/start-flow-options#flow-id-request-id-and-already-started).
+  A policy decides only by how the latest run closed, not by what it saved.
+  A child that records a business failure and then completes is closed as
+  completed. To reopen it after that failure, close it with a force-fail
+  decision or allow a completed run.
   Whether the parent ties reads, reports, and stops to the run ID it claimed
   is a business decision. It ties them when the business can reopen a child
   under the same number while the parent still waits, and the parent must
@@ -236,22 +241,25 @@ The parent receives each child's result durably:
   A parent that ties them accepts only reports that carry the claimed run ID.
   It reads, waits for, and stops the claimed run by its run ID. Client calls
   with a run ID address that run even when a newer run exists, and a closed
-  run keeps its final status and Attribute values. A newer run is another
-  attempt, which the parent handles by business policy.
+  run keeps its final status and Attribute values. A newer run is another attempt, which the parent handles by business
+  policy.
 - Every start of the same logical request derives the same Flow ID and
   request ID. Another logical request can still start a run with the same
   Flow ID, even from the same entry point or parent run. Then the start
-  reports that the Flow already started. Always handle that result: read that
-  run and track it only when its stored business identity matches. When it
-  does not match, record a rejected admission that the parent lists as
-  rejected in any report but never waits for, counts, or stops. Rejected is
-  its own state, never ended or failed. The identity check can be skipped
+  reports that the Flow already started. Handle that result: read that run
+  and track it only when its stored business identity matches. When it does
+  not match, the run is not this parent's child, so the parent never waits
+  for, counts, or stops it. How the parent records that rejection, and
+  whether it goes on with the other children or stops them and fails, is a
+  business decision. The identity check can be skipped
   only when the mapping from business identity to child Flow ID guarantees
   that only a replay of the same logical request starts it again. People who
   retry or start the child by its own number break that guarantee.
-- Each child has its own Flow timeout. Each starter sets it, because it is a
-  start option. A child that must report its timeout uses a timeout handler
-  that reports, not a Timer Step. A closing parent never stops its children.
+- When a child must end by a limit known at start, each starter sets its
+  Flow timeout, because it is a start option and cannot change later. A
+  limit that can move needs a Timer. A child that must report its timeout
+  uses a timeout handler that reports. A child keeps running when its parent
+  closes.
 - A client stop that cancels, fails, or terminates the child starts no new
   handlers in it, so the child may never report. A client stop with the
   claimed run ID stops only that run and never a newer run. When the claimed

@@ -179,7 +179,7 @@ Flow 在以下情况下关闭：
 - client 停止它；
 - 用同一个 Flow ID 的新启动终止它；见[新启动关闭 Flow](/reference/server/runtime-data#flow-close-by-new-start)。
 
-timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。handler 运行时，活跃的 Step 继续运行。handler 提交 force-complete 或 force-fail 决策时，Dex 开始关闭 Flow。handler 的提交可能晚于截止时间。Flow 运行期间，client 通过它的 RPC 读取和修改它。
+timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。handler 提交之前，活跃的 Step 继续运行。handler 提交 force-complete 或 force-fail 决策时，Dex 开始关闭 Flow 并取消这些 Step，所以它们不需要自己检查截止时间。Flow 运行期间，client 通过它的 RPC 读取和修改它。
 
 ## 有自己身份的子 Flow {#child-flows}
 
@@ -189,9 +189,9 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 
 - 子 Flow 在一个 Step 里把结果提交到 Attribute，下一个 Step 再通过 RPC 向父 Flow 报告，这个 RPC 发布到一个 Channel。报告 Step 不能在结果提交之前运行，所以这两个 Step 保持默认的 SYNC durability；见 [Durability](/reference/python/step-options#durability)（英文）。报告带一个稳定的 request ID。也可以让父 Flow 的一个轮询 Step 等待子 Flow 的终态。
 - 父 Flow 为每个子 Flow 保留一条记录，以子 Flow ID 为键，结果和终态是分开的字段。报告或读取补上缺的字段，重复的报告不改变任何东西。
-- 业务编号就是子 Flow ID。同一个启动请求重发时保留它的 request ID。有意重开是一次新的启动请求，使用新的 request ID。它使用允许所需的前次关闭状态、同时拒绝正在运行的 run 的 ID 复用策略；见 [ID 复用策略](/reference/go/start-flow-options#flow-id-request-id-and-already-started)（英文）。父 Flow 是否把读取、报告和停止对应到自己认领的 run ID，是一项业务决定。当业务可能在父 Flow 仍在等待时用同一个编号重开子 Flow，而父 Flow 不能混用不同的 run 时，父 Flow 这样对应。一个子 Flow 编号只有一个 run 时，Flow ID 就够了。这样对应的父 Flow 只接受带有被认领 run ID 的报告。它按 run ID 读取、等待和停止被认领的 run。带 run ID 的 client 调用作用于那个 run，即使已经有更新的 run；已关闭的 run 保留它的终态和 Attribute 值。更新的 run 是另一次尝试，父 Flow 按业务策略处理。
-- 同一个逻辑请求的每次启动都推导出相同的 Flow ID 和 request ID。另一个逻辑请求仍可能用同一个 Flow ID 启动 run，即使来自同一个入口或同一个父 run。这时启动会报告 Flow 已经启动。一定要处理这个结果：读取那个 run，只有保存的业务身份匹配时才跟踪它。不匹配时，记录一条被拒绝的接纳；父 Flow 在任何报告里都把它列为被拒绝，但从不等待、计数或停止它。被拒绝是一个独立的状态，不是已结束或已失败。只有当业务身份到子 Flow ID 的映射保证只有同一逻辑请求的重放会再次启动它时，才可以跳过身份核验。有人按子 Flow 自己的编号重试或启动它时，这个保证就不成立。
-- 每个子 Flow 有自己的 Flow timeout。它是启动选项，所以每个启动者都要设置它。需要报告超时的子 Flow 用会报告的 timeout handler，而不是 Timer Step。父 Flow 关闭时不会停止它的子 Flow。
+- 业务编号就是子 Flow ID。同一个启动请求重发时保留它的 request ID。有意重开是一次新的启动请求，使用新的 request ID。它使用允许所需的前次关闭状态、同时拒绝正在运行的 run 的 ID 复用策略；见 [ID 复用策略](/reference/go/start-flow-options#flow-id-request-id-and-already-started)（英文）。复用策略只看最新 run 是怎样关闭的，不看它保存了什么。记录了业务失败、然后正常完成的子 Flow，关闭状态是已完成。要在这种失败之后重开，就用 force-fail 决策关闭它，或者允许复用已完成的 run。父 Flow 是否把读取、报告和停止对应到自己认领的 run ID，是一项业务决定。当业务可能在父 Flow 仍在等待时用同一个编号重开子 Flow，而父 Flow 不能混用不同的 run 时，父 Flow 这样对应。一个子 Flow 编号只有一个 run 时，Flow ID 就够了。这样对应的父 Flow 只接受带有被认领 run ID 的报告。它按 run ID 读取、等待和停止被认领的 run。带 run ID 的 client 调用作用于那个 run，即使已经有更新的 run；已关闭的 run 保留它的终态和 Attribute 值。更新的 run 是另一次尝试，父 Flow 按业务策略处理。
+- 同一个逻辑请求的每次启动都推导出相同的 Flow ID 和 request ID。另一个逻辑请求仍可能用同一个 Flow ID 启动 run，即使来自同一个入口或同一个父 run。这时启动会报告 Flow 已经启动。要处理这个结果：读取那个 run，只有保存的业务身份匹配时才跟踪它。不匹配时，那个 run 不是这个父 Flow 的子 Flow，所以父 Flow 从不等待、计数或停止它。父 Flow 怎样记录这次拒绝，以及是继续处理其余子 Flow，还是停掉它们并失败，由业务决定。只有当业务身份到子 Flow ID 的映射保证只有同一逻辑请求的重放会再次启动它时，才可以跳过身份核验。有人按子 Flow 自己的编号重试或启动它时，这个保证就不成立。
+- 子 Flow 必须在启动时已知的期限内结束时，每个启动者都设置它的 Flow timeout，因为它是启动选项，之后不能修改。会变化的期限需要 Timer。需要报告超时的子 Flow 用会报告的 timeout handler。父 Flow 关闭时，子 Flow 继续运行。
 - client 以取消、失败或终止的方式停止子 Flow 后，子 Flow 不会再启动新的 handler，所以它可能永远不会报告。带被认领 run ID 的 client 停止只停止那个 run，从不影响更新的 run。被认领的 run 已经关闭时，停止会报告找不到 Flow，表示它已经停止。不带 run ID 的停止作用于这个 Flow ID 正在运行的 run。正在运行的 handler 可以忽略取消，所以已经发出的报告仍可能到达。
 - 被停止的子 Flow 怎样结束与父 Flow 无关时，父 Flow 停止子 Flow 后直接往下走。只需要达到所需数量的父 Flow，也这样停止剩下的子 Flow。
 - 父 Flow 的结果或后续动作取决于被停止的子 Flow 怎样结束时，例如要统计它的结果、撤销它的副作用或展示它的结局，父 Flow 根据子 Flow 存储的状态对它对账。下面的步骤适用于跟踪被认领 run 的父 Flow。按 Flow ID 跟踪的父 Flow 则对账该 Flow ID 的最新 run。停止成功、停止被拒绝，或用于检查未报告子 Flow 的定时器触发后，父 Flow 先按 run ID describe 被认领的 run。找不到被认领的 run 时，例如它的数据在保留期后已被删除，按业务策略记录，比如 "unavailable"。被认领的 run 仍在运行时，稍后再读。被认领的 run 已关闭时，记录终态和那个 run 里存储的结果。其他错误直接返回，让 Step 重试。停止之后仍然到达的报告补进同一条记录。在达到所需数量之后、或在父 Flow 停止其余子 Flow 期间结束的子 Flow，按业务规则决定是否计入父 Flow 的结果。

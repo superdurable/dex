@@ -41,6 +41,8 @@ Only one Condition wins, so only one branch ever starts.
 
 ## Close the response window {#close-the-response-window}
 
+Use the window when a customer must learn whether a response was accepted before the deadline. When the business accepts that a response arriving just after the deadline is ignored, skip the window: the response RPC only publishes and takes no lock.
+
 Without a window, a customer can be told a response was accepted that never decides the offer. This happens in two ways:
 
 - A response commits after the Timer won but before `Execute` runs. Its RPC returns success. `Execute` then expires the offer, and the response is silently ignored.
@@ -62,6 +64,7 @@ The business deadline is the moment the locked `Execute` closes the window, not 
 Keep these rules when you use the window:
 
 - Every RPC that writes a response Channel declares the same lock. Locks are cooperative. An RPC without the lock bypasses the window.
+- Every RPC that can decide, such as a confirmation, a decline, or a cancel, checks and closes the same window.
 - Lock only `Execute`, not `WaitFor`.
 - The response RPCs take this lock, so the locked `Execute` makes no external call. Put side effects, such as an expiry notice, in the next Step. A failing `Execute` keeps the lock through its retries, and responses get lock conflicts meanwhile.
 - Give the locked `Execute` an explicit short retry budget: a total retry duration, a maximum attempt count, and a per-attempt timeout. The default total budget is long, and waiting for the lock before the first attempt does not consume it. The example uses an initial retry interval of 1 second, at most 3 attempts, a total budget of 1 minute, and 10 seconds for each attempt. See the [StepOptions reference](/reference/go/step-options#defaults).
@@ -75,7 +78,7 @@ Some processes rank events against each other. For example, a withdrawal wins ov
 - **Server commit order.** A response window or lock admits responses one commit at a time. The first committed response wins, so ties never occur. This is the response window above. The response RPC may also record the admitted response as the outcome under the window lock. The `Execute` of the waiting Step still checks which Condition fired. It never infers the Timer from an open window or an unset outcome.
 - **Competing Channels ready when the wait is evaluated.** Among the Channel Conditions of one `AnyOf` that are ready together, the first declared wins, and `Execute` uses the messages it consumed. This ranks Channels only. A Timer in the same wait that is also ready is selected first, and the messages stay queued.
 
-When a Timer wins and `Execute` then checks the Channels again, it sees the responses committed in the first state snapshot of `Execute`. Retries reuse that snapshot. That is a later moment than the wait evaluation. In the example, `Execute` takes the shared window lock before Dex builds the snapshot. The example's `RouteResponseBeforeExpiry` branch relies on this: it takes a response that committed after the Timer won.
+When a Timer wins, `Execute` may still take a response that committed before it closed the window. The example's `RouteResponseBeforeExpiry` branch does this: it takes a response that committed after the Timer won.
 
 The snapshot that the decision uses, or the closed window, fixes the candidates. A later event then changes nothing. Do not wait for new events with a clock or Timer grace window. A next Step that takes a response admitted before that boundary, such as `RouteResponseBeforeExpiry`, is not such a wait.
 

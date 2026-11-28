@@ -1,14 +1,14 @@
 # Go error handling
 
 Read [core error handling](../core/error-handling.md) first. It defines the
-start-first rule, closed-Flow races, recovery, and attempt progress. This page
+start identity, closed-Flow races, recovery, and attempt progress. This page
 gives the Go error types and idioms.
 
 ## Three error layers
 
 | Layer | Where it comes from | What to do |
 | --- | --- | --- |
-| Handler error | Your `WaitFor`, `Execute`, RPC, or `HandleTimeout` returns an error | Dex applies the retry policy, then the failure route |
+| Handler error | Your `WaitFor`, `Execute`, or `HandleTimeout` returns an error; or your RPC handler does | For a Step method or timeout handler, Dex applies the retry policy, then the failure route. An RPC error goes to its caller, and Dex does not retry it |
 | Typed Client error | A Dex outcome, such as "already started" or "not found" | Match the concrete type with `errors.As` and decide |
 | Context or transport error | Caller cancellation, deadline, connectivity | Retry or report at the caller; it says nothing about the Flow |
 

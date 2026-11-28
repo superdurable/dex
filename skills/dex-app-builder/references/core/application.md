@@ -21,10 +21,10 @@ dexcli, Dex Web  ------------>  Dex Server
 
 ## Wiring
 
-- Build one registry that registers every Flow type, with every Step, RPC, Attribute, Channel, and Stream in its persistence schema.
+- Each Worker pool's registry registers every Flow type that pool serves, with every Step, RPC, Attribute, Channel, and Stream in its persistence schema; the Client's registry includes every Flow type it calls.
 - Construct the Worker and the Client from the same registry, payload codec and keys, and blob cache configuration. See [payload encryption](data-handling.md#sensitive-data-and-payload-encryption).
-- Inject dependencies through constructors. Keep Flow and Step objects free of per-request mutable state.
-- Start the Worker and wait for its registration before accepting application requests.
+- Concurrent executions share Flow and Step objects, so keep them free of per-request mutable state.
+- A started Flow's Steps wait durably for a Worker, but an RPC fails when no Worker takes it. So before serving requests that call RPCs or wait on results, start the Worker and wait for its registration.
 - Shut down in this order before process exit: stop admitting new requests, stop the Worker and wait for its handlers to drain, then close the Client and the blob cache. See [Graceful shutdown](#graceful-shutdown).
 - Indexed Attributes are registered when the Worker starts. A registration the Server rejects stops the Worker from starting.
 - Give the Worker the Flow Definition Graphs of its Flows. It publishes them to the Server when it starts, and Dex Web reads them there. See [web.md](web.md#flow-definition-graphs).
@@ -44,7 +44,7 @@ Build the smallest end-to-end path first:
 9. Start the Flow from an HTTP handler, CLI command, or service method.
 10. When the project has tests or the user asks for them, add a real-Server integration test that starts the Flow and waits for its result.
 
-Add Attributes, Channels, RPCs, Streams, or Connectors only after this path runs.
+Usually add Attributes, Channels, RPCs, Streams, or Connectors after this path runs.
 
 A complete change includes typed inputs, outputs, and failures; Flow and Step definitions; every persistence schema entry; constructor-injected dependencies; registry wiring; Worker and Client wiring; and an application boundary. When the project has tests or the user asks for them, it also includes a real Dex Server integration test.
 
@@ -52,8 +52,8 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 - Each Worker serves one task queue (the default task queue when it names none). Inside it, the Worker opens streams for its app Worker ID and every Flow type it registers. Within one task queue, a Flow type name must mean one Flow definition.
 - The app Worker ID identifies one process and must change after every restart. Let the SDK generate it unless the deployment needs an explicit process-unique value.
-- Dex first offers a Flow's work to the Worker that last served it, then to any Worker of the Flow type. When the previous process has no connected streams, Dex goes straight to the Flow type. Keep durable state in Dex; sticky routing does not promise the same process. Sticky routing stays inside the Flow's task queue; it never crosses task queues.
-- A Step that no Worker takes waits durably in Dex until a Worker takes it. It consumes no retry. A Flow timeout or stop ends the wait; without a Flow timeout it can wait forever.
+- Dex first offers a Flow's work to the Worker that last served it, then to any Worker of the Flow type. When the previous process has no connected streams, Dex goes straight to the Flow type. Sticky routing does not promise the same process, so state a later handler needs lives in Dex ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)). Sticky routing stays inside the Flow's task queue; it never crosses task queues.
+- A Step that no Worker takes waits durably in Dex until a Worker takes it. It consumes no retry. A closing Flow timeout, a stop, another close, or a cancellation of the Step ends the wait; without a Flow timeout it can wait forever.
 - A Step type that no connected Worker registers also waits, with its attempt number, snapshot, and locks, without blocking other Step types.
 - An RPC never queues. It fails with UNAVAILABLE when no Worker takes it within the dispatch wait, or with FAILED_PRECONDITION naming the RPC when no connected Worker registers it.
 - A Worker that does not register a requested Step type or RPC name declines it before any application code runs. Dex tries another Worker without consuming an attempt.
@@ -61,7 +61,7 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 ## Capacity
 
 - A Worker's slot count is its maximum number of concurrent tasks. Dex sends a task only to a free slot, so a Worker never declines work for capacity. A Step that finds every Step slot busy waits in the task queue.
-- Leave capacity for RPCs, so they still run while Steps fill the Worker, especially when Steps hold slots for minutes. RPC slot reservation, stream modes, and the Server's caps are in the [Server Workers reference](https://docs.superdurable.io/reference/server/workers).
+- An RPC fails when no Worker takes it within the dispatch wait. When Steps hold slots for minutes, leave capacity for RPCs, so they still run while Steps fill the Worker. RPC slot reservation, stream modes, and the Server's caps are in the [Server Workers reference](https://docs.superdurable.io/reference/server/workers).
 - Scale Workers on the Server's task queue depth and oldest-age metrics. See the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#step-task-queue).
 - Long-running tasks keep their stream alive with periodic pings. Set load balancer and proxy idle timeouts above the Server's ping interval, with margin, and preserve bidirectional HTTP/2 streaming.
 
@@ -69,7 +69,7 @@ Size each Worker with this checklist. Defaults, caps, and metric names are in th
 
 - In containers and schedulers, set the slot count and the floor explicitly, because the CPU count can show the whole host and inflate derived values. The Server Workers reference lists the SDK defaults.
 - I/O-bound handlers (model calls, HTTP, databases) need many slots, within the downstream rate limits.
-- CPU-bound handlers need about one slot per allocated CPU. To grow throughput, add Worker processes with more CPU capacity; extra processes on the same saturated CPUs add nothing. Python sync handlers share a thread pool, so CPU-bound Python work needs more processes.
+- Python sync handlers share a thread pool, so CPU-bound Python work needs more processes.
 - Size slots for the expected load, not for the Server's cap. Fixed and adaptive slot streams, and their defaults, are in the [Server Workers reference](https://docs.superdurable.io/reference/server/workers#adaptive-slot-streams).
 - Scale Workers on the oldest age of queued Steps. A rising age with a low Server CPU means too few slots or Workers.
 - The Server is limited by CPU. Move to a larger node when its CPU saturates.
@@ -99,7 +99,7 @@ Size each Worker with this checklist. Defaults, caps, and metric names are in th
 - Use a rotating file credential or a current-token provider. A rotated token takes effect on the next call or stream reconnect.
 - An API key credential exchanges a long-lived API key for short-lived access tokens at a token endpoint, for a named server ID. The SDK caches and refreshes the token, and retries an UNAUTHENTICATED call once with a fresh token. The token URL must be HTTPS, except loopback. Keep the API key in secret management.
 - The Server API is plaintext gRPC. Terminate TLS in a gateway or load balancer that forwards gRPC over HTTP/2. Where the SDK has a FlowService TLS option, set it independently on the Client and the Worker. TLS never falls back to plaintext.
-- Never put tokens or API keys in source, Flow state, logs, or rendered definitions.
+- Tokens and API keys never go in Flow state or rendered definitions; see [secrets](../../SKILL.md#attributes-loading-and-secrets).
 
 Option names per language are in the [Developer reference](https://docs.superdurable.io/reference/) for the SDK, under Workers. Server authentication is in the [Server authentication reference](https://docs.superdurable.io/reference/server/authentication).
 
@@ -115,14 +115,14 @@ Upgrade order and rollback rules are in the [Server upgrades reference](https://
 
 ## Versioning Flow code
 
-Dex does not replay Flow handler code, so a deployment never causes a replay nondeterminism error. Open Flows can still meet changed business rules, missing Step implementations, renamed RPCs, or incompatible data. An open Flow is a durable contract between its recorded state and future Worker code.
+Dex does not replay Flow handler code, so a deployment never causes a replay nondeterminism error. Open Flows can still meet changed business rules, missing Step implementations, renamed RPCs, or incompatible data. An open Flow is a durable contract between its recorded state and future Worker code; see [Workers](../../SKILL.md#workers-attempts-and-time-bounds) for how an open run finds its code and state.
 
 Treat these names as data: Flow types, Step types, RPC names, Attribute, AttributeMap, Channel, ChannelMap, and Stream names, map instance keys, chunk sizes, partition counts, hash algorithms, and value schemas.
 
 ### Lock business behavior at Flow start
 
-- When a rule change must not affect open Flows, persist a business version at start, in an Attribute or the start input, and branch on it. Do not branch on the Worker build.
-- A rollout alone is not a versioning strategy.
+- When a rule change must not affect open Flows, persist a business version at start, in an Attribute or the start input, and branch on it. Do not branch on the Worker build: an open run is not pinned to one. Runs started before the version existed have none, so the code gives an absent version its legacy meaning. Deploy Workers that understand a new version value before new starts use it.
+- Alternatively, start new runs on another task queue or Flow type and keep the old Worker pool for the old runs. A run's task queue is fixed at start.
 
 ### Evolve data and contracts additively
 
@@ -130,7 +130,6 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 - Add optional Attributes, Channels, Streams, or RPCs.
 - Readers tolerate fields that older runs omit and ignore unknown fields from newer components. Keep the old meaning of existing values.
 - For an incompatible payload or output, introduce a new Step type or RPC name.
-- Deploy readers before writers when a serialized shape changes.
 - Settle persisted layouts before the first release. Changing them later means reading both forms for as long as old Flows or stored values exist.
 
 ### Keep old definitions until old Flows finish
@@ -156,7 +155,7 @@ To shorten deadlines, run a periodic job or an operator action:
 3. Call `SkipTimer` on each old Timer past its new deadline. Select it by the Condition ID or index of the old `WaitFor`.
 
 - The search `StartTime` is the Flow run's start time, not the business start time.
-- An AttributeMap cannot be enumerated. Read only keys you already know.
+- The Client Attribute read cannot enumerate an AttributeMap; read only keys you already know, or use a read-only RPC that loads the whole map.
 - When the old relative duration is known, the new deadline is the old fire time from `dexcli flow state` minus the difference between the old and new durations.
 - When an old run has no reliable record, a person must verify it before anyone skips its Timer.
 - Skipping satisfies that Timer condition as if it fired; `Execute` is scheduled once the whole Wait is satisfied. The deadline branch needs no new code.
@@ -164,15 +163,9 @@ To shorten deadlines, run a periodic job or an operator action:
 
 ### Incompatible changes
 
-Choose one explicit strategy: let old Flow runs finish on an old Worker pool, keep versioned handlers in one registry, migrate at a safe application boundary, or stop or recover selected executions with user authorization. Never add an unreviewed fallback that silently reads old data as the new type.
+Choose one explicit strategy: let old Flow runs finish on an old Worker pool, keep versioned handlers in one registry, migrate at a safe application boundary, or stop or recover selected executions with user authorization.
 
 Upgrading the SDK and changing the Flow model are separate decisions. Test one Flow run started before the deployment and one started after it.
-
-## Logs and metrics
-
-- Put high-cardinality IDs, such as the Flow ID, run ID, and Step execution ID, in structured log fields. Never use them as metric labels; each value would create a new metric series.
-- Log those IDs, the Flow type, the Step type, and the attempt number on handler log lines, preferably every one, so a log line maps to one attempt.
-- Label metrics only with bounded values, such as the Flow type, the Step type, and an outcome.
 
 ## Worker API availability
 
@@ -188,7 +181,7 @@ When a Step or RPC fails because the Worker API is unavailable:
 ## Self-check
 
 - Do the Worker and the Client share one registry and payload configuration?
-- Does the Worker wait for registration before serving, and stop gracefully before exit?
+- Does the Worker wait for registration before serving RPCs or waits, and stop gracefully before exit?
 - In containers, are the slot count and floor set explicitly?
 - Are credentials and TLS configured independently on the Client and the Worker?
 - Is business behavior locked at Flow start, with old definitions kept until old Flows finish?

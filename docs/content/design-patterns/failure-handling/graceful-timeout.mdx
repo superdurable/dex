@@ -279,7 +279,7 @@ client.start_flow_with_options(
 
 If the timeout handler succeeds, Dex applies its staged writes, best-effort Channel deletions, Channel publications, and decision. If the handler still fails after its retries, Dex fails the Flow.
 
-Active Steps keep running while the handler runs, including Steps that wait on a Channel or a Timer. When the handler commits a force-complete or force-fail decision, Dex starts closing the Flow and cancels those Steps. A graceful completion, or a move to a Step that completes gracefully, waits until every other active Step ends. The handler can commit after the deadline, because it waits for a Worker and may retry. To start closing the Flow when the timeout fires, use the fail or cancel timeout policy.
+Active Steps keep running until the handler commits, including Steps that wait on a Channel or a Timer. When the handler commits a force-complete or force-fail decision, Dex starts closing the Flow and cancels those Steps, so they need no deadline check of their own. A graceful completion, or a move to a Step that completes gracefully, waits until every other active Step ends. To start closing the Flow when the timeout fires, use the fail or cancel timeout policy. That policy stops scheduling new Steps once Dex processes the timeout. Use the handler when the work needs a graceful withdrawal by its stable reference. Other Steps keep running and can start successors while the handler runs; a short retry budget limits only the handler's own retries. The timeout can fire late, and the close cancels running handlers cooperatively, so a strict external cutoff also needs a deadline check at the receiver.
 
 ## Next
 

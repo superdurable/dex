@@ -37,29 +37,33 @@ Each round of the polling Step runs these steps:
   [Flow timeout](/reference/python/start-flow-options#timeout-and-timeout-policy)
   or the deadline watchdog below.
 - <a id="deadline-watchdog"></a>Use a deadline watchdog for a deadline
-  shorter than the Flow. The decision that handles the starting event
-  schedules the polling Step and a watchdog Step together. The watchdog's
-  `WaitFor` returns a Timer for the deadline. The polling Step calls the
-  external system and holds no lock. When it sees a finished job, it moves to
-  a short result Step. The result Step and the watchdog's `Execute` share one
-  Attribute lock. Each writes the terminal state only while it is still open.
-  The polling Step's failure route also goes to the result Step. The winner
-  writes the terminal state once and returns `GracefulComplete`, or goes to
-  the existing close branch. The loser returns `DeadEnd`. With one polling
-  Step and one watchdog, the winner cancels the still-active other Step in
-  its committed decision. After the completion request, the Flow starts
-  closing once its remaining Steps end. The polling interval Timer has
-  already fired when `Execute` begins, so it cannot enforce a deadline while
-  `Execute` retries. Computing the next round's Timer from a stored deadline
-  does not cover that retrying round. Use a deadline watchdog when the
-  deadline must trigger work during a retry. The Timer starts when the watchdog's `WaitFor` result
-  commits; see [Timer firing time](/reference/server/runtime-data#timer-firing-time).
+  shorter than the Flow that must fire while the polling loop or its retries
+  are still running. The polling interval Timer has already fired when
+  `Execute` begins, so it cannot enforce a deadline while `Execute` retries.
+  Computing the next round's Timer from a stored deadline does not cover that
+  retrying round. The watchdog runs the polling loop as the only branch of a
+  [Join](/design-patterns/parallel/await#how-the-join-works). The Step that
+  starts the job forks one round: the first polling Step and a join Step.
+  Each polling Step passes the round token to the next round. When it sees a
+  finished job, it reports the result with `EndBranch`. Its failure route goes
+  to a Step that reports a failed result the same way. The join Step waits on
+  `AnyOf` with `ForFirstBranch` and a Timer for the deadline.
+- The join Step is the only decider. It needs no lock. Branches report with
+  `EndBranch`. Its `Execute` checks which Condition fired. When
+  the Timer fired, it records the job as overdue and completes. It cancels the
+  polling Step type and the failure Step type with `CancelSteps` in the same
+  decision. Later polling rounds come from `GoTo`, not from the fork, so they
+  are not siblings of the join Step. A cancel by Step type is correct while
+  one round is active. Otherwise the join Step reads the result with
+  `BranchResults`, records it, and completes. A result reported after the
+  Timer won stays pending in its round. It is harmless and does not block
+  `GracefulComplete`.
 - <a id="step-input"></a>Keep the Step input small and fixed in size, such as
   the job ID and the round number. Keep accumulated state, such as collected
   results, in Attributes, never in a growing Step input.
-- <a id="external-calls"></a>Check the job status in `Execute`.
-  Never poll the external system from `WaitFor`.
-  In this pattern, `WaitFor` only declares the Timer.
+- <a id="external-calls"></a>Check the job status in `Execute`. A call
+  there gets the retries and failure route of `Execute`, and its result
+  commits. In this pattern, `WaitFor` only declares the Timer.
 - <a id="retries"></a>Give `ExecuteRetry` a few attempts with backoff for
   transient errors. Route exhausted retries with the `ExecuteFailure` option
   to a short Step that records the failure; see

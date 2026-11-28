@@ -110,10 +110,10 @@ test("greeting completes and rejects a duplicate Flow ID", async () => {
 
 ## Commands
 
-Start an isolated `dexcli dev` on its own ports and data directory, as
-[core testing](../core/testing.md#harness) says, and point
-`DEX_FLOW_SERVICE_ADDRESS` at the address it prints. Never share the user's
-long-lived dev server.
+Start an isolated `dexcli dev` on its own ports and data directory, and point
+`DEX_FLOW_SERVICE_ADDRESS` at the address it prints. See
+[core testing](../core/testing.md#dex-facts-for-tests) for the Dex facts that
+shape the tests.
 
 ```bash
 cd examples/typescript

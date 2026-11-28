@@ -7,7 +7,8 @@ Python exceptions and idioms for the rules in
 
 | Layer | Python form | Who handles it |
 | --- | --- | --- |
-| Application failure in `wait_for`, `execute`, an RPC, or `handle_timeout` | any raised exception | Dex: Step retry, then the failure route or Flow failure |
+| Application failure in `wait_for`, `execute`, or `handle_timeout` | any raised exception | Dex: Step retry, then the failure route or Flow failure |
+| Application failure in an RPC handler | any raised exception | the RPC's caller; Dex does not retry it |
 | Dex outcome of a Client call | a `DexServiceError` subclass | the caller, by type |
 | Local definition or mapping defect | `FlowDefinitionError`, `ValueMappingError`, `ValueError`, `TypeError` | fix the code; do not retry |
 | Caller cancellation or deadline | `asyncio.CancelledError`, `TimeoutError` | the caller |

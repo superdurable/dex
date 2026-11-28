@@ -39,7 +39,7 @@ If the RPC appended to the transcript, the waiting Step would have to lock the t
 
 Every closing Step completes with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). Its fallback moves back to the waiting Step.
 
-- The resolution closes only when the reply Channel is empty at the atomic check. A reply committed before that check, still queued or taken by a Step that has not finished, triggers the fallback, which carries the resolution back to the waiting Step. That Step waits only for replies, writes them to the transcript, and moves to the resolution close again.
+- The resolution closes only when the reply Channel is empty at the atomic check. A non-empty reply Channel at that check triggers the fallback; see [ForceCompleteIfChannelsEmpty](/reference/go/step-decisions#forcecompleteifchannelsempty). The fallback carries the resolution back to the waiting Step. That Step waits only for replies, writes them to the transcript, and moves to the resolution close again.
 - The inactivity close also checks the resolution Channel. A reply or a resolution can commit after the Timer won, before the inactivity close runs. Its check finds the message, and the fallback reopens the wait. A reply is then written to the transcript, and a resolution moves to the resolution close.
 - Keep the waiting Step the only consumer of the reply Channel.
 

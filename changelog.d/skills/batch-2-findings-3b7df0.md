@@ -15,7 +15,7 @@ bump: patch
 - First-win losers and cancelled Partial join branches pass the cancellation signal to calls that accept it, or use short timeouts and check it, and release a reservation through an expiring lease or a durable compensation branch.
 - **Long-lived parent** closes its intake: each worker returns the request it took once the intake is closed, and idle workers end through the graceful completion Condition or a wake message.
 - **Short-lived parent** opens its intake only after the start batch is queued, so an empty batch completes at once; its buffer limit is soft, and a hard limit needs atomic admission.
-- **Polling** adds a deadline watchdog that shares the lock with the Step that records the result and checks the status before it declares the work overdue. Polling guidance no longer restates default values.
+- Polling guidance no longer restates default values.
 - Fixed kinds of work use distinct domain-named Step types, never one Step type with a kind field. Skeletons use domain Step names, and the Go, Java, and Rust checklists require them.
 - Every result or status a user must see has a durable read path: a result Attribute or the Flow's completion output.
 - **Durable AI agents**: when using the dex-agents packages, check their message retention and paging defaults against the history the product needs.

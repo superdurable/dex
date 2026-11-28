@@ -279,7 +279,7 @@ client.start_flow_with_options(
 
 Timeout handler 成功时，Dex 应用它暂存的写入、best-effort 的 Channel 删除、Channel 发布和 decision。如果 handler 重试用完后仍然失败，Dex 会让 Flow 失败。
 
-handler 运行时，活跃的 Step 继续运行，包括正在等待 Channel 或 Timer 的 Step。handler 提交 force-complete 或 force-fail 决策时，Dex 开始关闭 Flow 并取消这些 Step。graceful completion，或转到一个以 graceful completion 结束的 Step，要等其他所有活跃的 Step 结束。handler 要等 Worker，也可能重试，所以它的提交可能晚于截止时间。要在 timeout 触发时就开始关闭 Flow，使用 fail 或 cancel timeout policy。
+handler 提交之前，活跃的 Step 继续运行，包括正在等待 Channel 或 Timer 的 Step。handler 提交 force-complete 或 force-fail 决策时，Dex 开始关闭 Flow 并取消这些 Step，所以它们不需要自己检查截止时间。graceful completion，或转到一个以 graceful completion 结束的 Step，要等其他所有活跃的 Step 结束。要在 timeout 触发时就开始关闭 Flow，使用 fail 或 cancel timeout policy。Dex 处理 timeout 后，这种 policy 就不再调度新的 Step。工作需要按稳定的 reference 平稳撤回时，用 handler。handler 运行期间，其他 Step 继续运行，也可以启动后继 Step；较短的重试预算只限制 handler 自己的重试。timeout 可能晚触发，关闭时对正在运行的 handler 的取消也是协作式的，所以严格的外部截止还需要接收方检查截止时间。
 
 ## 下一步
 

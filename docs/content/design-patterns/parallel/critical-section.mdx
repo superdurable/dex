@@ -36,7 +36,7 @@ An Attribute lock, such as `ExecuteLockAttributes`, covers one Step method. It d
 
 ## Every exit returns the token
 
-The token is an ordinary message. A branch that leaves the section without publishing it back blocks every other branch forever. List each way out of the section, and publish the token on each one.
+The token is an ordinary message. A branch that leaves the section without publishing it back blocks every other branch forever. List each way out of the section that leaves the Flow running, and publish the token on each one.
 
 - **Normal exit.** The last Step of the section publishes the token.
 - **Execute failure.** Route it with `ExecuteFailure` to a Step that publishes the token. Configure that route on every Step of the section. In the example, `EnterContractEdit`, `EditContract`, and `SaveContractEdit` all move to `ReleaseContractEditToken`.

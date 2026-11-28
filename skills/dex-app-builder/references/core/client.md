@@ -2,7 +2,7 @@
 
 The Client is the application's boundary to Dex. It starts, stops, inspects, and searches Flows, reads committed Attributes, invokes typed RPCs, waits for state, and reads or writes Streams. It needs only the Dex Server address and the same registry and payload configuration as the Workers. See [application.md](application.md) for wiring.
 
-Inside a Step or RPC handler, read and write through the Context, never through a Client. A Step may hold an injected Client only to act on another Flow: start a top-level Flow, call its RPCs, stop it, or read its state and result, or stop a SubFlow by the ID its Context supplies.
+Inside a Step or RPC handler, the Context reads the method's snapshot, and its writes commit with the method ([Commits](../../SKILL.md#commits-and-isolation)). A Client call from a handler is outside that commit: it reads newer committed state, an RPC it invokes fails at once with a lock conflict when the method holds a lock that RPC needs ([Locks](../../SKILL.md#repeated-execution-snapshots-and-locks)), and the call repeats when the method retries. So usually read and write the handler's own Flow through the Context. A Step uses an injected Client to act on another Flow: start a top-level Flow, call its RPCs, stop it, or read its state and result, or stop a SubFlow by the ID its Context supplies.
 
 ## The Flow owns decisions and status
 
@@ -24,7 +24,7 @@ The only hard boundary is that a Client never writes Flow state directly; it has
 | WaitForFlow | Wait for terminal status and output | Can return a long-poll timeout while still open; call again. |
 | DescribeFlow | Current or latest run status, type, start time | Does not wait. With a run ID, describes that run. |
 | SearchFlows | Find Flows by query over indexed fields | Eventually consistent. |
-| StopFlow | Close a run: cancel (default), fail with a reason, or terminate | Closes as soon as it commits. |
+| StopFlow | Close a run: cancel (default), fail with a reason, terminate, force-complete, or request a graceful completion; the complete types take an output | Cancel, fail, and terminate close as soon as the stop commits; force-complete begins closing and cancels active Steps; a graceful completion waits for active Steps. See [Flow close](../../SKILL.md#flow-timeout-completion-and-cancellation). |
 | SkipTimer | Make a pending Timer fire | See [timer.md](timer.md#skip-a-timer). |
 | TimeTravel | Reset a run to a recorded point as a new run attempt | Operator recovery. See [error-handling.md](error-handling.md#operator-recovery). |
 | UpdateFlowConfig | Merge supplied Flow configuration fields | Accepted asynchronously. |
@@ -39,8 +39,8 @@ The Client Attribute read returns committed values of known Attributes and exact
 - **One server read.** All requested keys go in one request and come from the same commit.
 - **No Worker.** Dex serves it directly. It works while no Worker runs and costs less latency than an RPC.
 - **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. With a run ID it reads that run, even when a newer run exists.
-- **Committed state.** It never sees writes that a running Step or RPC has staged. Hard-delete values are the exception: they are stored before commit, so the read can return a value from an attempt that later failed.
-- **Batch only.** There is no single-Attribute method. Pass every Attribute and map instance the response needs in one call; one call per Attribute costs round trips and can read different commits. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
+- **Committed state.** It never sees writes that a running Step or RPC has staged, hard-delete values included.
+- **Batch only.** There is no single-Attribute method. Separate calls can read different commits, so usually pass every Attribute and map instance the response needs in one call. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
 - **Exact keys.** Each read is a singleton Attribute or one exact map instance. It cannot enumerate a map and does not read Channels.
 - **Registered definitions.** Each definition must be registered by some Flow in the Client's registry. Dex reads by name and does not check that the target Flow declares it, so a same-named Attribute of another type fails to decode.
 - **Large values.** The Client hydrates blob-backed values through its BlobCache before decoding.
@@ -76,18 +76,17 @@ Three different guarantees:
 | RPC that writes Attributes or map instances | Client Attribute read of the same keys | Strong. Read once; do not poll. |
 | RPC that publishes or deletes pending messages | Read-only RPC that loads the Channel | Strong for the pending queue. Another consumer can remove a just-published message. |
 | Transactional or locked RPC | Read-only RPC | Strong. Handler and effects commit together. Does not wait for triggered Steps or projections. |
-| Hard-delete Attribute write from a Step or RPC | Any read or a retried attempt | Visible before commit; can reflect a failed attempt. |
+| Hard-delete Attribute write from a Step or RPC | Client Attribute read or read-only RPC | Strong, like an ordinary Attribute write: visible only after its method commits. |
 | Indexed Attribute write | SearchFlows, CLI search, Dex Web search | Eventual. A miss does not prove the write failed. Confirm with a direct read, or bound a search retry when the index itself is needed. |
-| Attribute Store-synced write | External table query | Eventual latest-state projection. Never read it to make a Flow decision. |
+| Attribute Store-synced write | External table query | Eventual latest-state projection; never the input of a Flow decision. See [Attribute Store sync](attribute.md#attribute-store-sync). |
 | RPC that moves to Steps or cancels | Step-completion wait, Attribute match, or terminal result | Asynchronous business completion. A direct read is not a scheduling barrier. |
 | SkipTimer | Timer and Step state; Step completion for the result | The Timer change is readable; Execute runs later. |
 | StopFlow | WaitForFlow or DescribeFlow | Closed as soon as it commits. Cleanup and pending projection writes may continue. |
 | UpdateFlowConfig | Server or CLI configuration read | Applied once the Flow processes it. Does not recall dispatched work. |
 
-- StartFlow and TimeTravel are not state writes. Their returned run identifies an accepted Flow run. Wait for a named Step or the result to prove business acceptance.
+- StartFlow and TimeTravel are not state writes. Their returned run identifies an accepted Flow run. When the response must prove business acceptance, wait for a named Step or the result.
 - Strong read-after-write needs a successful write, a read started afterward, the same Flow, and the right selections. It adds no isolation, does not make a sequence of RPCs atomic, and does not protect a value from a later competing write.
-- Set a read deadline that allows the Server to catch up. Do not weaken a strong path into polling to hide unavailability.
-- Never use a fixed sleep as confirmation. Do not attach a callback to every write. Add an application acknowledgement only when the contract needs a fact public observation cannot express.
+- Set a read deadline that allows the Server to catch up.
 
 ## Waits
 
@@ -96,7 +95,7 @@ Attribute-match and Step-completion waits observe durable state. They are not an
 - **Request timeout** is the caller's budget for the whole SDK call, across every transparent reattachment. Zero waits until cancellation or a result. Expiry returns the SDK's typed request-timeout error. A later call waits again from current state.
 - The Server caps each transport wait internally; the SDK reattaches with the same Request ID without resetting the request timeout.
 - A wait's Request ID is optional. A wait reads current committed state, so repeating it is safe.
-- Each waiting call holds a wait slot on the Flow only while it waits. Keep concurrent waiters per Flow bounded; the Server rejects waits beyond its limits with RESOURCE_EXHAUSTED.
+- Each waiting call holds a wait slot on the Flow only while it waits. The Server rejects waits beyond its per-Flow limit; see [default limits](../../SKILL.md#default-limits).
 - Attribute waits target the active run. If the Flow can close before the wait attaches, handle the error through authoritative state.
 
 Attribute match:
@@ -111,15 +110,15 @@ Step completion confirms that one Step execution committed. It returns no Step o
 
 WaitForFlow returns the terminal status and output. Use it when the caller needs engine completion.
 
-Every result or status a user must see has a durable read path: a result Attribute that a Client Attribute read returns, or the Flow's completion output from WaitForFlow. Write a report that must survive a failure or stay readable while the Flow runs to an Attribute, not only to the output.
+Step outputs live only in history, and only a COMPLETED Flow keeps an output; see [Runs, reads, and outputs](../../SKILL.md#runs-reads-and-outputs). So a report that must survive a failure or stay readable while the Flow runs goes to an Attribute, not only to the output.
 
 ## Lifecycle APIs
 
 - StopFlow cancel closes the run as canceled. Fail closes it as failed with a reason. Terminate closes it as terminated. Each records a different terminal status. None proves provider cleanup or projection completion.
-- Cancel, fail, and terminate close the run when the stop commits. They start no new application code: no later Step decision, failure route, or cleanup runs, so the stopped Flow runs no report or cleanup path of its own. Running Steps get a cancellation signal. A handler that ignores it can keep running and make more external calls, including calls to another Flow; Dex discards its uncommitted result. Whoever waits for the stopped Flow reconciles from its terminal state and accepts an earlier report idempotently.
+- A cancel, fail, or terminate stop starts no more application code, and a handler that ignores cancellation keeps making external calls; see [Flow timeout, completion, and cancellation](../../SKILL.md#flow-timeout-completion-and-cancellation). So whoever waits for the stopped Flow reconciles from its terminal state and accepts an earlier report idempotently.
 - A later write to a closed run is rejected. Write what the Flow needs before you stop it.
 - DescribeFlow on a missing ID, or an ID that is not a Flow, returns Flow not found.
-- SearchFlows excludes internal Flow runs. A generic-slot query must constrain FlowType. Keep the query unchanged across pages.
+- SearchFlows excludes internal Flow runs. A generic-slot query constrains FlowType; see [indexed Attributes](attribute.md#indexed-attributes-and-search). Keep the query unchanged across pages.
 
 ## Self-check
 

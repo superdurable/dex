@@ -41,6 +41,8 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 ## 关闭回应窗口 {#close-the-response-window}
 
+当客户必须知道自己的回应是否在截止时间前被接受时，使用这个窗口。如果业务可以接受截止时间刚过才到的回应被忽略，就不需要窗口：回应 RPC 只发布消息，不加锁。
+
 如果没有窗口，客户可能被告知回应已被接受，但这个回应并没有决定报价。这有两种情况：
 
 - 回应在 Timer 胜出之后、`Execute` 运行之前提交，它的 RPC 返回成功。`Execute` 随后让报价过期，这个回应就被悄悄忽略了。
@@ -62,6 +64,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 使用这个窗口时遵守这些规则：
 
 - 每个写回应 Channel 的 RPC 都声明同一把锁。锁是协作式的，不声明锁的 RPC 会绕过窗口。
+- 每个能做出决定的 RPC，例如确认、拒绝或取消，都检查并关闭同一个窗口。
 - 只锁 `Execute`，不锁 `WaitFor`。
 - 回应 RPC 也拿这个锁，所以加锁的 `Execute` 不调用外部系统。把副作用（例如过期通知）放到下一个 Step。失败的 `Execute` 在重试期间一直持有锁，这段时间里回应都会遇到 lock conflict。
 - 给加锁的 `Execute` 设一个明确的短重试预算：总重试时长、最大尝试次数和每次尝试的超时。默认的总预算很长，而第一次尝试之前等待锁的时间不计入预算。示例的首次重试间隔为 1 秒，最多 3 次尝试，总预算 1 分钟，每次尝试 10 秒。参见 [StepOptions reference](/reference/go/step-options#defaults)。
@@ -75,7 +78,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 - **按服务器提交顺序。** 回应窗口或 lock 一次提交接纳一条回应。最先提交的回应胜出，所以不会出现平局。这就是上面的回应窗口。回应 RPC 也可以在窗口 lock 下把被接纳的回应记录为结果。等待的 Step 的 `Execute` 仍然检查是哪个 Condition 触发了。它从不根据窗口仍然开着或结果未设置来推断 Timer 已触发。
 - **按检查等待条件时一起就绪的竞争 Channel 排序。** 同一个 `AnyOf` 里一起就绪的 Channel Condition 中，先声明的胜出，`Execute` 使用它消费的消息。这只在 Channel 之间排序。同一个等待里的 Timer 如果也已就绪，会先被选中，消息仍留在 Channel 里。
 
-Timer 胜出后，`Execute` 再检查 Channel 时，看到的是 `Execute` 首次状态快照中已经提交的回应。重试沿用这个快照。这比检查等待条件的时点晚。示例里，`Execute` 先拿到共享的窗口锁，Dex 再建立快照。示例的 `RouteResponseBeforeExpiry` 分支就依赖这一点：它接收在 Timer 胜出之后才提交的回应。
+Timer 胜出时，`Execute` 仍可能接收在它关闭窗口之前已提交的回应。示例的 `RouteResponseBeforeExpiry` 分支就是这样做的：它接收在 Timer 胜出之后才提交的回应。
 
 决定所用的快照或已关闭的窗口确定了候选。之后的事件不再改变任何东西。不要用时钟或 Timer 宽限窗口等待新的事件。后续 Step 取走在这个边界之前已接纳的回应，例如 `RouteResponseBeforeExpiry`，不属于这种等待。
 

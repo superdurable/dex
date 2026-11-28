@@ -107,8 +107,9 @@ export class OrderFlow implements Flow<Order> {
 - `forceCompleteIfChannelsEmpty(output, fallbackMovement, ...channels)`
   completes only when the named Channels are empty, otherwise it schedules the
   fallback.
-- Derive deterministic identities from `context.flowId` and
-  `context.flowStartedAt`, never from `Date.now()` or random values.
+- Derive deterministic identities from `context.flowId`, the Step execution
+  ID, and `context.runId` when the Flow ID can have later runs, never from
+  `Date.now()` or random values.
 - `context.deadline` is the absolute deadline of the current `waitFor`,
   `execute`, or timeout-handler attempt, or `undefined` in RPC handlers. When
   a call needs its own timeout, size it from

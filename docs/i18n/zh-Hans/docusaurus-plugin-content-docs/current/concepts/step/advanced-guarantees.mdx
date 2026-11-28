@@ -34,7 +34,7 @@ Dex 单独保存每次 `WaitFor` 或 `Execute` 调用。它把这次调用的 At
 以下情况会让方法重复运行，或让它的结果未知。它们对每个 SDK 都成立：
 
 - **Worker 在方法中途停止。** 这次尝试失败，重试策略会再运行这个方法。它的外部调用可能已经发生。server 重启或故障转移时，Worker 手上的每次尝试都会这样。
-- **heartbeat 只发送、不确认。** heartbeat checkpoint 可能丢失，所以重新运行可能从更早的 checkpoint 开始。
+- **heartbeat 只发送、不确认。** heartbeat checkpoint 可能丢失，所以重新运行可能从更早的 checkpoint 开始。每个外部效果都按稳定的 ID 标识，不要只依赖 checkpoint。
 - **ASYNC Step 可能重复一次尝试。** 见 [SYNC 和 ASYNC Step](#sync-and-async)。
 - **重试用完时，结果可能未知。** recovery Step 会知道工作肯定没有运行（`NOT_STARTED`），或者可能运行过（`NOT_COMPLETED`）。遇到 `NOT_COMPLETED` 时，先用幂等键在目标系统里检查，再决定是否重复或报告这个效果。
 
@@ -45,7 +45,7 @@ SDK 参考中的 Failure and redelivery 给出每种情况的确切规则（英�
 Step 的 **durability** 决定 Dex 什么时候保存它的进度。
 
 - **SYNC** 是默认值。Dex 在 Worker 收到任务之前保存每次尝试的开始，在 Flow 继续之前保存结果。每一次都要等待写入对象存储。
-- **ASYNC** 在保存开始和结果之前，就把任务交给 Worker 并开始后续工作。Dex 把这些写入合并成大约 20 毫秒一批。单个 Flow 跑得更快。如果 Dex Server 节点在写入之前失败，Dex 会在新的状态快照上再运行同一次尝试，所以它可能读到不同的 Attribute 值。从丢失的结果开始的后续工作也会再运行。
+- **ASYNC** 在保存开始和结果之前，就把任务交给 Worker 并开始后续工作。Dex 把这些写入合并成大约 20 毫秒一批。单个 Flow 跑得更快。如果 Dex Server 节点在写入之前失败，Dex 会在新的状态快照上再运行同一次尝试，所以它可能读到不同的 Attribute 值。从丢失的结果开始的后续工作也会再运行。所以 ASYNC 方法要保持幂等。
 
 需要最严格保证的效果选 **SYNC**。延迟重要、偶尔重新运行可以接受的短 Step 选 **ASYNC**。适合 ASYNC 的有：快速读取、内部记账，以及已经有幂等键保证可以安全重复的调用。付款、发邮件，或者任何在更新的快照上重新运行可能发出不同参数的调用，都保持 **SYNC**。`StepOptions` 设置单个 Step 的 durability，`FlowConfig` 设置整个 Flow 的。[性能](/intro/performance) 给出两者的实测延迟。
 

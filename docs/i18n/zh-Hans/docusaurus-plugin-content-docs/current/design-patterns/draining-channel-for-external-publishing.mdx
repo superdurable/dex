@@ -15,7 +15,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/drai
 
 RPC 只校验消息并把它发布到 Channel。它不写任何 Step 会读取或锁住的 Attribute，比如计数器或每个实体的状态。这些状态归 `ProcessMessage` 所有，所以并发的 RPC 不会遇到 lock 冲突。
 
-`ProcessMessage` 返回 `ForceCompleteIfChannelsEmpty` decision。Dex 在保存这个 decision 时检查 Channel，并在同一次提交里记录关闭决定。Channel 为空时，Flow 完成。如果 Channel 中还有消息，或者某个 Step 已经取走消息、但还没执行完 `Execute`，Dex 会改走 fallback movement，回到 `ProcessMessage`。
+`ProcessMessage` 返回 `ForceCompleteIfChannelsEmpty` decision。Dex 在保存这个 decision 时检查 Channel，并在同一次提交里记录关闭决定。Channel 为空时，Flow 完成。否则 Dex 会改走 fallback movement，回到 `ProcessMessage`；见 [ForceCompleteIfChannelsEmpty](/reference/go/step-decisions#forcecompleteifchannelsempty)（英文）。
 
 被 `ForceCompleteIfChannelsEmpty` 检查的 Channel 只能由一个 Step 消费。
 

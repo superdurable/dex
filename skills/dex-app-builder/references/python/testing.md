@@ -4,8 +4,9 @@ Python setup for the strategy and scenarios in [testing](../core/testing.md).
 
 ## Harness
 
-Run an isolated `dexcli dev` on its own ports and data directory, as
-[core testing](../core/testing.md#harness) describes. Start the application's
+Run an isolated `dexcli dev` on its own ports and data directory; see
+[core testing](../core/testing.md#dex-facts-for-tests) for the Dex facts that
+shape the tests. Start the application's
 Worker and Client from the same Registry and BlobCache, once per test session,
 and close them in the fixture.
 

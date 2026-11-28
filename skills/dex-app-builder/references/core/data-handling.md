@@ -4,7 +4,7 @@ Read this when a Flow stores large documents, conversation history, model contex
 
 ## Dex-first state ownership
 
-Start with Dex as the durable system of record for every fact the Flow model can own.
+Usually start with Dex as the durable system of record for every fact the Flow model can own; see [Dex-first state](../../SKILL.md#suggestions).
 
 | Data | Home |
 | --- | --- |
@@ -16,13 +16,11 @@ Start with Dex as the durable system of record for every fact the Flow model can
 | Queued intent | Channels |
 | Large values | the built-in blob path |
 
-- Data shared by several processes does not by itself need a database. Give shared facts one stable domain or entity Flow owner and expose typed operations on it. Do not turn an arbitrary process Flow into a global database, and do not copy one authoritative fact into several process Flows.
-- Do not add a database, cache, ORM, outbox, or shadow read model for hypothetical flexibility.
-- Default to Dex state. Add an external store when Dex's model does not fit the access pattern, such as complex or ad-hoc secondary indexes, full-text or vector search, sustained high-contention writes to one hot record that cannot accept Attribute-lock serialization, relational joins or transactions across independently owned records, or large analytical scans.
+- Data shared by several processes does not by itself need a database. Usually give shared facts one stable domain or entity Flow owner and expose typed operations on it, rather than turning an arbitrary process Flow into a global database or copying one authoritative fact into several process Flows.
+- Add an external store when Dex's model does not fit the access pattern, such as complex or ad-hoc secondary indexes, full-text or vector search, sustained high-contention writes to one hot record that cannot accept Attribute-lock serialization, relational joins or transactions across independently owned records, or large analytical scans.
 - When Dex can stay authoritative and only the query shape is missing, prefer an [Attribute Store projection](attribute.md#attribute-store-sync) over application dual writes.
 - When an external store must own a fact, define that boundary explicitly. Keep the Flow's Attributes to process state, durable references, and recovery facts.
-- One fact never has two ambiguous authorities. Name the source of truth for each fact and define synchronization, failure, and reconciliation.
-- Large size alone does not require a separate store.
+- A large value within the per-value and active-state [limits](../../SKILL.md#default-limits) needs no separate store; the blob path holds it.
 
 ## The built-in large-value path
 
@@ -58,11 +56,11 @@ Payload encryption encrypts values in your Workers and Clients, with your codec 
 
 Rules:
 
-- Enable payload encryption when the application handles data that Dex Server, its storage, or its operators must not read. Keep TLS on as well; it protects the network, not the stored values.
+- Enable payload encryption when the application handles data that Dex Server, its storage, or its operators must not read.
 - Give every Worker and Client of the application the same codec, the same keys, and the same Attribute definitions, including plaintext declarations. Every one of them must use an SDK that supports payload encryption.
 - Make every reader able to decrypt before any writer starts writing ciphertext. A Worker that cannot decrypt a Step value fails that attempt. Rotate keys in the same order: every reader gets the new key before any writer uses it.
 - With a codec, the SDK encrypts eligible application payloads when it writes them, such as Step, Channel, Stream, and RPC values. Indexed and explicitly plaintext Attributes stay plaintext. Values stored before the codec was enabled stay plaintext.
-- Names and IDs are never encrypted. Examples: Flow IDs, Flow types, Step types, RPC names, Attribute keys, AttributeMap keys and instances, index keys, Channel and Stream names, Channel message IDs, Stream sources, request IDs, task queues, and the key ID. Never put sensitive data, such as email addresses or ID numbers, into them. Derive Flow IDs from opaque business identifiers.
+- Names and IDs are never encrypted. Examples: Flow IDs, Flow types, Step types, RPC names, Attribute keys, AttributeMap keys and instances, index keys, Channel and Stream names, Channel message IDs, Stream sources, request IDs, task queues, and the key ID. Never put secrets into them. Put personal data, such as email addresses or ID numbers, into them only when the application accepts it stored in plaintext on the Server; otherwise derive Flow IDs and keys from opaque business identifiers.
 - Keep Attributes plaintext when Dex must compare or index their values, or project them into Attribute Store columns that require the decoded value. Attribute-match waits, Action conditions, and search compare values. Indexed writes are plaintext automatically; declare every other such Attribute plaintext. Keep sensitive values out of them and store those values in separate, encrypted Attributes.
 - With a codec, the Client rejects an Attribute-match wait on an Attribute it would encrypt, before it sends the wait request. Always declare the Attributes that Action conditions use plaintext; an SDK may detect an encrypted one only after the Flow has started.
 
@@ -73,7 +71,7 @@ The [Payload encryption reference](https://docs.superdurable.io/reference/server
 Dex first offers a Flow's work to the Worker process that last served it, then to any Worker of the Flow type. Repeated Steps and RPCs of one Flow therefore tend to find a warm BlobCache.
 
 - Sticky routing is a performance hint, not a placement guarantee. After a restart, a disconnect, or a busy Worker, another Worker serves the Flow and warms its own cache.
-- Never keep correctness state only in Worker memory or its cache.
+- So correctness state never lives only in Worker memory or its cache; see [Workers](../../SKILL.md#workers-attempts-and-time-bounds).
 
 For API or MCP agents that need no code sandbox, this path is usually enough:
 
@@ -92,7 +90,7 @@ Prefer immutable or rarely changed values:
 - keep only the active window or a summary in a small mutable Attribute;
 - edit old chunks only when the product really edits history.
 
-Old chunks keep their references and stay warm. A new chunk causes only its own first miss. Use the [sequentially chunked](patterns.md#sequentially-chunked-attributemap) or [hash-partitioned](patterns.md#hash-partitioned-attributemap) layouts.
+Old chunks keep their references and stay warm. A new chunk causes only its own first miss. Use the [sequentially chunked](patterns/flow-shapes-and-state.md#sequentially-chunked-attributemap) or [hash-partitioned](patterns/flow-shapes-and-state.md#hash-partitioned-attributemap) layouts.
 
 ## External queries
 
@@ -104,11 +102,3 @@ Attribute Store sync targets PostgreSQL only. For Elasticsearch or a vector data
 - run an explicit durable projection Step when chunking, embedding, deletion, or version checks are required.
 
 Sync does not generate embeddings or transform documents. Do not add a projection only to avoid re-reading unchanged large Attributes; the BlobCache already covers that.
-
-## Verify
-
-- Invoke the same Flow repeatedly and confirm unchanged values hydrate correctly.
-- Replace the serving Worker and confirm the Flow continues after a cold-cache load.
-- Update one chunk and confirm the old chunks stay readable.
-- Confirm the cache directory is writable, bounded, and never treated as durable state.
-- When diagnosing latency, separate remote blob loads from local cache reads and decoding.
