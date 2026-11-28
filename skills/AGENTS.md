@@ -74,7 +74,7 @@ pages. Link examples that show a mechanism, such as primitives, patterns,
 configuration, and tests, not product examples under `examples/*/products/`.
 
 Change the Skills only when a stable programming rule, a Primitive concept or
-relation, a Component, or a design pattern changes. Update the matching docs
+relation, a Component, a design pattern, or a design-relevant fact changes. Update the matching docs
 pages in the same pull request, or state in the pull request why they need no
 change. A skills change does not wait for a Dex release.
 
