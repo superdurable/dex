@@ -356,10 +356,13 @@ its heartbeat timeout itself, and checks its retry total duration:
 "Keep trying for up to X" is the retry total duration plus an Execute
 failure route to a Step that handles the failure. The total duration counts
 from the first attempt. Dex checks it after an attempt fails, so the last
-attempt can run past X by up to one method timeout. When nothing may run
-after X, or work must happen at the deadline, such as a notice or a
-withdrawal, use a
+attempt can run past X: by about one method timeout while Workers are
+available, and longer when a retry waits in the queue. When work must happen
+at the deadline, such as a notice or a withdrawal, use a
 [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules).
+It requests the deadline action independently of the retrying method. A Timer
+can fire late, and cancellation cannot undo or force-stop an external call, so
+a strict external cutoff also needs a deadline check at the receiver.
 
 These timeouts end a hung attempt. Dex sends cancellation to the handler and
 retries the attempt by its retry policy. Pass the cancellation signal into

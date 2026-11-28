@@ -271,7 +271,7 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 - heartbeat timeout 高于最长的合理静默间隔，并留出余量。或者在调用执行期间发送 heartbeat，可以在短调用之间发，也可以由后台任务发。后台 heartbeat 只表示 Worker 仍在运行，所以真正卡住的调用要到 method timeout 才结束。
 - 默认值允许的重试次数少于 Step 需要的次数，或者重试必须更早停止时，设置 retry total duration。它是重试预算，从第一次尝试开始计算。要允许几次接近完整时长的尝试，大约取最大尝试次数乘以 method timeout，再加上 backoff。整个 Flow 的截止时间用 Flow timeout，一次等待的截止时间用 durable Timer。
 
-“最多持续尝试 X 时间”就是 retry total duration 加上一个 Execute 失败路由，转到处理失败的 Step。total duration 从第一次尝试开始计算。Dex 在一次尝试失败后才检查它，所以最后一次尝试最多可以超出 X 一个 method timeout。如果 X 之后不能再运行任何工作，或者业务要求在截止时间做事，例如发通知或撤回，用 [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules)。
+“最多持续尝试 X 时间”就是 retry total duration 加上一个 Execute 失败路由，转到处理失败的 Step。total duration 从第一次尝试开始计算。Dex 在一次尝试失败后才检查它，所以最后一次尝试可能超出 X：Worker 可用时大约超出一个 method timeout，重试在队列里等待时会更长。如果业务要求在截止时间做事，例如发通知或撤回，用 [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules)。它独立于正在重试的方法发起截止动作。Timer 可能晚触发，取消也无法撤销或强行停止外部调用，所以严格的外部截止还需要接收方检查截止时间。
 
 这些超时会结束挂住的 attempt。Dex 向 handler 发送取消，并按重试策略重试这个 attempt。把取消信号传给每个支持它的调用。handler 返回之后 Worker 槽才会释放，所以观察不到取消的阻塞调用最好有自己的 timeout。
 

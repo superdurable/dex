@@ -15,6 +15,22 @@
 # decision.
 
 mappings:
+  # SKILL.md holds the design-relevant facts of every Primitive; volatile
+  # defaults have their source in the Developer reference, not these pages.
+  - skill: dex-app-builder/SKILL.md
+    docs:
+      - docs/content/concepts/flow/index.mdx
+      - docs/content/concepts/step/index.mdx
+      - docs/content/concepts/step/advanced-guarantees.mdx
+      - docs/content/concepts/primitives/attribute.mdx
+      - docs/content/concepts/primitives/channel.mdx
+      - docs/content/concepts/primitives/rpc.mdx
+      - docs/content/concepts/primitives/stream.mdx
+      - docs/content/concepts/primitives/timer.mdx
+      - docs/content/concepts/primitives/subflow.mdx
+      - docs/content/concepts/client.mdx
+      - docs/content/components/application.mdx
+
   - skill: dex-app-builder/references/core/flow.md
     docs:
       - docs/content/concepts/flow/index.mdx
@@ -188,7 +204,6 @@ mappings:
 unmapped:
   # Entry points and skill-only guidance; dex-sdk is a transition stub.
   - skills/dex-sdk/SKILL.md
-  - skills/dex-app-builder/SKILL.md
   - skills/dex-app-builder/references/core/error-handling.md
   - skills/dex-app-builder/references/core/plugin-version-check.md
   - skills/dex-app-builder/references/core/self-check.md
