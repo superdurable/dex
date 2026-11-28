@@ -12,7 +12,7 @@ An RPC is a typed, synchronous handler that a Flow declares. A Client invokes it
 | Enqueue work without synchronous handling | Publish to a Channel through an RPC, and let a Step consume it |
 | Wait for state to change | Client Attribute-match or Step-completion wait, not a polling RPC |
 
-Prefer naming an RPC with a concrete action verb and its subject, such as `getQueuedMessages` or `moveQueuedMessageToPrioritizedMessages`, over a noun-only or generic name. The RPC name is durable for open Flows.
+Usually name an RPC with a concrete action verb and its subject, such as `getQueuedMessages` or `moveQueuedMessageToPrioritizedMessages`; see [Names](../../SKILL.md#suggestions). The RPC name is durable for open Flows.
 
 ## Commit boundary
 
@@ -35,7 +35,7 @@ Prefer naming an RPC with a concrete action verb and its subject, such as `getQu
 - A read-only RPC returns application state. It does not add a terminal status that the application did not persist.
 - A non-transactional handler can run and then lose its effects. Keep its external calls idempotent. A not-active error does not prove the handler never ran.
 - Select transactional execution when an RPC must validate a pending message ID and commit its deletion with other writes.
-- Lock conflicts are explicit contention, not queuing. Retry the rejected invocation with bounded backoff.
+- A lock conflict fails the RPC at once; Dex does not queue it. See [locks](attribute.md#locks) for retrying or returning a busy result.
 
 ## Options
 
@@ -55,14 +55,12 @@ Keep registration options and invocation options separate.
 
 ## Run ID
 
-Do not search for a Run ID before an ordinary RPC. Omit the optional Run ID so the Server resolves and pins the current run for that call. Pass one only when the application must target an exact run across Flow ID reuse.
+Without a Run ID, the Server resolves the current run and pins it for the whole call, so an ordinary RPC usually omits it and needs no search for one first. Pass one when the application must target an exact run across Flow ID reuse.
 
 ## Read models
 
-- One page that needs conversation Attributes, a description, and pending queues gets one read-only snapshot RPC that loads all of them. Do not issue several separately timed requests.
+- Separate calls can read different commits. So a page that needs conversation Attributes, a description, and pending queues from one state usually gets one read-only snapshot RPC that loads all of them. Split it when parts refresh at different rates or a large queue pages on its own.
 - When a view needs only stored Attributes and exact map instances, one Client Attribute read call serves it.
-- Prefer one Client Attribute read or one read-only RPC per response; separate calls can read different commits.
-- Keep separate views as separate RPCs. Do not combine unrelated read models only to save calls.
 
 ## Cancel running Steps from an RPC
 
@@ -72,7 +70,7 @@ An RPC result can cancel active Steps of its Flow, selected by Step type across 
 - A canceled Step is not retried and its failure route does not run. Dex discards its later decision and writes.
 - The cancel set is chosen at commit time, not from the handler's snapshot. A selected Step may already have finished, and a new Step of that type may have started and gets canceled. Dex does not reject the RPC in either case.
 - Attribute locks do not close this race. They serialize only with methods that declare the same lock.
-- Do not decide the outcome in the handler. Start a follow-up Step that reads committed state and decides.
+- The handler cannot know which Steps the cancel hit. When the outcome depends on whether a canceled Step finished, decide in a follow-up Step that reads committed state.
 - Step code must honor cancellation. A handler that ignores it keeps running and its external calls still take effect. Keep external effects idempotent.
 
 ```text
@@ -90,7 +88,7 @@ ResolveStoppedTurnStep.execute         // locks turnState
 
 ## Retries and request identity
 
-- By default, the SDK generates a new request ID for each RPC call. A retry with a new request ID is a new request and can run the handler again. Where the SDK accepts a caller request ID, pass the same stable ID, such as an event ID, on every attempt of one logical call; Dex then applies the RPC's Flow changes at most once. A transactional or locking RPC answers a repeated request ID with its recorded reply, including a refusal it returned, such as `false`. A business retry after a refusal, such as offering again later, is a new logical call with a new request ID. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids).
+- Request ID behavior is in [RPCs](../../SKILL.md#rpcs): by default each call gets a new one, so a retry is a new request. When one logical call must apply at most once, pass the same stable ID, such as an event ID, on every attempt where the SDK accepts a caller request ID. A transactional or locking RPC answers a repeated request ID with its recorded reply, including a refusal it returned, such as `false`. A business retry after a refusal, such as offering again later, is a new logical call with a new request ID. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids).
 - Make handlers safe to repeat, or reconcile with a typed read before you retry a write.
 - A call that times out or returns UNAVAILABLE has an unknown outcome. The first call may still commit while a retry runs the handler again.
 - An RPC that no Worker takes within the dispatch wait fails with UNAVAILABLE. An RPC name that no connected Worker registers fails with FAILED_PRECONDITION naming the RPC. RPCs never wait in the Step task queue.
@@ -98,8 +96,9 @@ ResolveStoppedTurnStep.execute         // locks turnState
 ## Self-check
 
 - Is every external write of Flow state an RPC, and every RPC name a verb phrase?
-- Does every RPC that races with Steps on shared state declare the same Attribute lock?
+- Does every RPC that read-modify-writes a value a concurrent Step also read-modify-writes share that Step's lock, or publish to the Step instead?
+- When the caller must get a definite answer about a race with a deciding Step, does the RPC take the same lock as that Step?
 - Does every dynamic read-modify-write add the instance as both lock and load?
 - Is every snapshot RPC that must work after closure free of locks, transactions, and durable effects?
 - Are RPC handlers safe to repeat?
-- Does any cancellation decision happen in a follow-up Step, not in the RPC handler?
+- When an outcome depends on whether a canceled Step finished, is it decided in a follow-up Step, not in the RPC handler?

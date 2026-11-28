@@ -24,15 +24,14 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 | AtLeastAtMost(min, max) | at least min are pending | from min up to max |
 
 - AtMost does not wait by itself. To wait for at least one message and take up to a limit, use AtLeastAtMost with a minimum of 1.
-- At any moment, let at most one waiting Step consume a given Channel, so which Step receives a message never depends on timing. Different Step types may consume it in different phases of the Flow. A wait for several messages can starve while waits for one message keep taking them. Use one ChannelMap instance per consumer when they need different counts. Waiter order is in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#channel-waiter-order).
+- Several Steps may wait on one Channel; Dex offers each new message to the waiters in the order their waits started, and a wait that needs more messages than are queued is skipped. See [Conditions and Channel messages](../../SKILL.md#conditions-and-channel-messages). So interchangeable one-message consumers, such as a worker pool, may share a Channel; which one receives a message depends on timing. When it matters which Step receives a message, or consumers wait for different counts, give each its own Channel or ChannelMap key. Different Step types may consume one Channel in different phases of the Flow. Waiter order is in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#channel-waiter-order).
 - Only the winning alternative of AnyOf or AnyCombinationOf consumes. See [step.md](step.md#waits-and-conditions).
 - In Execute, check that the Channel result is present before reading it. When another Condition won, nothing was consumed.
 - Consumed messages leave the queue. Publication and consumption remain visible only in the run's recent history window. Pending queue state is not history.
 - A wait consumes when it is satisfied, before Execute runs. If a decision or an RPC cancels the Step before its Execute commits, Dex returns the consumed messages to the front of their Channels or ChannelMap instances, in their original order. Another wait can take them, so a message can reach Execute twice. Make message processing idempotent, for example keyed by a business ID in the message.
-- Dex drops the consumed messages only when the Flow close itself cancels the Step, such as a StopFlow request or a Flow timeout. Drain a Channel before a graceful close when its messages matter, for example with ForceCompleteIfChannelsEmpty. Do not publish work in the same result that force-closes the Flow (ForceComplete, ForceFail, or a closing ForceCompleteIfChannelsEmpty) if the work must survive. The exact cases, and what a canceling commit does with its own publications, are in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#canceled-step-messages).
+- Dex drops the consumed messages only when the Flow close itself cancels the Step, such as a StopFlow request or a Flow timeout. Do not publish work in the same result that force-closes the Flow (ForceComplete, ForceFail, or a closing ForceCompleteIfChannelsEmpty) if the work must survive. The exact cases, and what a canceling commit does with its own publications, are in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#canceled-step-messages).
 - A Channel queue is not conversation history. Keep consumed messages in Attributes when the application must show or rebuild them.
-- Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns/channels-and-updates.md#drain-channels).
-- Drain only Channels whose late messages must still be handled. A cancel or withdrawal Channel stays undrained once the decision is final: draining it would let a late cancel override the decision. See [Cancel with child Flows](patterns/control-structures.md#cancel-with-child-flows).
+- Before the Flow completes, drain each externally published Channel whose late messages must still be handled, with ForceCompleteIfChannelsEmpty rather than a size check first; see [patterns.md](patterns/channels-and-updates.md#drain-channels). Leave a cancel or withdrawal Channel undrained once the decision is final: draining it would let a late cancel override the decision. See [Cancel with child Flows](patterns/control-structures.md#cancel-with-child-flows).
 
 ## Read pending messages
 
@@ -55,7 +54,7 @@ For a durable queue UI, expose a typed read-only RPC that loads the Channel and 
 
 Move or edit atomically with a transactional RPC:
 
-1. The caller sends only the message ID.
+1. The caller identifies the message by its ID and never resends the original value; an edit also sends the replacement value.
 2. The RPC loads the source Channel and finds the original value in its snapshot.
 3. It stages the deletion and the publication to the destination.
 4. A missing message rejects the whole transaction, including every Attribute write and publication.
@@ -73,12 +72,12 @@ Rules:
 - Attribute locking already makes an RPC transactional. A deletion without an Attribute lock must select the SDK's transactional RPC option explicitly.
 - Transactional validation protects an ID-only move from concurrent consumption. It does not isolate a decision based on the whole snapshot. For that, every cooperating Step and RPC uses one shared Attribute lock.
 - Without transactional execution, a missing deletion may be a no-op while the other effects commit. Reconcile from a fresh pending list.
-- Treat Channel-message-not-found as a stale view. Refresh the list and let the user choose again.
+- Channel-message-not-found means the message is no longer pending: consumed, deleted, or moved by an earlier attempt of this call. Pass a stable RPC request ID so a retried move returns its recorded reply; otherwise reload the pending list before deciding, and in a UI let the user choose again.
 
 ## Self-check
 
-- Does each Channel have a clear producer and at most one active consumer at a time?
+- Does each Channel have a clear producer, and do consumers that share it take one message each and handle any message the same way?
 - Does every Execute check which Condition won before reading a Channel result?
-- Are external publications drained before completion, with the atomic complete-if-empty decision where publishers are external?
-- Do moves and edits use a transactional RPC that sends only the message ID?
+- Are external publications whose late messages must be handled drained before completion, with the atomic complete-if-empty decision?
+- Do moves and edits use a transactional RPC that identifies the message by its ID?
 - Is conversation history kept in Attributes, not in the queue?

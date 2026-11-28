@@ -15,7 +15,7 @@ A Timer is a durable Dex Server timer used as a WaitFor Condition. It survives W
 
 ## Rules
 
-- A Timer is a Condition, not an in-process timer. Never sleep in a handler to model a business delay.
+- A Timer is a Condition, not an in-process timer. Never sleep in a handler to model a business delay ([Must 2](../../SKILL.md#must)). Deadline and late-firing facts are in [Timers](../../SKILL.md#timers).
 - In Execute, check whether the Timer fired, through the Context, before you assume which Condition won.
 - Timers in Until, AnyOf, and AllOf need no names. Give a Timer an ID when an operation selects it by ID, and always inside AnyCombinationOf.
 - After each accepted activity in an inactivity window, return to a Step that creates a new Timer.
@@ -32,5 +32,5 @@ SkipTimer makes a pending Timer behave as fired. It selects the Step execution a
 
 ## Self-check
 
-- Does a Timer loop that polls an external system call it only in Execute, and is it bounded by a round limit, the Flow timeout, or a watchdog Timer?
+- Does a Timer loop that polls an external system usually call it in Execute, and is it bounded by a round limit, the Flow timeout, or a watchdog Timer?
 - Does Execute check Timer outcomes through the Context?

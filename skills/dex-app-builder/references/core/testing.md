@@ -4,17 +4,13 @@ Write application tests when the user asks for them or the project already has t
 
 ## Harness
 
-- Start an isolated local Dex with `dexcli dev` on its own ports and data directory. Do not share the user's long-lived dev server.
+- Usually start an isolated local Dex with `dexcli dev` on its own ports and data directory, rather than sharing the user's long-lived dev server. A shared test Server that the project's CI provides also works with unique Flow IDs.
 - A short-lived test server can use process-crash-safe durability to run faster. See [cli.md](cli.md#local-development-with-dexcli-dev).
 - Build the same registry, payload codecs, and blob cache configuration the application uses.
 - Start the Worker and wait for its registration. Drive the Flow only through public Client APIs or the application boundary.
-- Give every test a unique Flow ID.
-- Prefer tests that can run in parallel. A test that stops, kills, or reconfigures a Worker uses its own Worker, or starts the replacement Worker before it stops the old one.
-- Workers that register the same Flow type share its tasks, so Dex can hand a Step to any of them. A test that must control which Worker runs its Flow, such as a crash or kill test, gives that Flow a Flow type only its own Worker registers, or uses its own dev server. A fake decides its behavior from the input, never from which Worker runs it.
-- Wait for asynchronous state with bounded polling or a Dex wait API. Never use a fixed sleep to guess convergence.
-- To test behavior while a Step is running, such as drain, cancellation, or Worker replacement, have the Step or its fake signal that it started. Wait on that signal with a deadline, then act. Never sleep to guess that the Step started.
-- Fakes for external effects record every call and never deduplicate. A test can then see a duplicate effect and assert how many times it happened.
-- Stop every process you started.
+- Give every test a unique Flow ID; under the default ID reuse policy a repeated Flow ID is rejected.
+- Workers that register the same Flow type share its tasks, so Dex can hand a Step to any of them. A test that must control which Worker runs its Flow, such as a crash or kill test, gives that Flow a Flow type only its own Worker registers, or uses its own dev server.
+- Wait for asynchronous state with a Dex wait API, such as an Attribute-match or Step-completion wait.
 
 ## Assertions
 
@@ -33,10 +29,10 @@ Pick the scenarios that match the application:
 - Start a Flow and verify its typed terminal output.
 - Replace or restart the Worker while the Flow waits, then verify it continues from durable state.
 - If a Step resumes from a heartbeat checkpoint, test that it resumes correctly.
-- Business failure path: when the provider confirms a permanent rejection, such as rejected input or a refused request, Execute catches it and routes to the failure Step itself. A fake that returns the rejection, under the production configuration, verifies the application's failure branch and that it does not retry.
-- A direct test of the recovery Step verifies its logic. Dex scheduling the recovery Step after the real retry budget is Dex behavior; do not re-test it by capping attempts or shortening durations.
+- Business failure path: when the provider confirms a permanent rejection, such as rejected input or a refused request, Execute routes to the failure Step itself; verify that branch and that it does not retry.
+- A direct test of the recovery Step verifies its logic. Dex scheduling the recovery Step after the real retry budget is Dex behavior; usually do not re-test it by capping attempts or shortening durations.
 - Test your RPCs' business outcomes, including after the Flow closes when the contract allows reads then.
-- Fire and skip Timers. Verify the business deadline and the timeout handler path. Skip the Flow timeout the same way instead of shortening it; [Skip a Timer](https://docs.superdurable.io/reference/server/runtime-client#skip-a-timer) shows how to select it.
+- Fire and skip Timers. Verify the business deadline and the timeout handler path. Usually skip the Flow timeout the same way instead of shortening it, as in [Real durations in tests](../../SKILL.md#suggestions); [Skip a Timer](https://docs.superdurable.io/reference/server/runtime-client#skip-a-timer) shows how to select it.
 - Exercise parallel branches, and SubFlows if any, with a deliberate failure and cancellation.
 - Lose a Stream consumer and recover canonical state from a read-only RPC or a Client Attribute read.
 - Disconnect after an external effect but before its result reaches Dex, and verify idempotent replay.
@@ -71,7 +67,6 @@ For every entity whose contract allows reads after closure:
 
 ### Data and versions
 
-- Large Attributes: replace the serving Worker and verify a cold-cache load.
 - AttributeMap concurrency: race writers on one instance and verify the lock-protected invariant.
 - Attribute Store sync: verify the Flow stays authoritative and the projection reconciles after a transient failure.
 - Versions: start a Flow on the old Worker, deploy the new registry, and finish that same Flow run. A test that starts after deployment does not prove open-Flow compatibility.

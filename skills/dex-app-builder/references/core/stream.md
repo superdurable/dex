@@ -20,14 +20,14 @@ Consumers rebuild canonical state from Attributes, a read-only RPC, or the Flow 
 - RPC handlers cannot write through their Context. They can use an injected Client.
 - A Client write needs a nonempty source. It works even when the Flow does not exist or is inactive.
 - Step messages carry the Step execution ID as their source. The source is not an idempotency key: attempts share it and every write appends.
-- Write semantically complete, independent messages directly. Do not batch events only because they arrive fast; batching changes the message boundaries readers see.
+- Batching changes the message boundaries readers see, so usually write semantically complete, independent messages directly. Batch when the rate would exhaust the capacity shared per Flow type and Stream name.
 - A Client write that fails with RESOURCE_EXHAUSTED because the node or the Stream is full can be retried after a short delay. A single message larger than the Stream allows never fits; do not retry it.
 
 ### LLM tokens: use the buffered text writer
 
 When a Step calls a streaming LLM API, create one buffered text writer for the invocation before the request, and pass its write method as the token or delta callback.
 
-- Prefer the buffered text writer for LLM tokens; a direct Stream write per token or delta wastes Stream capacity.
+- A direct Stream write per token or delta wastes Stream capacity, so usually use the buffered text writer for LLM tokens.
 - The writer flushes on a timer and on a size threshold, and flushes the tail before the result or error.
 - In most SDKs the code only calls write; the SDK finalizes. Python synchronous generator Steps must yield an explicit final flush.
 - An empty buffer does not heartbeat. Raise the heartbeat timeout for a provider that can stay silent.

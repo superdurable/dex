@@ -25,9 +25,9 @@ An operation-specific factory creates a Connector Step. The application maps the
 - A Mutation uses a stable idempotency key derived from the Step execution.
 - Each operation has an effect class. A Query is a read and changes nothing when repeated. A Mutation the Connector marks safe to repeat is an idempotent write: a repeat with the same idempotency key makes no second effect. Every other Mutation, including one that declares a bounded resend limit, is a non-idempotent write and can make a second effect when repeated.
 - When a Mutation's outcome is unknown, a Connector operation that declares a bounded resend limit may resend within that limit. It reads the write back first when the provider supports it. If the outcome is still unknown, the Connector selects an uncertainty branch. See [Bounded resends](https://docs.superdurable.io/reference/agents/connector-tools#bounded-resends).
-- Wire the uncertainty branch to a Step that queries and reconciles. Application code never resends a Mutation on its own.
+- Wire the uncertainty branch to a Step that queries and reconciles. Application code never resends a Mutation before a reconcile confirms it did not happen.
 - Only the happy-path branch must be wired. Selecting an unwired optional branch fails the Flow, which keeps the provider outcome visible for recovery.
-- Use the operation-specific generated factories and a static connection name on every operation config.
+- Use the operation-specific generated factories and a static connection name on every operation config, so Dex Web can configure the connection locally; see [Local Connector credentials](#local-connector-credentials).
 
 ## Triggers
 
@@ -45,8 +45,7 @@ A Trigger is a long-running event source outside the Flow. It delivers each even
 
 Flow definitions refer to a logical connection name, never to credentials.
 
-- Credentials never enter Flow input, Attributes, results, receipts, Streams, logs, browser messages, or generated artifacts.
-- Treat Connector secrets as secret values at the application boundary.
+- Credentials never enter Flow input, Attributes, results, receipts, Streams, logs, browser messages, or generated artifacts; see [secrets](../../SKILL.md#attributes-loading-and-secrets).
 - Connection settings are read when the application constructs the named connection. A settings change needs an application restart.
 - Credentials are resolved before each provider call. Reauthorization needs no restart.
 
