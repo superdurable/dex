@@ -47,9 +47,8 @@ directly at the repository root.
   acceptance, release, and pull-request rules; `dex-app-builder` owns
   application use of released connectors.
 - App Builder constraints are stricter: strict FDG 2.0 with only the
-  directives the Flow visualization reference lists for the language,
-  provider effects only in `Execute`, and no provider or Dex mutations in
-  `WaitFor`. App Builder treats Go, Python, TypeScript, Java, and Rust
+  directives the Flow visualization reference lists for the language.
+  App Builder treats Go, Python, TypeScript, Java, and Rust
   equally and never tells users what a language lacks.
 
 ## Skill content: the stable layer for agents
@@ -60,15 +59,17 @@ Write that content for agents: mental models, decision tables, rules,
 anti-patterns, code skeletons, and checklists. Keep every stable fact an agent
 needs to write correct code. Each rule must be complete without its links.
 
-A fact belongs here only if it will still hold in the next minor release.
-Skills contain no Dex version numbers and no release-tag pins. APIs,
-parameters, defaults, limits, configuration, flags, error codes, and version
-differences belong in SDK doc comments and the versioned docs Developer
-reference. Link to the Developer reference and to `examples/` for those
-details. Skills may state a few important default limits that shape a
-design, such as a Flow run's active state or a Channel's pending messages.
-Each one gives the recommended action and links the Server configuration
-reference for the current value. Never link to the docs Primitives, Components, or Design pattern
+State design-relevant Dex facts inline, including stable behavior tables and
+defaults. Test each fact with one question: without it, would an agent design
+wrongly? If yes, state it here. A stated default gives its value, what happens
+when a design exceeds it, and the recommended action, and links the Developer
+reference page that holds the current value. Per-language API names,
+signatures, parameter details, version differences, and configuration that
+does not change a design belong in SDK doc comments and the versioned docs
+Developer reference. Link to the Developer reference and to `examples/` for
+those details. Skills contain no Dex version numbers and no release-tag pins.
+Hard rules are very few: only rules that hold in every reasonable business
+scenario and whose violation always breaks correctness. Never link to the docs Primitives, Components, or Design pattern
 pages. Link examples that show a mechanism, such as primitives, patterns,
 configuration, and tests, not product examples under `examples/*/products/`.
 

@@ -28,17 +28,19 @@ the same scope as the docs Concepts, Components, and Design pattern pages,
 written as mental models, decision tables, rules, anti-patterns, code
 skeletons, and checklists. Each rule must be complete without its links.
 
-Ask one question of each fact: will this still hold in the next minor release?
-If yes, it may belong in the Skills. If no, it belongs in SDK doc comments or
-the versioned docs Developer reference. Skills may state a few important
-default limits that shape a design, such as a Flow run's active state or a
-Channel's pending messages. Each one gives the recommended action and links
-the Server configuration reference for the current value. Skills contain no
-Dex version numbers and no release-tag pins. They link only to the Developer reference and to
+Skills state design-relevant Dex facts inline, including stable behavior
+tables and defaults. Ask one question of each fact: without it, would an agent
+design wrongly? If yes, state it in the Skills. A stated default gives its
+value, what happens when a design exceeds it, and the recommended action, and
+links the Developer reference page that holds the current value. Per-language
+API names, signatures, parameter details, version differences, and
+configuration that does not change a design belong in SDK doc comments or the
+versioned docs Developer reference. Skills contain no Dex version numbers and
+no release-tag pins. They link only to the Developer reference and to
 `examples/`, never to the Concepts, Components, or Design pattern pages.
 
 Change the Skills only when a stable programming rule, a Primitive concept or
-relation, a Component, or a design pattern changes. Update the matching docs
+relation, a Component, a design pattern, or a design-relevant fact changes. Update the matching docs
 pages in the same pull request, or state in the pull request why they need no
 change. A skills change does not wait for a Dex release, and a Dex release
 never requires a skills change.

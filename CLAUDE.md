@@ -78,30 +78,30 @@ Information Placement. Change skills only when one of these changes:
 - a stable programming rule, such as determinism or idempotency;
 - a Primitive concept or a relation between Primitives;
 - a Component: what it is and how it works with the others;
-- a design pattern.
+- a design pattern;
+- a design-relevant fact: how a Dex mechanism or API behaves in a case that
+  changes a design, or a default or limit that a design must fit.
 
-New APIs, options, defaults, limits, error codes, configuration, and version
-differences do not change skills, except the default limits described
-below. Put them in SDK doc comments and the docs
-Developer reference. Pure internal refactors and fixes that preserve
-application behavior do not change skills either. Skills may state a few
-important default limits that shape a design, such as a Flow run's active
-state or a Channel's pending messages. Each one gives the recommended action
-and links the Server configuration reference for the current value.
+Skills state design-relevant Dex facts inline, including stable behavior
+tables and defaults. Test each fact with one question: without it, would an
+agent design wrongly? If yes, state it in skills. A stated default gives its
+value, what happens when a design exceeds it, and the recommended action, and
+links the Developer reference page that holds the current value. The
+Developer reference keeps per-language API names, signatures, parameter
+details, version differences, and configuration that does not change a
+design; skills link to it for those. New APIs, options, error codes, and
+configuration change skills only when they change a design-relevant fact.
+Pure internal refactors and fixes that preserve application behavior do not
+change skills.
 
 If a Dex change makes existing skills text wrong, remove or correct that text
 in the same work item. That correction adds a skills fragment with
 `bump: patch`. Do not add new volatile detail while doing so.
 
-Test each fact with one question: will this still hold in the next minor
-release? If yes, it may belong in skills. If no, it belongs in the Developer
-reference.
-
-Skills and the docs stable layer hold only stable core rules. UI and feature
-details belong in the Developer reference. So do nuanced edge-case semantics,
-such as the order of waiters and locks, cancellation and close corner cases,
-retry deduplication details, and naming-restriction corner cases. Skills link
-to that reference instead of restating it.
+Skills hold design-relevant Dex facts, design patterns, and very few hard
+rules. UI and feature details, and edge cases that do not change a design,
+belong in the Developer reference. Skills link to that reference instead of
+restating it.
 
 Skills contain no Dex version numbers and no release-tag pins.
 Source skills link examples on `main`; the skills mirror sync pins them to the synced Dex commit.
@@ -208,20 +208,22 @@ Dex knowledge lives in two layers. Each fact has one home.
 | Layer | For humans | For coding agents | Changes |
 | --- | --- | --- | --- |
 | Stable: concepts, relations, mental model, rules, Components, design patterns | Docs Concepts, Components, and Design patterns | `skills/` | Only when a concept or rule changes |
-| Volatile: APIs, parameters, defaults, limits, configuration, flags, metrics, edge cases, version differences | Docs Developer reference (versioned) and the generated API references | The same pages; skills link to them | Any release |
+| Volatile: APIs, parameters, defaults, limits, configuration, flags, metrics, edge cases, version differences | Docs Developer reference (versioned) and the generated API references | The same pages; skills link to them and state inline each default, limit, and edge case that changes a design | Any release |
 
 Both copies of the stable layer cover the same scope. Each is written for its
 reader. Docs use narrative, diagrams, and examples. Skills use rules, decision
 tables, code skeletons, anti-patterns, and checklists. Skills keep every stable
 fact an agent needs to write correct code. Do not cut one only to be shorter.
+Skills also state the design-relevant behavior tables and defaults that docs
+keep in the Developer reference.
 
 | Information | Single home | Elsewhere |
 | --- | --- | --- |
-| Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs and skills link to it; they do not restate it |
+| Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs link to it and do not restate it. Skills state its design-relevant behavior and defaults and link to it for names, signatures, and parameters |
 | Primitive concepts, relations, and mental model | Docs Concepts and skills | Change both in one pull request |
 | Components (Application, server, cli, web): what each is and how they work together | Docs Components and skills | Change both in one pull request |
 | Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
-| Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it; a few design-shaping default limits may also appear in skills with their recommended action |
+| Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it and state inline each default, limit, and edge case that changes a design |
 
 - Skills link only to the Developer reference, including its generated API
   references, and to `examples/`. They never link to the Concepts,
