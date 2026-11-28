@@ -24,10 +24,13 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::command_applier::CommandApplier;
-use crate::commit::{CommitState, EngineLocalStore, NodeStopReason};
+#[cfg(feature = "test-util")]
+use crate::commit::CommittedRecordKind;
+use crate::commit::{CommitState, CommittedRecordHandling, EngineLocalStore, NodeStopReason};
 use crate::engine_id_source::EngineIdSource;
-use crate::engine_node::{EngineNodeConfig, LocalStoreCloseWaiter, validate_config};
+use crate::engine_node::{
+    EngineNodeConfig, LocalStoreCloseWaiter, validate_config, validate_record_kind,
+};
 use crate::hot_standby::log_follower::FollowProgress;
 use crate::hot_standby::read_only_object_store::ReadOnlyObjectStore;
 use crate::hot_standby::standby_driver::{
@@ -82,8 +85,8 @@ pub struct HotStandbyDependencies {
     pub object_store: Arc<dyn ObjectStore>,
     /// Wall clock that lag is measured with.
     pub clock: Arc<dyn WallClock>,
-    /// Applies followed commands; pass the applier the node serves with.
-    pub applier: Arc<dyn CommandApplier>,
+    /// Applies followed records; pass the applier the node serves with.
+    pub applier: CommittedRecordHandling,
     /// Creates the lineage ID of a local store that the standby creates or restores.
     pub id_source: Arc<dyn EngineIdSource>,
     /// Spreads the restart delays of standbys apart.
@@ -226,6 +229,12 @@ impl HotStandby {
         dependencies: HotStandbyDependencies,
         committed_commands: Arc<dyn CommittedCommandSink>,
     ) -> Result<Self, EngineStartError> {
+        if dependencies.applier.record_kind() != CommittedRecordKind::FlowCommand {
+            return Err(EngineStartError::InvalidConfig {
+                detail: "only a standby that applies Flow commands passes them to a sink"
+                    .to_owned(),
+            });
+        }
         Self::start_with_committed_commands(
             config,
             standby_config,
@@ -241,6 +250,7 @@ impl HotStandby {
         committed_commands: Arc<dyn CommittedCommandSink>,
     ) -> Result<Self, EngineStartError> {
         validate_config(&config)?;
+        validate_record_kind(&config, dependencies.applier.record_kind())?;
         validate_standby_config(&standby_config)?;
         let HotStandbyDependencies {
             metrics,

@@ -31,11 +31,11 @@ use dexzd_api::{
 };
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
-    AttributeSyncWaker, EffectDependencies, EffectRunner, EffectTasksHandle,
-    EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
-    EngineServices, EngineStartError, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
-    HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreCloseWaiter, NodeMetaUploadLedger,
-    NodeStopReason, SegmentedTimeTravelHistory,
+    AttributeSyncWaker, CommittedRecordHandling, CommittedRecordSink, EffectDependencies,
+    EffectRunner, EffectTasksHandle, EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig,
+    EngineNodeDependencies, EngineServices, EngineStartError, FlowCoordinatorDependencies,
+    FlowCoordinatorRegistry, HardDeleteObjects, HotStandby, HotStandbyTakeover,
+    LocalStoreCloseWaiter, NodeMetaUploadLedger, NodeStopReason, SegmentedTimeTravelHistory,
 };
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
@@ -497,7 +497,7 @@ impl ServerNode {
             metrics: metrics.clone(),
             object_store: object_stores.primary.clone(),
             clock: clock.clone(),
-            applier: applier.clone(),
+            applier: CommittedRecordHandling::FlowCommand(applier.clone()),
             id_source: process.id_source.clone(),
             lease_validity_deadline: process.lease_validity_deadline.clone(),
         };
@@ -561,9 +561,11 @@ impl ServerNode {
             );
             let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
             let hooks = EngineCommandAndEffectHooks {
-                committed_commands: Arc::new(RegistryCommittedCommandSink::new(
-                    registry.clone(),
-                    search_outbox_watermarks.clone(),
+                committed_commands: CommittedRecordSink::FlowCommand(Arc::new(
+                    RegistryCommittedCommandSink::new(
+                        registry.clone(),
+                        search_outbox_watermarks.clone(),
+                    ),
                 )),
                 rebuilder: Arc::new(mode_rebuilder),
             };

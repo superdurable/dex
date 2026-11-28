@@ -106,7 +106,9 @@ fn start_applying_standby(cluster: &TestCluster, directory: &Path) -> HotStandby
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store: Arc::new(ProcessObjectStore::new(cluster.object_store.clone())),
             clock: cluster.clock.clone(),
-            applier: Arc::new(DeterministicCommandApplier),
+            applier: dexzd_engine::CommittedRecordHandling::FlowCommand(Arc::new(
+                DeterministicCommandApplier,
+            )),
             id_source: Arc::new(SystemEngineIdSource),
             restart_jitter_seed: 7,
         },

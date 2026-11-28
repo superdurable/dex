@@ -23,8 +23,9 @@ pub use commit_config::CommitConfig;
 pub use commit_state::NodeStopReason;
 pub use committed_state_view::CommittedStateView;
 pub use extension_record::{
-    ExtensionCommitTicket, ExtensionCommitted, ExtensionRecordOutcome, ExtensionStamp,
-    ExtensionSubmitError,
+    CommittedRecordHandling, CommittedRecordSink, ExtensionApplied, ExtensionApplyHalt,
+    ExtensionCommitTicket, ExtensionCommitted, ExtensionRecordApplier, ExtensionRecordOutcome,
+    ExtensionRecordSink, ExtensionStamp, ExtensionSubmitError, PublishedExtensionRecord,
 };
 pub use replay_checks::{ReplayCheck, ReplayMismatch};
 

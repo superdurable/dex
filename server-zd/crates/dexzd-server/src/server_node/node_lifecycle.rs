@@ -25,8 +25,9 @@ use std::time::Duration;
 use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_cluster_metadata::{LeaseValidityDeadline, read_node_lease};
 use dexzd_engine::{
-    BlockingWorkPlacement, CommandApplier, DeterministicCommandApplier, HistorySegmentReader,
-    HotStandby, HotStandbyConfig, HotStandbyDependencies, LocalStoreCloseWaiter,
+    BlockingWorkPlacement, CommandApplier, CommittedRecordHandling, DeterministicCommandApplier,
+    HistorySegmentReader, HotStandby, HotStandbyConfig, HotStandbyDependencies,
+    LocalStoreCloseWaiter,
 };
 use dexzd_metrics::{NodeMetrics, NodeRole, TakeoverStandbyMode};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -407,7 +408,7 @@ async fn acquire_as_hot_standby(
             metrics: process.metrics.clone(),
             object_store: process.object_stores.primary.clone(),
             clock: process.clock.clone(),
-            applier: process.applier.clone(),
+            applier: CommittedRecordHandling::FlowCommand(process.applier.clone()),
             id_source: process.id_source.clone(),
             restart_jitter_seed: process.restart_jitter_seed,
         },

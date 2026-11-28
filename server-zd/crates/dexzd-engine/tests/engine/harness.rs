@@ -16,10 +16,11 @@ use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, NodeConfig};
 use dexzd_engine::{
     BlockingWorkPlacement, CommandApplier, CommitConfig, CommitError, CommitTicket, CommitUrgency,
-    CommittedCommandSink, CommittedFlowCommand, CommittedStateView, EngineCommandAndEffectHooks,
-    EngineNode, EngineNodeConfig, EngineNodeDependencies, EngineServices, EngineStartError,
-    LocalStoreConfig, PartitionEffectRebuildError, PartitionEffectRebuilder, RecoveryConfig,
-    SnapshotConfig, SystemEngineIdSource,
+    CommittedCommandSink, CommittedFlowCommand, CommittedRecordHandling, CommittedRecordSink,
+    CommittedStateView, EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig,
+    EngineNodeDependencies, EngineServices, EngineStartError, LocalStoreConfig,
+    PartitionEffectRebuildError, PartitionEffectRebuilder, RecoveryConfig, SnapshotConfig,
+    SystemEngineIdSource,
 };
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, TenantId, flow_directory_key, flow_directory_prefix,
@@ -646,12 +647,12 @@ impl TestCluster {
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store,
                 clock: self.clock.clone(),
-                applier: applier.clone(),
+                applier: CommittedRecordHandling::FlowCommand(applier.clone()),
                 id_source: Arc::new(SystemEngineIdSource),
                 lease_validity_deadline: lease_validity_deadline.clone(),
             },
             move |_services: EngineServices| EngineCommandAndEffectHooks {
-                committed_commands: factory_runtime.clone(),
+                committed_commands: CommittedRecordSink::FlowCommand(factory_runtime.clone()),
                 rebuilder: factory_runtime,
             },
         )

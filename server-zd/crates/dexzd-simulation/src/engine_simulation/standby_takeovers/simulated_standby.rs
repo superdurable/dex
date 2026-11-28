@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dexzd_engine::{
-    DeterministicCommandApplier, EngineLocalStore, HotStandby, HotStandbyConfig,
-    HotStandbyDependencies, HotStandbyState, LocalStoreConfig,
+    CommittedRecordHandling, DeterministicCommandApplier, EngineLocalStore, HotStandby,
+    HotStandbyConfig, HotStandbyDependencies, HotStandbyState, LocalStoreConfig,
 };
 use dexzd_storage::InMemoryLocalStore;
 use tokio::time::Instant;
@@ -76,7 +76,9 @@ impl SimulatedStandby {
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store: object_store.clone(),
                 clock: Arc::new(SimulatedWallClock::new(environment.origin, 0)),
-                applier: Arc::new(DeterministicCommandApplier),
+                applier: CommittedRecordHandling::FlowCommand(Arc::new(
+                    DeterministicCommandApplier,
+                )),
                 id_source: Arc::clone(&environment.id_source),
                 restart_jitter_seed,
             },

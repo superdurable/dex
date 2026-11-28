@@ -271,6 +271,21 @@ impl CommitState {
         }
     }
 
+    /// Takes the pending extension record with `command_id`; an extension record never acknowledges another kind.
+    pub(crate) fn take_extension_record(
+        &self,
+        command_id: &[u8],
+    ) -> Option<PendingCommand<ExtensionCommitTicketSender>> {
+        let mut pending = self.lock_pending();
+        match pending.by_command_id.remove(command_id)? {
+            PendingCommit::ExtensionRecord(record) => Some(record),
+            other @ PendingCommit::FlowCommand(_) => {
+                pending.by_command_id.insert(command_id.to_vec(), other);
+                None
+            }
+        }
+    }
+
     pub(crate) fn halt_partition(&self, partition: PartitionId) {
         self.halted_partitions[usize::from(partition.0)].store(true, Ordering::Release);
     }

@@ -109,12 +109,14 @@ pub(crate) async fn start_engine_node_with_applier(
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store,
             clock,
-            applier,
+            applier: dexzd_engine::CommittedRecordHandling::FlowCommand(applier),
             id_source,
             lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
         |_services| EngineCommandAndEffectHooks {
-            committed_commands: Arc::new(NoopCommandAndEffectHooks),
+            committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(Arc::new(
+                NoopCommandAndEffectHooks,
+            )),
             rebuilder: Arc::new(NoopCommandAndEffectHooks),
         },
     )

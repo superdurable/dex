@@ -20,10 +20,9 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use xxhash_rust::xxh3::xxh3_64_with_seed;
 
-use crate::command_applier::CommandApplier;
 use crate::commit::{
-    CommitState, EngineLocalStore, FrameApplier, FrameApplierParts, NodeStopReason,
-    PartitionApplierPool,
+    CommitState, CommittedRecordHandling, EngineLocalStore, FrameApplier, FrameApplierParts,
+    NodeStopReason, PartitionApplierPool,
 };
 use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::EngineNodeConfig;
@@ -66,7 +65,7 @@ pub(super) struct StandbyDriver {
     /// Read-only: every write through it fails.
     pub(super) object_store: Arc<dyn ObjectStore>,
     pub(super) clock: Arc<dyn WallClock>,
-    pub(super) applier: Arc<dyn CommandApplier>,
+    pub(super) applier: CommittedRecordHandling,
     pub(super) id_source: Arc<dyn EngineIdSource>,
     pub(super) status: Arc<StandbyStatusCell>,
     /// Spreads restart delays of different processes apart.
@@ -255,10 +254,11 @@ impl StandbyDriver {
         let frame_applier = FrameApplier::new(FrameApplierParts {
             metrics: self.metrics.clone(),
             store: store.clone(),
-            applier: self.applier.clone(),
+            records: self
+                .applier
+                .standby_frame_records(Arc::clone(&self.committed_commands)),
             hasher: metadata.cluster.partition_hasher.clone(),
             state: write_fence.clone(),
-            committed_commands: Arc::clone(&self.committed_commands),
             is_checking_replay: config.commit.debug_replay_checks,
             blocking_work: config.blocking_work,
         })?;

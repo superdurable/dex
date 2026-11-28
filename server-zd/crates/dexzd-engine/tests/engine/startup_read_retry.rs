@@ -769,12 +769,14 @@ fn start_with_cancellation_and_deadline(
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store,
                 clock,
-                applier: applier.clone(),
+                applier: dexzd_engine::CommittedRecordHandling::FlowCommand(applier.clone()),
                 id_source: Arc::new(SystemEngineIdSource),
                 lease_validity_deadline,
             },
             move |_services: EngineServices| EngineCommandAndEffectHooks {
-                committed_commands: factory_runtime.clone(),
+                committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(
+                    factory_runtime.clone(),
+                ),
                 rebuilder: factory_runtime,
             },
             &mut cancellation,

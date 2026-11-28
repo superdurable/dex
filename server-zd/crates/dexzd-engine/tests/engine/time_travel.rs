@@ -166,7 +166,7 @@ impl TravelNode {
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store: cluster.object_store.clone(),
                 clock: cluster.clock.clone(),
-                applier: Arc::new(DeterministicCommandApplier),
+                applier: deterministic_record_handling(),
                 id_source: Arc::new(SystemEngineIdSource),
                 lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
             },
@@ -207,10 +207,12 @@ impl TravelNode {
                     services.partition_hasher,
                 ));
                 EngineCommandAndEffectHooks {
-                    committed_commands: Arc::new(ForwardingSink {
-                        registries,
-                        recording: Arc::clone(&recording_for_factory),
-                    }),
+                    committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(Arc::new(
+                        ForwardingSink {
+                            registries,
+                            recording: Arc::clone(&recording_for_factory),
+                        },
+                    )),
                     rebuilder: recording_for_factory,
                 }
             },
@@ -766,6 +768,10 @@ impl OffloadedValues for RemovedValues {
     ) -> Result<Option<Value>, ApplyError> {
         Ok(self.0.get(&value_id).cloned())
     }
+}
+
+fn deterministic_record_handling() -> dexzd_engine::CommittedRecordHandling {
+    dexzd_engine::CommittedRecordHandling::FlowCommand(Arc::new(DeterministicCommandApplier))
 }
 
 fn start_flow_request() -> StartFlowRequest {
@@ -1678,7 +1684,7 @@ async fn a_hot_standby_replays_staged_time_travel_to_the_serving_state() {
                 cluster.object_store.clone(),
             )),
             clock: cluster.clock.clone(),
-            applier: Arc::new(DeterministicCommandApplier),
+            applier: deterministic_record_handling(),
             id_source: Arc::new(SystemEngineIdSource),
             restart_jitter_seed: 7,
         },
@@ -1782,7 +1788,7 @@ async fn a_hot_standby_replays_segment_expiry_and_recorded_object_deletions() {
                 cluster.object_store.clone(),
             )),
             clock: cluster.clock.clone(),
-            applier: Arc::new(DeterministicCommandApplier),
+            applier: deterministic_record_handling(),
             id_source: Arc::new(SystemEngineIdSource),
             restart_jitter_seed: 7,
         },
@@ -1870,7 +1876,7 @@ async fn a_hot_standby_replays_the_local_cleanup_of_an_idle_run() {
                 cluster.object_store.clone(),
             )),
             clock: cluster.clock.clone(),
-            applier: Arc::new(DeterministicCommandApplier),
+            applier: deterministic_record_handling(),
             id_source: Arc::new(SystemEngineIdSource),
             restart_jitter_seed: 7,
         },
@@ -2495,7 +2501,7 @@ async fn a_hot_standby_replays_the_revive_of_an_offloaded_value_to_the_serving_s
                 cluster.object_store.clone(),
             )),
             clock: cluster.clock.clone(),
-            applier: Arc::new(DeterministicCommandApplier),
+            applier: deterministic_record_handling(),
             id_source: Arc::new(SystemEngineIdSource),
             restart_jitter_seed: 7,
         },
