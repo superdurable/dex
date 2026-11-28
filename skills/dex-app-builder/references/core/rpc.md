@@ -28,7 +28,7 @@ Usually name an RPC with a concrete action verb and its subject, such as `getQue
 | --- | --- | --- | --- |
 | Snapshot (query-only) | no locks, not transactional, no durable effects returned | a snapshot of the current or retained run | No. A retained closed run can serve it. |
 | Non-transactional with effects | returns durable effects, no locks | a snapshot; effects applied after the handler | Yes for the effects. If the Flow closes first, the effects fail as not active after the handler ran. |
-| Transactional | Attribute locks, or the explicit transactional option, or a Server policy | the handler and its effects commit together | Yes. Dex rejects it before the handler runs. |
+| Transactional | Attribute locks, or the explicit transactional option, or a Server policy | the handler and its effects commit together | Yes for a new invocation. Dex rejects it before the handler runs. A retained recorded request ID replays its reply even after close; see [RPCs](../../SKILL.md#rpcs). |
 
 - Every mode runs the handler on a snapshot. Steps and other RPCs can commit between the snapshot and the RPC's commit, and transactional mode does not prevent that. Only a shared Attribute lock excludes a Step or RPC that declares it.
 - Success of a snapshot RPC does not prove the Flow is active. Use DescribeFlow when the response needs status.
@@ -82,15 +82,15 @@ rpc stopTurn(turnId)                   // transactional, locks turnState
 
 ResolveStoppedTurnStep.execute         // locks turnState
     reload committed messages and pending calls
-    write a canceled result for every call without one
-    mark the turn stopped; idempotent
+    record calls that never started as canceled; leave in-flight calls to their commit Step
+    mark the turn stopped once no call is in flight; idempotent
 ```
 
 ## Retries and request identity
 
-- Request ID behavior is in [RPCs](../../SKILL.md#rpcs): by default each call gets a new one, so a retry is a new request. When one logical call must apply at most once, pass the same stable ID, such as an event ID, on every attempt where the SDK accepts a caller request ID. A transactional or locking RPC answers a repeated request ID with its recorded reply, including a refusal it returned, such as `false`. A business retry after a refusal, such as offering again later, is a new logical call with a new request ID. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids).
+- Request ID behavior is in [RPCs](../../SKILL.md#rpcs): by default each call gets a new one, so a retry is a new request. When one logical call must apply at most once, pass the same stable ID, such as an event ID, on every attempt where the SDK accepts a caller request ID. A transactional or locking RPC answers a repeated request ID with its recorded reply, including a refusal it returned, such as `false`, and even after the run closes while it is retained. Another RPC that returns no Flow changes runs again and returns a fresh output; nothing is recorded. A business retry after a refusal, such as offering again later, is a new logical call with a new request ID. See [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids).
 - Make handlers safe to repeat, or reconcile with a typed read before you retry a write.
-- A call that times out or returns UNAVAILABLE has an unknown outcome. The first call may still commit while a retry runs the handler again.
+- A failed handler that committed nothing records nothing, so a retry runs it again. A caller timeout, a cancellation, or UNAVAILABLE leaves the outcome unknown: the first call may still commit while a retry runs the handler again.
 - An RPC that no Worker takes within the dispatch wait fails with UNAVAILABLE. An RPC name that no connected Worker registers fails with FAILED_PRECONDITION naming the RPC. RPCs never wait in the Step task queue.
 
 ## Self-check

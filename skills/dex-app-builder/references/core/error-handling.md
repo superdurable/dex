@@ -120,7 +120,7 @@ Which RPCs need an active Flow:
 
 - An RPC with no Attribute locks, no transactional execution, and no returned durable effects runs on a snapshot. It can read a retained closed run. Success does not prove the Flow is active.
 - A non-transactional RPC that returns durable effects runs its handler first. If the Flow closes in between, applying the effects fails as not active after the handler ran. Keep its external effects idempotent.
-- Locked and transactional RPCs, and every RPC under a Server policy that runs RPCs transactionally, need an active run. Dex rejects them before any handler runs.
+- A new invocation of a locked or transactional RPC, or of any RPC under a Server policy that runs RPCs transactionally, needs an active run. Dex rejects it before any handler runs. A retained recorded request ID of such an RPC still replays its reply after close; see [RPCs](../../SKILL.md#rpcs).
 
 ### Terminal read RPC rule
 
@@ -164,7 +164,7 @@ While a Flow closes, Dex rejects some new requests with the Flow closing error. 
 
 After an ambiguous provider or Client mutation, reconcile authoritative state before you repeat an effect whose safe replay is not established. A StartFlow retry replays as described in [start identity](#start-identity-and-duplicate-starts). Bound retries and keep the repeated mutation idempotent.
 
-By default, the SDK generates a new request ID for each RPC call, so a retried RPC is a new request and can run the handler again. Where the SDK accepts a caller request ID, pass the same stable ID on every attempt so the retried RPC's Flow changes take effect at most once; see [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids). Make RPC handlers safe to repeat, or reconcile with a typed read before you retry a write. An RPC that times out or returns UNAVAILABLE has an unknown outcome: the handler may run again on retry while the first call may still commit.
+By default, the SDK generates a new request ID for each RPC call, so a retried RPC is a new request and can run the handler again. Where the SDK accepts a caller request ID, pass the same stable ID on every attempt so the retried RPC's Flow changes take effect at most once; see [RPC request IDs](https://docs.superdurable.io/reference/server/runtime-data#rpc-request-ids). Make RPC handlers safe to repeat, or reconcile with a typed read before you retry a write. A failed handler that committed nothing records nothing. A caller timeout, a cancellation, or UNAVAILABLE leaves the outcome unknown: the handler may run again on retry while the first call may still commit.
 
 ## Best-effort output
 

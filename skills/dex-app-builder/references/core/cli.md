@@ -37,7 +37,7 @@ Run `dexcli visualize SOURCE` once the Flow shape is explicit. On the product ro
 1. Write it to a rendering directory.
 2. Start a long-lived `dexcli dev` for the user with that rendering directory.
 3. Share the Dex Web URL before you continue.
-4. Keep it running while you implement, and run tests on separate isolated stacks.
+4. Keep it running while you implement.
 
 The source analyzers read Flow definitions without running them. Check the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization) for the installed CLI's language and metadata support, and use only the directives and options it lists for the language. On the product route, or whenever Dex Web renders the Flow, each local Step carries one `dex:group` and one `dex:explanation` directive; a missing or malformed directive is a blocking analyzer error.
 
@@ -61,4 +61,3 @@ dexcli flow search --query 'FlowType = "OrderFlow" AND ExecutionStatus = "Runnin
 
 - Does the application use the Server address that `dexcli dev` printed?
 - On the product route, was the graph visualized and shared in Dex Web before implementation continued?
-- Do tests usually run on isolated stacks, not on the user's long-lived dev server?

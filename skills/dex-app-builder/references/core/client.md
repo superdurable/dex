@@ -2,7 +2,7 @@
 
 The Client is the application's boundary to Dex. It starts, stops, inspects, and searches Flows, reads committed Attributes, invokes typed RPCs, waits for state, and reads or writes Streams. It needs only the Dex Server address and the same registry and payload configuration as the Workers. See [application.md](application.md) for wiring.
 
-Inside a Step or RPC handler, read and write through the Context, never through a Client. A Step may hold an injected Client only to act on another Flow: start a top-level Flow, call its RPCs, stop it, or read its state and result, or stop a SubFlow by the ID its Context supplies.
+Inside a Step or RPC handler, the Context reads the method's snapshot, and its writes commit with the method ([Commits](../../SKILL.md#commits-and-isolation)). A Client call from a handler is outside that commit: it reads newer committed state, an RPC it invokes fails at once with a lock conflict when the method holds a lock that RPC needs ([Locks](../../SKILL.md#repeated-execution-snapshots-and-locks)), and the call repeats when the method retries. So usually read and write the handler's own Flow through the Context. A Step uses an injected Client to act on another Flow: start a top-level Flow, call its RPCs, stop it, or read its state and result, or stop a SubFlow by the ID its Context supplies.
 
 ## The Flow owns decisions and status
 

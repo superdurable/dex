@@ -45,7 +45,7 @@ A Trigger is a long-running event source outside the Flow. It delivers each even
 
 Flow definitions refer to a logical connection name, never to credentials.
 
-- Credentials never enter Flow input, Attributes, results, receipts, Streams, logs, browser messages, or generated artifacts; see [secrets](../../SKILL.md#attributes-loading-and-secrets).
+- Connection credentials stay outside Flow input, Attributes, results, receipts, Streams, logs, browser messages, and generated artifacts: the Connector resolves them from project configuration; see [secrets](../../SKILL.md#attributes-loading-and-secrets).
 - Connection settings are read when the application constructs the named connection. A settings change needs an application restart.
 - Credentials are resolved before each provider call. Reauthorization needs no restart.
 
@@ -76,4 +76,4 @@ Dex Server and Dex Web provide no deployed Connector configuration, OAuth flow, 
 - Is the uncertainty branch of every Mutation wired to reconciliation?
 - Does business context survive the Connector Step through an Attribute or an application Step?
 - Does every Trigger start use a deterministic Flow ID and the provider event ID as Request ID?
-- Are credentials absent from Flow state, logs, and responses?
+- Are connection credentials absent from Flow state, logs, and responses?

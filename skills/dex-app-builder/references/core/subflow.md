@@ -37,6 +37,7 @@ The child Flow ID derivation, the rule that a Step type starting a SubFlow must 
 
 - When Dex rejects a child start before the child begins, the parent Step's failure carries the rejection detail. Keep it visible in the recovery route.
 - A child failure arrives as its result, not as a parent failure; check it.
+- Delivering a child result makes its parent condition ready; it does not prove the parent consumed it or completed later work ([SubFlows and child Flows](../../SKILL.md#subflows-and-child-flows)).
 - A child keeps running when its parent closes, and a SubFlow without its own Flow timeout can wait forever when no Worker takes its Steps; see [SubFlows and child Flows](../../SKILL.md#subflows-and-child-flows). When the child must end, stop it explicitly or set its Flow timeout.
 
 ## Self-check

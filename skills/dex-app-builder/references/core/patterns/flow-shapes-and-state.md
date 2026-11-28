@@ -49,7 +49,7 @@ Start one domain-named root Flow directly from the application boundary.
 
 - Use a stable Flow ID for the logical operation and a Request ID derived from the complete start request. Set a reuse policy from the [ID reuse table](../../../SKILL.md#starting-a-flow-and-id-reuse) when the default does not fit the lifecycle.
 - A retry of the same request reuses both identities. Under a policy that rejects the existing run, the same Flow ID with a different Request ID is another logical request, unless the domain intentionally routes commands to one coordinator. A deliberate reopen after close is a new request with a new Request ID.
-- Never add a table, row, outbox, lease, lock, cache, or admission projection to deduplicate or serialize starts. When the uniqueness key is not the Flow ID, route starts through a Flow whose ID is that key. Store request fingerprints only when they are real fields of the owning domain record.
+- When Dex owns the triggering fact and retained Flow identity covers the required retry window, start directly; an extra admission store, such as a table, outbox, lease, or cache, adds no guarantee. An external authoritative transaction or a deduplication lifetime longer than the Flow's [retention](../../../SKILL.md#starting-a-flow-and-id-reuse) may need its own durable handoff. When the uniqueness key is not the Flow ID, route starts through a Flow whose ID is that key. Store request fingerprints only when they are real fields of the owning domain record.
 - When the caller needs durable acceptance before completion, wait for the named admission Step, then read the domain record.
 
 Full rules: [error-handling.md](../error-handling.md#start-identity-and-duplicate-starts).
@@ -66,7 +66,7 @@ The plain Entity Flow is the same shape without the SQL table: one long-lived Fl
 - The Flow ID is the entity ID. It becomes the table's primary key, or its key columns with a row key template.
 - Mark the projected Attributes for sync, and select the Attribute Store in the Flow configuration at start.
 - Update through a typed RPC that validates, then writes every projected Attribute. Read authoritative state from the Flow.
-- The SQL table is an asynchronous latest-state projection. Never make a Flow decision from it. Deleting an Attribute keeps the row and projects NULL.
+- The SQL table is an asynchronous latest-state projection: it lags commits, a write can repeat, and entries still pending after the retry budget are dropped ([Attributes](../../../SKILL.md#attributes-loading-and-secrets)). So a Flow decision reads the Flow's own state, not the table. Deleting an Attribute keeps the row and projects NULL.
 - Define optimistic concurrency, deletion, retention, and open-Flow compatibility. See [attribute.md](../attribute.md#attribute-store-sync).
 
 ## Partitioned AttributeMap state
@@ -86,7 +86,7 @@ Neither creates server-side map pagination or a secondary index. The layout is p
 
 ### Sequentially chunked AttributeMap
 
-Derived from: [Default limits](../../../SKILL.md#default-limits), [Loading](../../../SKILL.md#attributes-loading-and-secrets).
+Derived from: [Default limits](../../../SKILL.md#default-limits), [Loading](../../../SKILL.md#attributes-loading-and-secrets), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks).
 
 Go folder: `sequentially-chunked-attribute-map`.
 

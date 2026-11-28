@@ -10,24 +10,26 @@ Use when Dex owns an agent's conversation, model calls, tools, approvals, and lo
 
 The released dex-agents packages implement this shape. When you use them, check their message retention and paging defaults against the history the product must keep and show. See [message retention and paging in the agents reference](https://docs.superdurable.io/reference/agents/session-limits#message-retention).
 
-### Own the model context in Dex
+This section maps an agent onto Dex. Model context, reasoning output, plan, tool-order, tool-result, and approval-policy guidance that is not Dex-specific is in [Agent design notes](https://docs.superdurable.io/reference/agents/agent-design-notes).
 
-- Persist provider-neutral user, assistant, tool-call, and tool-result messages. Rebuild the model input for every call from a configured system prompt, a cumulative summary, and recent messages, so a retry or a replacement Worker can rebuild it. Do not depend on a provider conversation ID.
+### Keep the conversation in Dex
+
+- A later model call may run on another Worker, so keep the messages in Dex state, not in Worker memory. A retry or a replacement Worker then rebuilds the model input from committed messages.
 - Store messages in a [sequentially chunked AttributeMap](flow-shapes-and-state.md#sequentially-chunked-attributemap). Keep the next sequence, retained range, summarized range, pending calls, and status in a small Attribute. Read known chunk keys; never enumerate the map to paginate.
-- Compaction changes the model context, not the durable truth. Commit a summary that covers an explicit sequence range, then delete only whole archived chunks that the summary covers.
+- When compaction deletes archived chunks, commit the summary that covers them before or with the deletes, so no commit leaves messages that neither a chunk nor the summary holds.
 - Keep per-session configuration, such as model choice, effort, or tool policy, in its own Attribute, changed through a typed RPC. The first Step of a turn copies it into the turn state, so a change applies at the next turn. Store references such as a model ID or connection name; credentials follow [Attributes and secrets](../../../SKILL.md#attributes-loading-and-secrets).
 
 ### Plans and output
 
-- Keep a short plan in a regular Attribute that is replaced as one value. Derive plan completion from task states, separately from Flow activity.
+- Keep a short plan in a regular Attribute that is replaced as one value.
 - Bind plan approval to the current plan revision through a Channel.
-- Commit completed assistant messages and tool results to Attributes. Stream token deltas, tool progress, and status. The UI recovers from durable state.
+- Commit completed assistant messages and tool results to Attributes. Stream token deltas, tool progress, and status. Streams can drop messages, so the UI recovers from durable state.
 - Raise the heartbeat timeout for model calls that can stay silent; see [step.md](../step.md#heartbeats-and-checkpoints).
 
 ### Tools
 
-- Persist the assistant tool call before executing it. Give every call a stable ID, and run calls in a deliberate order with bounded concurrency.
-- Read-only or idempotent tools may retry. Non-idempotent writes default to one attempt unless duplicates are acceptable. Exhausted retries become an explicit failure result or recovery Step.
+- Commit the assistant tool call, with a stable call ID, before the Step that executes it. Retries and replacement Workers then reuse that ID.
+- A tool Step's retries repeat the tool call. Choose its attempts by whether the tool is safe to repeat. Exhausted retries become an explicit failure result or recovery Step.
 - Pass the stable call ID to integrations that support idempotency. Surface an unknown outcome when a timeout cannot prove the effect.
 - After exhausted retries, read the attempt progress: NOT_STARTED proves the tool never ran. Keep a tool Step with external effects SYNC when its recovery relies on that. See [error-handling.md](../error-handling.md#attempt-progress).
 
@@ -50,12 +52,31 @@ When the product lets the user queue and steer messages:
 
 A user's Stop ends the current turn now, so it may cancel running Steps; steering may not.
 
-- Implement Stop as a transactional RPC that records the stop request, bound to the turn ID, in the turn state Attribute. Its result cancels Step types and schedules one Step that resolves the turn. See [rpc.md](../rpc.md#cancel-running-steps-from-an-rpc).
-- Cancel only Step types with no external effect or that only wait: model calls, Timer waits, approval or input waits.
-- Never cancel a Step type that runs a non-idempotent tool. That tool runs to the end and commits. Its Step reads the stop request when it finishes and routes to turn resolution.
-- A model Step can commit between the RPC's snapshot and its commit. So every Step of the loop checks the stop request at its boundary and stops starting new work.
-- The resolution Step reloads committed messages and pending calls, keeps every committed message and result, clears approval and Timer state, and marks the turn stopped. It is idempotent.
-- The Stop RPC and every Step that writes turn state declare the same turn-state lock.
+This shape holds only when each long call and the turn-state commit after it are separate Steps. A Step holds its locks for its whole method call, and its retries reuse its first snapshot ([Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks)). So a long Step that held the turn-state lock would make Stop fail with a lock conflict for the whole call, and a long Step without it cannot see a Stop that committed during the call.
+
+```text
+CallModel.execute(turn)              // no turn-state lock; cancelable
+    result = model.call(...); goTo(CommitModelResult, result)
+CommitModelResult.execute(result)    // locks turnState; fresh snapshot
+    record result
+    if turnState.stopRequestedFor == turn: goTo(ResolveStoppedTurn, turn)
+    else: decide the next Step
+RunTool.execute(call)                // no turn-state lock; not canceled when non-idempotent
+    output = tool.run(call, call.id); goTo(CommitToolResult, output)
+CommitToolResult.execute(output)     // locks turnState
+    record output; check the stop request the same way
+
+rpc stopTurn(turn)                   // transactional, locks turnState
+    turnState.stopRequestedFor = turn
+    return result(ok).cancelSteps(CallModel, WaitForApproval, WaitForTimer)
+                     .goTo(ResolveStoppedTurn, turn)
+```
+
+- CallModel and RunTool make the long call and hold no turn-state lock that Stop uses. The next CommitModelResult or CommitToolResult Step takes the lock on a fresh snapshot, records the result, checks the turn-bound stop request, and decides the next Step.
+- Stop is a transactional RPC that takes the turn-state lock, records the stop request bound to the turn ID, cancels only explicitly cancelable compute or wait Step types, such as model calls, Timer waits, and approval or input waits, and schedules one Step that resolves the turn. See [rpc.md](../rpc.md#cancel-running-steps-from-an-rpc).
+- Stop does not cancel a Step that runs a non-idempotent tool: cancellation cannot undo its external effect. Its call stays in flight until its CommitToolResult, or a later resolve path, records the outcome and settles the turn.
+- Dex picks the Steps to cancel when Stop commits, so a model Step may already have committed. Each commit Step checks the stop request, so the loop starts no new work after a Stop.
+- The resolution Step takes the turn-state lock, reloads committed messages and pending calls, keeps every committed message and result, records calls that never started as canceled, leaves in-flight calls to their commit Step, clears approval and Timer state, and marks the turn stopped once no call is in flight. It is idempotent.
 
 ### Long waits and the browser
 

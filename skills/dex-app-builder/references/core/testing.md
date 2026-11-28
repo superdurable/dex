@@ -2,25 +2,20 @@
 
 Write application tests when the user asks for them or the project already has tests. Then test behavior that crosses a Worker, Client, persistence boundary, wait, Timer, RPC, Stream, or SubFlow against a real Dex Server. A handler-only unit test or a mock cannot prove durable coordination. Test the application's own behavior; retries, heartbeat timeouts, Worker registration, credentials, and read-after-write guarantees are Dex and SDK behavior that Dex tests itself. Read the selected language's testing file for its harness and commands.
 
-## Harness
+## Dex facts for tests
 
-- Usually start an isolated local Dex with `dexcli dev` on its own ports and data directory, rather than sharing the user's long-lived dev server. A shared test Server that the project's CI provides also works with unique Flow IDs.
-- A short-lived test server can use process-crash-safe durability to run faster. See [cli.md](cli.md#local-development-with-dexcli-dev).
-- Build the same registry, payload codecs, and blob cache configuration the application uses.
-- Start the Worker and wait for its registration. Drive the Flow only through public Client APIs or the application boundary.
-- Give every test a unique Flow ID; under the default ID reuse policy a repeated Flow ID is rejected.
-- Workers that register the same Flow type share its tasks, so Dex can hand a Step to any of them. A test that must control which Worker runs its Flow, such as a crash or kill test, gives that Flow a Flow type only its own Worker registers, or uses its own dev server.
-- Wait for asynchronous state with a Dex wait API, such as an Attribute-match or Step-completion wait.
+- Workers that register the same Flow type in one task queue share its tasks, and a repeated Flow ID goes to the ID reuse policy ([Workers](../../SKILL.md#workers-attempts-and-time-bounds), [Starting a Flow](../../SKILL.md#starting-a-flow-and-id-reuse)).
+- A clean Worker shutdown returns the attempt to pending without using a retry, while a crash or disconnect after delivery fails the attempt and uses a retry, so the two exercise different recovery paths ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)). SkipTimer makes a waiting Timer ready at once ([Timers](../../SKILL.md#timers)).
 
 ## Assertions
 
 - Assert the user-visible SDK error type, the final Flow status, the recovery Step, and the durable state. Do not just assert that an error occurred.
 - When an external effect has an unknown outcome, test that the code records and handles the unknown state.
-- Read direct state once after an RPC write; keep bounded polling for documented eventual views only: search and Attribute Store tables.
+- A direct read after an RPC write returned sees that write ([Runs and reads](../../SKILL.md#runs-reads-and-outputs)), so read it once; search and Attribute Store tables lag commits and need bounded polling.
 
 ## Optional correctness checks
 
-Before handoff, ask the user whether they want to try two optional Dex checks; do not recommend them strongly or require them. For supported source, `dexcli visualize` can flag missing or unresolved required locks on writes and publishes, and Attribute writes that may lose updates without a declared lock requirement; see [Declared lock requirements](https://docs.superdurable.io/reference/web/flow-visualization#declared-lock-requirements). `dexcli dev` can drop finished Step and RPC results, so a Step runs again and an RPC caller sees a failure; rerun the tests and check the same final result, one external effect each, and correct state in the rerun Step; see [Worker result loss injection](https://docs.superdurable.io/reference/server/configuration#dev-worker-result-loss).
+For supported source, `dexcli visualize` can flag missing or unresolved required locks on writes and publishes, and Attribute writes that may lose updates without a declared lock requirement; see [Declared lock requirements](https://docs.superdurable.io/reference/web/flow-visualization#declared-lock-requirements). `dexcli dev` can drop finished Step and RPC results, so a Step runs again and an RPC caller sees a failure; rerunning the tests then checks the same final result, one external effect each, and correct state in the rerun Step; see [Worker result loss injection](https://docs.superdurable.io/reference/server/configuration#dev-worker-result-loss).
 
 ## Scenarios to cover
 
@@ -54,7 +49,6 @@ For an operation that launches separately owned work:
 - Accept the owning Flow, end the API request, then replace the Worker before the downstream start. The owning Flow must still start it.
 - Crash the Worker after downstream acceptance but before the launching Step commits. Verify the retried start uses the same identity and creates no duplicate.
 - Assert downstream retry exhaustion reaches the declared recovery outcome, and the API never issues the dependent start.
-- A graceful Worker drain does not simulate this commit gap; kill the process.
 
 ### Terminal entity reads
 

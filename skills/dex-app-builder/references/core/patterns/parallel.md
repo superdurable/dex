@@ -51,12 +51,14 @@ AwaitAllItems.execute(round) -> gracefulComplete(combine(Completed.branchResults
 - Fork starts the branches and the join Step in one decision and gives all of them one round token: the round key and the branch count. The application keeps no counter and no key. Pass the token unchanged in Step inputs.
 - Each branch that ends while the Flow stays open reports exactly one result per round, on every such exit: success, early exit, and the failure recovery route. endBranch reports and ends the branch; reportBranchResult only reports.
 - A branch of several Steps passes the token to its last Step, and only that Step reports. A branch never waits on the join's conditions. Exactly one join Step waits for each round; two waiters split the results.
-- Do not join an empty branch list; continue without a join when nothing was selected. Forking more than once per method and forking from an RPC have their own rules in the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
-- A canceled branch never reports, so a join that waits for every branch never fires. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
+- A ForAllBranches wait on an empty branch list is satisfied at once; ForFirstBranch and ForBranches on it fail ([Joins](../../../SKILL.md#joins)). Skip the join when nothing was selected and no continuation needs it. Forking more than once per method and forking from an RPC have their own rules in the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
+- Canceling a branch produces no result, so a join that waits for every branch never fires unless the branch reported before the cancel. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
 - The Join's ChannelMap accessor reads a round's pending results, for example in a read-only RPC. Never publish to it directly.
 - An exhausted branch without a failure route fails the Flow. When the operation must continue, route it to a recovery Step that reports a failed result so the join still fires.
 
 ### Partial join and reset
+
+Derived from: [Joins](../../../SKILL.md#joins), [Cancellation](../../../SKILL.md#flow-timeout-completion-and-cancellation).
 
 Use when the Flow continues after the first branch or after n of m branches. With rounds, the next round's split Step resets the previous round before it forks again. Go folder: `workflow-patterns`, in [partial_joins.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go); Rust keeps it in [examples/rust/src/workflow_patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/workflow_patterns).
 
@@ -83,14 +85,16 @@ AcceptBids.execute(n, round)
     goTo(ConfirmBooking(Bids.branchResults(round))).cancelSiblingSteps(BidFromA, BidFromB, BidFromC)
 ```
 
-A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
+A cancelling join's round is never reset. Its canceled branches produce no result, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
-- Each branch is its own Step execution, with its own retries, failure route, and durable result. In-process concurrency inside one Execute fits only idempotent reads that succeed or retry together, because the whole method retries.
+- Each branch is its own Step execution, with its own retries, failure route, and durable result. In-process work retries as one method, so it fits operations that are repeat-safe and share one recovery boundary.
 - In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes.
 - Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
 
 ### First-win parallel Steps
+
+Derived from: [Joins](../../../SKILL.md#joins), [Cancellation](../../../SKILL.md#flow-timeout-completion-and-cancellation), Must 1 ([Must](../../../SKILL.md#must)).
 
 Use when the first acceptable result is enough.
 
@@ -99,7 +103,7 @@ RequestQuotes.execute -> goToMany(FetchQuote(a), FetchQuote(b), FetchQuote(c))
 FetchQuote.execute -> gracefulComplete(result).cancelSiblingSteps(FetchQuote)
 ```
 
-- When branches make their own external effects or need their own retries, failure routes, or durable results, race them as Steps: GoToMany with a sibling cancel, or a Join. In-process concurrency inside one Execute, such as `Promise.any`, asyncio tasks, or threads, is fine for idempotent reads that succeed or retry together.
+- When branches make their own external effects or need their own retries, failure routes, or durable results, race them as Steps: GoToMany with a sibling cancel, or a Join. In-process concurrency inside one Execute, such as `Promise.any`, asyncio tasks, or threads, retries as one method, so it fits operations that are repeat-safe and share one recovery boundary.
 - The sibling selector cancels executions of the same Step type started by the same parent, not unrelated branches.
 - Make the winning result durable. Losers must be safe to cancel or harmless to finish, because cancellation is cooperative and undoes no external effect.
 - Each loser watches its Step's cancellation signal and passes it to calls that accept it. A canceled loser runs no failure route, so release a reservation it already made from a durable branch keyed by the business ID. The language reference names the signal.
@@ -141,7 +145,7 @@ rpc sendRequest(request)                         // reads admission; takes no lo
     Requests.publish(request); return true
 ```
 
-- Use the atomic complete-if-Channels-empty decision. Never check the Channel size in application code before completing.
+- Use the atomic complete-if-Channels-empty decision rather than a size check in application code. It counts a request that another HandleRequest consumed and whose Execute has not finished, so it covers the gap before that Step raises the counter ([ForceCompleteIfChannelsEmpty](../../../SKILL.md#flow-timeout-completion-and-cancellation)).
 - The Steps that change the counter declare the same `admission` lock. Keep the RPC free of locks; it only reads the gate.
 - The intake opens only when the first Step has queued the start batch. An RPC before that is rejected, so an empty start batch can complete at once. Check the start batch against the limit at the start boundary.
 - The buffer limit is a soft limit: concurrent RPCs can read the same size, and the Channel size counts only queued requests. A hard limit needs atomic admission, such as a locked reservation.

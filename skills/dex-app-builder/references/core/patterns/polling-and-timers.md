@@ -59,7 +59,7 @@ Never:
 
 Derived from: [Timers](../../../SKILL.md#timers), [Time bounds](../../../SKILL.md#workers-attempts-and-time-bounds), [Cancellation](../../../SKILL.md#flow-timeout-completion-and-cancellation), [Joins](../../../SKILL.md#joins).
 
-Use it only when work must happen at a deadline shorter than the Flow, such as a notice or a withdrawal, while work, such as a polling loop or a retrying Step, is still running. When an overrun of up to one method timeout past the retry budget is acceptable, the retry total duration alone is enough. The work runs as the only branch of a Join, and the join Step races the branch's result against a Timer.
+Use it only when work must happen at a deadline shorter than the Flow, such as a notice or a withdrawal, while work, such as a polling loop or a retrying Step, is still running. When an overrun past the retry budget is acceptable, the retry total duration alone is enough: with Workers promptly available the overrun is about one method timeout, and queueing can make it longer. The watchdog requests the deadline action independently of the retrying method. Timers may fire late, and cancellation cannot undo or forcibly stop external calls, so a strict external cutoff needs a deadline check or fence at the receiver. The work runs as the only branch of a Join, and the join Step races the branch's result against a Timer.
 
 ```text
 JobResult = Join<JobOutcome>("job-result")        // register it with the Flow's Channels
@@ -126,7 +126,7 @@ RecordJobWaitFailure.execute(context)
 - Keep the longest gap between heartbeats and Stream writes, including the slowest healthy call and the interval, below the Step's [heartbeat timeout](../../../SKILL.md#workers-attempts-and-time-bounds), with a margin. Usually keep the default heartbeat timeout when the loop fits it, so a stalled Worker is detected quickly; raise it only when a healthy call is silent longer.
 - A business deadline that is shorter than the whole wait, or that the loop's Step options cannot hold because the Step re-enters itself to commit each status change, uses the [deadline watchdog](#deadline-watchdog): the waiting Step is the Join's branch, and the join Step races its result against a Timer.
 - The retry policy covers Worker crashes and transient errors. Use a few attempts with backoff, and set the total duration to the maximum wait. Never use a large attempt count as a time bound.
-- The total duration is the retry budget: Dex starts no retry after it, but an attempt that started before it can run to its method timeout, so the whole wait can last about the total duration plus one method timeout. When that overrun is acceptable, the Step code computes no deadline of its own, and neither the checkpoint nor the input carries one. Otherwise use the [deadline watchdog](#deadline-watchdog).
+- The total duration is the retry budget. It is checked after an attempt fails, before scheduling another retry. An already scheduled retry may wait past the budget in the queue and still run for a full method timeout. With Workers promptly available, the whole wait lasts about the total duration plus one method timeout; queueing can make it longer. When that overrun is acceptable, the Step code computes no deadline of its own, and neither the checkpoint nor the input carries one. Otherwise use the [deadline watchdog](#deadline-watchdog).
 - Use the language's plain sleep. Pass the cancellation signal to provider calls that accept it, as the [suggestion](../../../SKILL.md#suggestions) says; the loop exits at the next boundary that can report it. See [Make the Step stop](https://docs.superdurable.io/reference/server/runtime-data#cancel-honour).
 - The checkpoint is only resume state, such as the last reported status. Resuming from the last stored checkpoint reduces repeated progress frames; it can be lost, so consumers tolerate duplicates and gaps. See [Heartbeat](https://docs.superdurable.io/reference/go/step-options#heartbeat).
 - A business condition that is not a fixed duration, such as a lease the Flow does not own expiring, is still checked inside the loop.
@@ -202,7 +202,7 @@ rpc recordActivity -> Activity.publish()
 
 After each activity, the next WaitFor starts a full Timer(window). Computing the rest of the window from a stored timestamp also works; a fresh Timer is less code and skippable in tests.
 
-Usually keep the deadline in the Flow where the activity happens: a separate Flow needs a call on every operation, which adds latency and history to both Flows. See the [Flow boundaries suggestion](../../../SKILL.md#suggestions).
+Usually keep the deadline in the Flow where the activity happens: a separate Flow needs a call on every operation. Cross-Flow calls add network and coordination cost and repeat when the calling method retries, and each activity message adds durable work and history to the target. See the [Flow boundaries suggestion](../../../SKILL.md#suggestions).
 
 ### Idle Timer with Resolution
 

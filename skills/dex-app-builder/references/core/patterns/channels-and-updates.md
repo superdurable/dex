@@ -54,8 +54,7 @@ Controller(entityId, message):                   // flowId = entityId; message h
 - "Accepted" means the run accepted the message, not that a Step handled it.
 - One stable Flow ID per entity, one active run at a time, messages handled in the order their publications commit. An external business order needs its own ordering mechanism.
 - The RPC only validates the message and publishes it to the Channel. It writes no Attribute that a Step reads or locks, such as a counter or a per-entity status. The consuming Step owns all state, so concurrent RPCs never hit a lock conflict.
-- Close only with the atomic decision; never check the Channel size first and then complete. See [ForceCompleteIfChannelsEmpty](https://docs.superdurable.io/reference/go/step-decisions#forcecompleteifchannelsempty).
-- Only one Step may consume a Channel that the decision checks.
+- Close with the atomic decision rather than a size check followed by a completion: a message can commit between the size read and the completion. The decision checks the Channels when it commits, and a message that another Step consumed counts until that Step's Execute finishes ([ForceCompleteIfChannelsEmpty](../../../SKILL.md#flow-timeout-completion-and-cancellation)).
 - When the caller must confirm each message was handled, the consuming Step records the message's business ID in the same commit and the caller reads that record; see [Confirm that a message was handled](https://docs.superdurable.io/reference/server/runtime-client#confirm-message-handled).
 
 ## Control Long-Running Work

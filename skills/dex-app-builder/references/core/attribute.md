@@ -69,7 +69,7 @@ When a write invariant spans several instances or the whole map, register a sepa
 
 An Indexed Attribute is copied to a Flow search field so SearchFlows, `dexcli flow search`, and Dex Web can find Flows by it. Search is eventually consistent. See [client.md](client.md#read-after-write).
 
-Index registrations are permanent on a Server, some search backends cap slots per type, and renaming an index key does not backfill existing Flows. So usually assign each application index an explicit generic key from a typed slot pool and reuse slots across Flow types, instead of a business name or the default Attribute-derived key:
+Index keys share the Server's finite search capacity, the slot registry has no delete, some search backends cap slots per type, and renaming an index key does not backfill existing Flows ([Attributes](../../SKILL.md#attributes-loading-and-secrets)). So usually assign each application index an explicit generic key from a typed slot pool and reuse slots across Flow types, instead of a business name or the default Attribute-derived key:
 
 ```text
 keyword1, keyword2, ...    keywordList1, keywordList2, ...
@@ -83,7 +83,7 @@ datetime1, datetime2, ...
 - Two indexed fields in one Flow need distinct slots.
 - Dex system indexes keep their reserved names.
 - Keep one index type per key.
-- A search that uses a generic slot must constrain FlowType, or it mixes Flow types that reuse the slot. Combine that with the caller's filter in parentheses so an OR cannot bypass it.
+- When a query on a generic slot is for one Flow type, constrain FlowType, or it mixes Flow types that reuse the slot; an intentional cross-type query must account for each type's slot meaning. Combine that with the caller's filter in parentheses so an OR cannot bypass it.
 - Indexed values are never encrypted; see [payload encryption](../../SKILL.md#attributes-loading-and-secrets). Never index secrets. Index personal data only when the application accepts it stored in plaintext on the Server; otherwise index an opaque derived key.
 - Index registrations are permanent on a Server. A test or abandoned registration uses a slot for good. Some search backends cap slots per type and the length of an indexed Keyword value; see the [Server search reference](https://docs.superdurable.io/reference/server/search). Index long text as Text, or index a short derived key.
 - Renaming an index key does not backfill existing Flows. Plan a migration for open Flows.
@@ -107,7 +107,7 @@ Value types, write paths, and the other edge cases are in the [hard-delete Attri
 
 Attribute Store sync projects selected Attribute writes into PostgreSQL tables that the application owns. Each destination is an Attribute Store. It is a Dex Server feature, not a Worker feature. The application and its reports query the tables with SQL.
 
-- The Flow stays the source of truth. The table is an eventual, latest-state projection. Never read it to make a Flow decision.
+- The Flow stays the source of truth. The table is an eventually consistent latest-state projection that can repeat and drop writes ([Attributes](../../SKILL.md#attributes-loading-and-secrets)), so a Flow decision reads the Flow's own state, not the table.
 - A Flow opts in per Attribute or AttributeMap, and names the stores in its Flow configuration at start.
 - Dex never creates, migrates, or backfills a destination; the application owns the tables and their retention.
 - Delivery is asynchronous and at least once. A write can be dropped after its retries, and a projection failure never rolls back Flow state, so make important projections reconcilable from the Flow.

@@ -123,9 +123,11 @@ Ask four questions together:
    frequent events, such as every user operation, every external callback, or
    every poll?
 
-A yes to question 4 rules the split out, whatever the other answers. Every
-call between Flows, including a read-only RPC, adds latency and history to
-both Flows.
+A yes to question 4 usually rules the split out; see the exception in
+[Flow boundaries](core/flow.md). Calls
+between Flows add network and coordination cost and repeat when the calling
+method retries. Mutating calls add durable work and history to the target; a
+read-only call need not add target history.
 For example, a separate Flow that tracks another Flow's inactivity needs a
 message on every operation. Keep that deadline in the Flow where the
 operations happen. Calls between Flows are fine for rare events: a start, a

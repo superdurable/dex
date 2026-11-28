@@ -15,6 +15,7 @@ const sidebars: SidebarsConfig = {
     'failures',
     'spend-limits',
     'upgrades',
+    'agent-design-notes',
     'credentials',
     'dex-web',
     'cli',

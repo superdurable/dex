@@ -11,7 +11,7 @@ Map each control structure of a process to its Dex recipe. Each row names what d
 | Sequence | Execute returns GoTo to the next Step | Each Step is one commit. Split Steps by recovery boundary, not by line of code. |
 | Exclusive choice | Execute returns one GoTo, chosen from its input and Attributes | — |
 | Parallel split | GoToMany | Each branch is its own Step execution and runs concurrently. A branch ends when its last Step returns DeadEnd or a closing decision. |
-| Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Every branch that ends while the Flow stays open reports exactly one result: on success, early exit, and the failure recovery route. A [canceled branch never reports](../../../SKILL.md#joins), so cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](parallel.md#await-parallel-steps). |
+| Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Every branch that ends while the Flow stays open reports exactly one result: on success, early exit, and the failure recovery route. [Canceling a branch produces no result](../../../SKILL.md#joins), so cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](parallel.md#await-parallel-steps). |
 | Several waiters for one event | One message per waiter | One message satisfies one wait ([waiters](../../../SKILL.md#conditions-and-channel-messages)). Use a ChannelMap with one key per waiter and publish to every key, or publish one message per waiter. |
 | First result of internal work | GoToMany of one Step type; the first to finish returns its result with a decision that cancels its sibling Steps | The sibling selector cancels executions of the same Step type started by the same parent. Losers must be safe to cancel or harmless to finish; cancellation does not undo an external effect. |
 | First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Execute checks which Condition fired and moves to one branch. See [Decision with Deadline](#decision-with-deadline); when a caller must learn whether its reply was accepted before the deadline, [close the reply window](#close-a-reply-window-with-an-attribute-lock). |
@@ -25,7 +25,7 @@ Map each control structure of a process to its Dex recipe. Each row names what d
 
 ### Decision with Deadline
 
-Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Timers](../../../SKILL.md#timers), [Commits](../../../SKILL.md#commits-and-isolation).
+Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Timers](../../../SKILL.md#timers), [Commits](../../../SKILL.md#commits-and-isolation), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks), [RPCs](../../../SKILL.md#rpcs).
 
 Wait for several events and route on whichever happens first, such as accept, reject, or expiry of an offer. Go folder: `deferred-choice`.
 
@@ -125,9 +125,53 @@ Use this when the business ranks events against each other, such as a withdrawal
 
 - Each RPC names its round. Under that round's instance locks it rejects a closed or unknown round, appends its candidate with its rank and admission order, deduplicated by event ID, and publishes one data-free wake-up when the round's candidate set becomes non-empty. It answers "received", which confirms admission only.
 - One arbitration Step per round waits on the wake-up or the deadline Timer. Under the same locks it closes the window and picks the winner from the stored candidates, never from the wake-up. Its Execute failure route does the same under the same locks, so an exhausted Execute does not leave the round open.
-- Keep the arbitration Step and its recovery Step SYNC, even when the Flow defaults to ASYNC, so the decision and one answer per candidate are stored before an unlocked Step sends the answers.
+- Keep the arbitration Step and its recovery Step SYNC, even when the Flow defaults to ASYNC, so the decision and one answer per candidate are stored before an unlocked Step sends the answers ([SYNC and ASYNC](../../../SKILL.md#workers-attempts-and-time-bounds)).
 
 This shape has no runnable example. Never present an RPC that decides by lock order as business priority: lock order is commit order.
+
+#### Locked round details
+
+```text
+// RoundWindow and RoundCandidates are AttributeMaps keyed by round ID; a round ID is never reused.
+// Every writer of a round locks and loads both instances of that round: the round's locks.
+OpenRound.execute(roundId), the round's locks
+    RoundWindow[roundId] = open; goTo(Arbitrate, roundId)
+rpc submitWithdrawal(roundId, w), the round's locks
+    if RoundWindow[roundId] is not open: return closed               // an old or unknown round
+    key = (roundId, withdrawal, w.eventId)
+    if key is already a candidate: return received                   // idempotent retry
+    RoundCandidates[roundId].append({key, ref: w.eventId, rank: 1, order: next})
+    if the set was empty: RoundWakeups[roundId].publish()            // one data-free wake-up per round
+    return received
+rpc submitDecision(roundId, d): the same, with rank 2
+
+Arbitrate.waitFor(roundId) -> AnyOf(Timer(deadline), RoundWakeups[roundId].ForOne())
+Arbitrate.execute(roundId), the round's locks, SYNC, short retry budget, failure route ArbitrationFailed
+    if RoundWindow[roundId] is not open: return deadEnd()            // closed or missing: end the branch
+    RoundWindow[roundId] = closed
+    winner = the highest-ranked candidate (rank 1 first); admission order breaks a tie
+    record the decision; mark the other candidates as not chosen
+    answers = one immutable answer per candidate, keyed by the candidate key
+    goTo(AnswerSenders, {decision, answers})   // with no candidate, the decision is the deadline branch
+ArbitrationFailed.execute(roundId), the round's locks, SYNC
+    if RoundWindow[roundId] is not open: return deadEnd()            // closed or missing: end the branch
+    in one commit: arbitrate again from RoundCandidates[roundId], or close the round
+    and record the failure; build the answers the same way
+    goTo(AnswerSenders, {decision or failure, answers})
+AnswerSenders.execute({outcome, answers})      // no lock and no round read: the answers are its input
+    send each answer through an idempotent path keyed by its candidate key
+    route on the outcome
+```
+
+- Every RPC and Step that reads or changes a round's window or candidates holds that round's locks. The RPCs take the same locks and fail at once on a conflict, so the arbitration Step and the recovery Step only commit the outcome and the answers; the unlocked answering Step makes the external calls. An RPC names its target round, so a late RPC for a closed round gets "closed" and never reaches a newer round.
+- Each round's candidates hold everything that decides the outcome: a key of round ID, event type, and event ID, a payload reference, rank, and admission order. The key also deduplicates retries and keys the answers.
+- The wake-up only starts the arbitration wait. Publish it in the same commit in which a round's candidate set goes from empty to non-empty; later admissions only append. It carries no data, and its ChannelMap key is the round ID. The candidates and the outcome come from the round's Attributes, never from the wake-up. When the Timer wins, one wake-up may stay pending; delete it with the round's other state when a long-running Flow must reclaim state.
+- The arbitration Step and the recovery Step both recheck the round's window under its locks. When the round is closed or missing, they end the branch with a dead end: no decision and no business route, rather than an empty decision.
+- Start only one arbitration wait per round. A retried Execute reuses its first snapshot and holds the locks through its retries and backoff, so no candidate joins meanwhile and the retry reaches the same decision ([Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks)).
+- The Timer is not the cutoff; the successful locked close is. A candidate admitted before that close is eligible, even after the Timer fired, because the Timer can fire late and Execute runs after it.
+- When Execute exhausts its retries, neither the close nor the decision commits, and the round stays open. The failure route's Step, under the same locks, arbitrates again from the stored candidates or closes the round and records the failure, with the answers, and moves to the same answering Step. Without a failure route the Flow fails, and senders learn the outcome from its terminal state.
+- Losing candidates stay in the record, and the answering Step answers their senders too.
+- A reply window can be combined with ranked replies this way: the closed window defines which events are eligible, and the arbitration Step ranks them.
 
 ### Critical section
 

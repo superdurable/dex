@@ -4,7 +4,7 @@ bump: patch
 - App Builder SKILL.md is facts first: fifteen fact groups state how each Dex mechanism behaves in each case and its defaults, from commits, locks, and RPCs to Timers, Flow timeout, starts, runs, SubFlows, Joins, Streams, Workers, and limits.
 - New inline fact tables: the ID reuse policy by the latest run's state, the Request ID with and without ignore-already-started, and the SubFlow reuse policy. A retry with the same Request ID skips the reuse policy and returns the run only with ignore-already-started.
 - The default limits table adds what happens when each limit is exceeded, plus the request IDs kept per run, concurrent waits per Flow, and child results per parent. The heartbeat timeout, retry total duration, and RPC timeout defaults are stated inline.
-- Corrected facts: WaitFor may write Attributes and publish or delete messages; a Timer can fire late after an outage; the last retry attempt can run past the retry total duration by up to one method timeout; AnyOf selection order applies only within one check.
+- Corrected facts: WaitFor may write Attributes and publish or delete messages; a Timer can fire late after an outage; a retry can run past the retry total duration, by about one method timeout or longer when it queues; AnyOf selection order applies only within one check.
 - Several interchangeable one-message waiters may share a Channel, such as a worker pool; Dex offers messages in the order the waits started, and a wait for more messages than are queued can starve.
 - Only four Must rules remain: repeat-safe external effects with stable IDs, correctness kept in Dex rather than a Worker, one lock or one writer for racing read-modify-writes, and open runs keep their contract.
 - Rules that follow from one or two facts are removed. Former Prefer items, provider writes and polling outside WaitFor, Start first with the policy picked from the table, and generic index slots become suggestions.
@@ -12,5 +12,6 @@ bump: patch
 - The reply window supports a hard cutoff by comparing the clock with the stored deadline under the lock. Back pressure loops normally while the parent is full instead of spending the retry budget.
 - The product workflow and product constraints move from SKILL.md to references/product-route.md, which the product route reads before Stage 0. One backend language and the default store become conditional choices.
 - core/patterns.md becomes an index; each pattern family lives in its own file under core/patterns/, so an agent opens only the family it needs.
-- Removed general advice that is not Dex-specific: browser permission checks, repository conduct, file-reading tips, general LLM content in the AI agent pattern, and test harness instructions.
+- New facts: RPC request ID replay by RPC kind, Flow close waiting for admitted RPCs and Attribute Store writes, ForceCompleteIfChannelsEmpty, Join reporting and partial joins, durability, retention and start deduplication, search lag, and index capacity.
+- Removed general advice that is not Dex-specific: browser permission checks, repository conduct, file-reading tips, and test harness recipes. General model and tool guidance moves from the AI agent pattern to the agents Developer reference.
 - Rust: pass a cancellation check into a call that can poll it, so a canceled branch ends its open request.
