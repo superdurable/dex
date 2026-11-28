@@ -56,7 +56,7 @@ Never report compilation as provider or end-to-end success.
 ## Product constraints
 
 Product route only; the SDK-only route skips this section. These are
-product choices; the Dex facts, Must rules, and patterns in
+product choices; the Dex facts, the Must rule, and patterns in
 [SKILL.md](../SKILL.md#facts) apply unchanged.
 
 - **Prefer one backend language, chosen in Stage 0.** Go, Python,

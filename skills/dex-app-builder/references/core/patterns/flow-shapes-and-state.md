@@ -4,7 +4,7 @@ Part of the [design patterns](../patterns.md), which hold the pseudocode convent
 
 ## Workflow DSL
 
-Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Repeated execution](../../../SKILL.md#repeated-execution-snapshots-and-locks), [Joins](../../../SKILL.md#joins), Must 1 and Must 4 ([Must](../../../SKILL.md#must)).
+Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Repeated execution](../../../SKILL.md#repeated-execution-snapshots-and-locks), [Joins](../../../SKILL.md#joins), [Workers](../../../SKILL.md#workers-attempts-and-time-bounds), the [Must](../../../SKILL.md#must).
 
 Use when operators, customers, partners, or another system must define workflows at runtime from the same set of actions and external conditions. Give definitions a serializable schema, usually JSON, and version them in the application's own definition store. Users can edit, copy, import, and export definitions. A new JSON document adds a workflow without a code change or release. One interpreter Flow runs them all. Go folder: `products/deal-dsl`.
 

@@ -111,7 +111,7 @@ Rules:
 
 ### Arbitrate by business priority
 
-Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks), Must 3 ([Must](../../../SKILL.md#must)).
+Derived from: [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks), [Commits](../../../SKILL.md#commits-and-isolation).
 
 Use this when the business ranks events against each other, such as a withdrawal over a decision, or "a confirmation wins over a decline that arrives at the same moment". Keep the priority rule; never drop it as unenforceable. State in the design which definition of "the same moment" the code uses:
 

@@ -148,7 +148,7 @@ A Timer is a durable Condition, not an in-process timer. A skipped Timer acts as
 
 ### Cron schedule
 
-Derived from: [Timers](../../../SKILL.md#timers), [Conditions](../../../SKILL.md#conditions-and-channel-messages), Must 1 ([Must](../../../SKILL.md#must)).
+Derived from: [Timers](../../../SKILL.md#timers), [Conditions](../../../SKILL.md#conditions-and-channel-messages), the [Must](../../../SKILL.md#must).
 
 Fixed-interval recurring work in one durable Flow. It is not calendar cron. Go folder: `cron`.
 
@@ -165,11 +165,11 @@ rpc triggerNow -> TriggerNow.publish()
 ```
 
 - Start the next WaitForSchedule together with Run, so a slow run does not drift the schedule.
-- Key each run's external effect by its occurrence (Must 1).
+- Key each run's external effect by its occurrence ([Must](../../../SKILL.md#must)).
 
 ### Reminder
 
-Derived from: [Timers](../../../SKILL.md#timers), [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks), Must 1 ([Must](../../../SKILL.md#must)).
+Derived from: [Timers](../../../SKILL.md#timers), [Conditions](../../../SKILL.md#conditions-and-channel-messages), [Locks](../../../SKILL.md#repeated-execution-snapshots-and-locks), the [Must](../../../SKILL.md#must).
 
 Send reminders until the recipient opts out. Go folder: `reminders`.
 
@@ -184,7 +184,7 @@ rpc optOutReminders -> OptOut.publish()
 - Only one Step consumes the opt-out Channel. The Execute checks `OptOut.size()` also when the Timer won. An opt-out that arrives while this reminder is being sent may not stop it; the next wait includes the opt-out, so it stops the following one.
 - When the business needs the opt-out to stop the reminder up to the decision commit, the opt-out RPC and the deciding Step share a lock, and an unlocked Step sends after the commit.
 - Parallel waiters each need their own stop message, such as one per branch on a ChannelMap. A stop Attribute records the fact but wakes no waiter, because WaitFor has no Attribute Condition.
-- Key each send by a stable occurrence ID that the receiver recognizes and deduplicates (Must 1).
+- Key each send by a stable occurrence ID that the receiver recognizes and deduplicates ([Must](../../../SKILL.md#must)).
 - The runnable reminders examples show the single-consumer relative-Timer loop. Their send call has no occurrence idempotency key.
 
 ### Idle Timer

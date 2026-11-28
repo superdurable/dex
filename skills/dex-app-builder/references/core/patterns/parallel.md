@@ -94,7 +94,7 @@ A cancelling join's round is never reset. Its canceled branches produce no resul
 
 ### First-win parallel Steps
 
-Derived from: [Joins](../../../SKILL.md#joins), [Cancellation](../../../SKILL.md#flow-timeout-completion-and-cancellation), Must 1 ([Must](../../../SKILL.md#must)).
+Derived from: [Joins](../../../SKILL.md#joins), [Cancellation](../../../SKILL.md#flow-timeout-completion-and-cancellation), the [Must](../../../SKILL.md#must).
 
 Use when the first acceptable result is enough.
 

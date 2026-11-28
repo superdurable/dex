@@ -28,16 +28,16 @@ Sketch, for every non-trivial Flow:
 ## Code check
 
 - [ ] Provider writes usually run in Execute, not WaitFor.
-- [ ] Every external effect has an idempotency key that is stable across attempts, or a compensation ([Must 1](../../SKILL.md#must)).
+- [ ] Every external effect has an idempotency key that the receiver deduplicates and that stays the same across the [repeats that apply](../../SKILL.md#ids-across-repeats), or a compensation ([Must](../../SKILL.md#must)).
 - [ ] Compensation after an exhausted Step starts with that Step.
 - [ ] A Step that can stay silent longer than the heartbeat timeout raises it or heartbeats.
-- [ ] Every read-modify-write that can race declares the same Attribute lock in every writer, or goes through one consuming Step ([Must 3](../../SKILL.md#must)).
+- [ ] Every read-modify-write that can race declares the same Attribute lock in every writer, or goes through one consuming Step ([Commits](../../SKILL.md#commits-and-isolation)).
 - [ ] A method that shares a lock with an RPC usually commits under the lock and lets the next, unlocked Step call an external system or another Flow.
 - [ ] Consumers that share a Channel are interchangeable one-message consumers; otherwise each has its own Channel or ChannelMap key. Message handling is idempotent.
 - [ ] A deadline that triggers work is a durable Timer, raced in the waiting Step or run as a deadline watchdog for retrying work, and Execute checks which Condition fired; a whole-Flow deadline with a fixed limit is the Flow timeout.
 - [ ] A Flow that closes while RPCs can still publish closes with the atomic complete-if-empty decision, or its publishing RPCs check a closed flag under the same lock.
 - [ ] The API usually starts one owning Flow; dependent starts happen in its Steps.
 - [ ] Terminal reads use a Client Attribute read or a query-only RPC, never history.
-- [ ] No correctness state lives only in Worker memory ([Must 2](../../SKILL.md#must)); Stream data is never the record.
+- [ ] No correctness state lives only in Worker memory ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)); Stream data is never the record.
 - [ ] Every Attribute, Channel, and Stream is in the persistence schema.
-- [ ] Attribute and Channel names stay compatible with open Flows ([Must 4](../../SKILL.md#must)).
+- [ ] Step types, RPC names, and Attribute and Channel names stay compatible with open Flows ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)).

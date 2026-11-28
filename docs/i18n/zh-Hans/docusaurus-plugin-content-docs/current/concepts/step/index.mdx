@@ -29,7 +29,7 @@ Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。�
 
 Step 没有 `WaitFor` 时，`Execute` 立即运行。
 
-可能失败的调用尽量放在 `Execute` 里。通常对 provider 的所有修改，包括 Connector 的写操作，都在 `Execute` 里运行。`WaitFor` 没有自己的失败路线和补偿位置。`WaitFor` 可以做只读、幂等、带超时的调用。例如，它可以从 provider 读取到期日期，并为它返回一个 Timer。`WaitFor` 的结果提交后，这个 Timer 就是持久的。如果截止时间需要可审计或可见，或者需要单独的失败路线，就改在前一个 Step 的 `Execute` 里读取，并把它作为下一个 Step 的输入传入。
+可能失败的调用尽量放在 `Execute` 里。通常对 provider 的所有修改，包括 Connector 的写操作，都在 `Execute` 里运行。`Execute` 失败后可以转到另一个 Step，而 Dex Web 把 `WaitFor` 显示为等待。`WaitFor` 的重试用完后，它的 failure policy 让 Flow 失败（默认），或者继续执行 `Execute`。这个 `Execute` 能看到这次失败，并可以据此路由。`WaitFor` 自己不返回决定。`WaitFor` 可以做只读、幂等、带超时的调用。例如，它可以从 provider 读取到期日期，并为它返回一个 Timer。`WaitFor` 的结果提交后，这个 Timer 就是持久的。
 
 如果 `WaitFor` 里的读取遇到永久性错误，就把错误记在 Step execution local value 里，并返回一个立即就绪的等待，再由 `Execute` 根据这个错误路由。provider 确认是永久性错误时，`Execute` 转到处理失败的 Step，或用 `ForceFail` 让 Flow 失败。重试永久性错误只会重复失败。见 [Step execution local](/reference/python/step#step-execution-local)（英文）。
 
@@ -248,6 +248,8 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 - Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
 - 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 `StepExecutionID`，例如 `order-1042/Charge-2`。
+
+Time Travel 从恢复点开始重新给它创建的 Step execution 编号。只有同一类型的 Step 总是按相同顺序启动时，`StepExecutionID` 才对应同一次调用。否则用业务数据构造键，例如订单号加上记在 Attribute 里的迭代次数。
 
 尝试编号、时间和随机值每次重试都会变，所以不要放进键里。
 

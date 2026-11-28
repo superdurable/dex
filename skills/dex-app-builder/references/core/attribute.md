@@ -99,7 +99,7 @@ Use a hard-delete Attribute or AttributeMap for a short-lived secret that the Fl
 - Delete the secret as soon as the Flow no longer needs it.
 - A write becomes readable only when its method commits, like an ordinary write; a failed or uncommitted attempt leaves the stored value unchanged. Each run has its own values, so a later run under the same Flow ID does not see an earlier run's secret.
 - It cannot be indexed, synced to an Attribute Store, or used in an Attribute match or an Action condition. Keep a revision in a regular Attribute when something must wait on a change.
-- When the value can be absent, such as after time travel, design the Flow to request a fresh secret.
+- Time travel never changes a hard-delete Attribute: it keeps its current value or absence, so a re-run Step can read a newer value than the restored point had, or none. When the value can be absent, design the Flow to request a fresh secret.
 
 Value types, write paths, and the other edge cases are in the [hard-delete Attributes reference](https://docs.superdurable.io/reference/server/runtime-data#hard-delete-attributes).
 

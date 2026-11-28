@@ -41,12 +41,14 @@ A Step has one or two methods.
 If a Step has no `WaitFor`, `Execute` runs immediately.
 
 Prefer calls that can fail in `Execute`. Usually every provider change,
-including a Connector write operation, runs in `Execute`. `WaitFor` has no
-failure route or compensation point of its own. `WaitFor` may make read-only, idempotent calls with a timeout. For
-example, it can read a due date from a provider and return a Timer for it. The
-Timer is durable once the result of `WaitFor` commits. When the deadline must
-be auditable or visible, or needs its own failure route, read it in the
-previous Step's `Execute` and pass it as the next Step's input instead.
+including a Connector write operation, runs in `Execute`. An `Execute` failure
+can route to another Step, and Dex Web shows `WaitFor` as the wait. When the
+retries of `WaitFor` run out, its failure policy fails the Flow, which is the
+default, or proceeds to `Execute`. That `Execute` sees the failure and can
+route it. `WaitFor` itself returns no decision. `WaitFor` may make read-only,
+idempotent calls with a timeout. For example, it can read a due date from a
+provider and return a Timer for it. The Timer is durable once the result of
+`WaitFor` commits.
 
 If a read in `WaitFor` gets a permanent error, it
 records the error in a Step execution local value and returns a wait that is
@@ -306,6 +308,11 @@ drop a repeat. Build the key from values that stay the same on every attempt:
   Flow makes that call once;
 - the Flow ID and the `StepExecutionID`, such as `order-1042/Charge-2`,
   when the Step runs more than once in the Flow.
+
+A Time Travel numbers the Step executions it creates again from the restored
+point. A `StepExecutionID` then names the same call only when Steps of that
+type always start in the same order. Otherwise, build the key from business
+data, such as the order number and an iteration count kept in an Attribute.
 
 The attempt number, the time, and a random value change on each retry, so leave them out of the key.
 

@@ -6,7 +6,8 @@ rules. This page maps them to Rust. Keep three kinds of failure apart:
 | Kind | Where | Rust form |
 | --- | --- | --- |
 | Business outcome | Step `execute` | Return `Ok(StepDecision::...)` (`force_fail`, a recovery `go_to`, a result) |
-| Retryable handler failure | Step or RPC handler | Return `Err(HandlerError)` |
+| Retryable handler failure | Step handler or timeout handler | Return `Err(HandlerError)` |
+| RPC handler failure | RPC handler | Return `Err(HandlerError)`; it fails that call for its caller, and Dex does not retry it |
 | Client or service failure | Code that calls `Client` | Match `SdkError` variants |
 
 Handlers return `HandlerResult<T>`; Client calls return `SdkResult<T>`. Do not

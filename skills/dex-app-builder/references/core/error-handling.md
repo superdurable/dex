@@ -49,29 +49,25 @@ If the SDK has no typed error for these, they surface as a generic service error
 
 ## Start identity and duplicate starts
 
-### Start first; reconcile only after an error
+### StartFlow decides repeats
 
-A start is atomic per Flow ID, so a read before it only adds a round trip and still races with other callers. Usually call StartFlow first, with a stable Flow ID, and skip a read-only RPC, a search, or DescribeFlow that only checks existence or avoids an AlreadyStarted edge case. A read that the business contract needs for its own reason is different.
-
-Dex is the start deduplication boundary. It compares only the Request ID, not the input or options; see [Starting a Flow and ID reuse](../../SKILL.md#starting-a-flow-and-id-reuse) for the reuse policy and Request ID tables.
+StartFlow decides repeats itself, atomically per Flow ID: the reuse policy and Request ID tables in [Starting a Flow and ID reuse](../../SKILL.md#starting-a-flow-and-id-reuse) give the outcome of every start, including concurrent ones. Dex compares only the Request ID, not the input or options.
 
 - Derive the Flow ID from the logical operation or resource.
-- Give each logical start one stable Request ID, such as an operation ID the caller stores or one derived from the complete logical request. Keep it the same across retries of that start. Never reuse it for a different logical start, even one with an identical payload: Dex treats it as a retry of the earlier start.
-- A table, row, outbox, lease, lock, cache, or admission projection added only to deduplicate starts repeats what the Flow ID already does. To serialize starts across Flow IDs, start them from one owner Flow.
+- Give each logical start one stable Request ID, such as an operation ID the caller stores or one derived from the complete logical request. Keep it the same across retries of that start. A different logical start with the same Request ID, even one with an identical payload, is treated as a retry of the earlier start.
+- Starts are atomic per Flow ID only. To serialize starts across Flow IDs, start them from one owner Flow.
 
 A stable Request ID alone does not suppress AlreadyStarted; add the SDK's ignore-already-started option, and a retry of the latest run's start returns that run. The exact option names are in the [StartFlowOptions reference](https://docs.superdurable.io/reference/python/start-flow-options#flow-id-request-id-and-already-started).
 
 Handle each result:
 
-- **Success.** If the contract only acknowledges acceptance, return the accepted response from validated request fields and known initial values. Do not reread identity, initial Attributes, or status to verify the start. Do not use a snapshot to decide which Flow to start next. Success does not mean the work finished or that state is still initial.
+- **Success.** If the contract only acknowledges acceptance, return the accepted response from validated request fields and known initial values. Success does not mean the work finished or that state is still initial.
 - **AlreadyStarted.** Keep it as a domain conflict unless the contract allows reuse. When the outcome needs existing business state, read it in this error branch with a Client Attribute read or a typed read-only RPC. Verify the request identity or invariant before you report success. Do not retry a proven conflict forever or report it as unavailability.
 - **Unknown acceptance** (transport failure or timeout). Retry within a bounded policy with the same Flow ID, Request ID, and options. A replay-safe start needs no read before the retry. Under a policy that starts a new run after close, a retry that arrives after a newer run started counts as a new request. Without a stable Request ID, do not claim deduplication across calls. Report an unknown outcome when the contract cannot prove acceptance.
 
 ```text
-Wrong: read status or snapshot -> decide whether to StartFlow
-Wrong: StartFlow succeeds -> reread identity -> start another Flow from the API
-Right: StartFlow with stable identity -> return accepted response from request fields
-       -> only on a relevant error, reconcile through a typed read, or return conflict/unknown
+StartFlow with stable identity -> return accepted response from request fields
+  -> on a relevant error, reconcile through a typed read, or return conflict/unknown
 ```
 
 ### Wait for a required business milestone
@@ -252,7 +248,7 @@ Time travel (reset):
 
 - Use it after a code fix, when replaying from a safe Step boundary will not duplicate an unprotected side effect.
 - It keeps the run ID and creates a new run attempt.
-- Keep the original Flow ID and operation identity. Reconcile provider objects and accepted writes first.
+- Keep the original Flow ID and operation identity. Reconcile provider objects and accepted writes first. A Step execution ID created after the point can name other work, and a random operation ID committed after the point is generated again; see [Time travel](../../SKILL.md#time-travel).
 - It cannot invent a missing method boundary or rewrite the original start options. Decide whether replaying later writes is safe before you skip them.
 - Which points are available and what it restores are in the [time travel reference](https://docs.superdurable.io/reference/server/runtime-client#time-travel).
 

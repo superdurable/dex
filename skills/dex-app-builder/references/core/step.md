@@ -24,7 +24,7 @@ Each WaitFor call, each Execute call, and each RPC call is a separate commit bou
 Use Execute for work and WaitFor for durable waiting. WaitFor's facts are in [WaitFor and Execute](../../SKILL.md#waitfor-and-execute):
 
 - WaitFor returns the Conditions to wait on. Its result can also write Attributes, publish and delete Channel messages, and write Step execution local values; they commit with the Wait.
-- WaitFor has no failure route or compensation point of its own, and Dex Web shows it as the wait. So usually put calls that can fail, and every provider mutation, including Connector write operations, in Execute, and keep each idempotent or compensatable there; see [WaitFor sets up the wait](../../SKILL.md#suggestions).
+- When WaitFor's retries run out, its failure policy fails the Flow (the default) or proceeds to Execute, which sees the failure and can route it. WaitFor itself returns no decision. An Execute failure can route to another Step, and Dex Web shows WaitFor as the wait, so provider mutations, including Connector write operations, usually run in Execute, each idempotent or compensatable; see [WaitFor sets up the wait](../../SKILL.md#suggestions).
 - WaitFor may make read-only, idempotent calls, for example to read a due date that sets a Timer. The Timer is durable once WaitFor's result commits.
 - When a WaitFor read can fail permanently, let Execute route on it: either record the error in a [Step execution local value](#step-execution-local-values) and return a Wait that is ready immediately, such as Go's SkipWaitImmediately, or use the WaitFor failure policy that proceeds to Execute. A permanent error left to Step retry only delays the outcome until the retry budget runs out.
 - WaitFor may run more than once: a retryable error follows WaitFor's own retry policy, and when that budget runs out, the WaitFor failure policy decides. Keep it cheap and safe to repeat. A retry may read a different value; the Wait that commits is the one that counts.
@@ -128,7 +128,7 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 - A Step that no Worker takes waits in a durable task queue. It does not fail and consumes no retry. Only a closing Flow timeout, a stop, another close, or a cancellation of that Step ends that wait.
 - Do not rely on the order in which ready Steps start. Use a Channel or an Attribute lock when order matters.
 - A Worker crash or disconnect after hand-out fails the attempt as possibly run and consumes a retry, in both modes. Lock and snapshot state by attempt state, and the ASYNC case where the same attempt number runs again, are in the [attempt state table](../../SKILL.md#repeated-execution-snapshots-and-locks).
-- An attempt goes back to the queue without consuming a retry only when the Worker certainly never ran it: an unregistered Step type, a task never delivered, or a graceful Worker shutdown.
+- An attempt goes back to the queue without consuming a retry only when a Worker declined it as an unregistered Step type or the task was never delivered, including a task that reaches a Worker whose stream is closing in a graceful shutdown. Every other failure consumes a retry, including an attempt a draining Worker was still running at its drain deadline.
 - Attempts of one Step can overlap in time, because cancellation is cooperative. Keep handlers idempotent.
 - Dex sends cancellation to the Worker when a Step is canceled by a decision, an RPC, a stop, Flow close, or time travel. The handler sees it through the SDK's cancellation signal.
 
@@ -145,14 +145,14 @@ A method call is one logical execution. Its attempts share the maximum attempts,
 | Method timeout | Sets the total time limit of one attempt, from hand-out. |
 | Heartbeat timeout | Can end a WaitFor or Execute attempt earlier when it makes no progress: no heartbeat or Dex Stream write for that long. Detects a stalled Worker sooner than the method timeout. |
 | Retry total duration | The retry budget. Starts at the first hand-out. Checked after an attempt fails, to decide whether to retry. |
-| Attempt deadline | The absolute end of the current attempt, supplied by the Server on the Context. |
+| Attempt deadline | The absolute end of the current attempt, supplied by the Server; the Go, Python, and TypeScript Contexts expose it; the Java and Rust Contexts do not. |
 
 - To bound one long attempt, set the method timeout, not the retry total duration.
 - To bound a long wait, set the method timeout and the retry total duration to the same maximum, with a few attempts and backoff. A deadline for the whole Flow uses the Flow timeout. A deadline for one wait uses a durable Timer Condition, as in the [deadline watchdog](patterns/polling-and-timers.md#deadline-watchdog).
 - The retry total duration counts from the first delivery. It is checked after an attempt fails, before scheduling another retry, and retrying can stop up to one backoff interval early. An already scheduled retry may wait past the budget in the queue and still run for a full method timeout. With Workers promptly available, the overrun is about one method timeout; queueing can make it longer. See [Workers, attempts, and time bounds](../../SKILL.md#workers-attempts-and-time-bounds). When that overrun is acceptable, "keep trying for up to X" is the retry total duration plus an Execute failure route that proceeds to a Step that handles the failure, and the Step needs no deadline guard of its own. When work must happen at the deadline, such as a notice or a withdrawal, use a [deadline watchdog](patterns/polling-and-timers.md#deadline-watchdog): it requests the deadline action independently of the retrying method. Timers may fire late, and cancellation cannot undo or forcibly stop external calls, so a strict external cutoff needs a deadline check or fence at the receiver.
 - Check the default retry total duration, 4 hours, against the method timeout. Set it when attempts are long enough that the default would allow fewer retries than you want, or when retries must stop sooner. To keep retries inside a wait window, use the rule above. To allow several near-full-length attempts, size it at about maximum attempts times the method timeout, plus the backoff between them.
 - Dex ends a hung attempt through the heartbeat timeout and the method timeout, sends cancellation to the handler, and retries by the retry policy. Pass the cancellation signal into each call that accepts one. A call that cannot observe cancellation keeps its Worker slot until it returns, even after Dex ends the attempt, so usually give such a call its own timeout. The method or heartbeat timeout still bounds the attempt, and Dex schedules later attempts by the retry policy. Add a tighter call timeout also when the business needs a bound shorter than the method timeout.
-- When a call needs its own timeout, use the attempt deadline to size it and to decide whether another unit of work fits. Check for absence first: some tasks have no deadline. Do not store it in a checkpoint or Step input, and do not recompute it from the method timeout. Wrap the call in a child context or the SDK's cancellation mechanism.
+- When a call needs its own timeout, use the attempt deadline, where the Context exposes it, to size it and to decide whether another unit of work fits. Check for absence first: some tasks have no deadline. Do not store it in a checkpoint or Step input, and do not recompute it from the method timeout. Wrap the call in a child context or the SDK's cancellation mechanism.
 
 ### Heartbeats and checkpoints
 
@@ -193,11 +193,11 @@ Every WaitFor and Execute call receives ordinary Attributes and Channel size met
 The Step Context exposes, among others:
 
 - the Flow ID, Run ID, Step execution ID, and attempt number;
-- the Flow run's start time. It is the same for every Step, retry, timeout handler, and RPC in one run, while the wall clock differs per retry ([Must 1](../../SKILL.md#must)). Derive identities from the Flow ID, adding the Run ID when the Flow ID can be reused; the start time is not a unique run identity.
+- the Flow run's start time. It is the same for every Step, retry, timeout handler, and RPC in one run, while the wall clock differs per retry ([IDs across repeats](../../SKILL.md#ids-across-repeats)). Derive identities from the Flow ID, adding the Run ID when the Flow ID can be reused; the start time is not a unique run identity.
 - the last heartbeat value;
 - the recovery error and whether WaitFor failed;
 - Timer and SubFlow results of the Wait;
-- the attempt deadline and the cancellation signal;
+- the cancellation signal, and in Go, Python, and TypeScript the attempt deadline;
 - Attribute, AttributeMap, and Channel access for the loaded snapshot.
 
 ## Configure the method policy where defaults do not fit
@@ -215,9 +215,9 @@ Exact option names and defaults are in the language's Developer reference.
 
 ## External effects
 
-- Key each external effect by an ID that is stable across attempts and send it to the target service ([Must 1](../../SKILL.md#must)): the Flow ID plus the Step execution ID when one Step execution is one logical effect (adding the Run ID when the Flow ID can be reused, because a later run numbers executions from the start again, and an operation key when one Step execution makes several effects), or a business key when a later execution can repeat it.
+- Key each external effect by an ID that the target service deduplicates and that stays the same across the repeats that apply ([Must](../../SKILL.md#must)): a key derived from business data, such as an order number with the action's name, or the Flow ID with a fixed name of the call when the Flow makes it once. Add the Run ID when a later run under the same Flow ID is a new logical operation, and an operation key when one method makes several effects. The Flow ID with the Step execution ID is stable across retries and overlapping attempts, and across time travel only for a Step type whose executions are always created in the same order; see [IDs across repeats](../../SKILL.md#ids-across-repeats).
 - Dex retries a possibly-run attempt, so on such a failure reconcile at the target by that key before you repeat or report.
 - Record the outcome in the Flow.
-- Correctness state lives in Dex, not Worker memory ([Must 2](../../SKILL.md#must)).
+- Correctness state lives in Dex, not Worker memory ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)).
 
 Tests for these boundaries are in [testing.md](testing.md#scenarios-to-cover).

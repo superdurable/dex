@@ -70,6 +70,7 @@ An RPC result can cancel active Steps of its Flow, selected by Step type across 
 - A canceled Step is not retried and its failure route does not run. Dex discards its later decision and writes.
 - The cancel set is chosen at commit time, not from the handler's snapshot. A selected Step may already have finished, and a new Step of that type may have started and gets canceled. Dex does not reject the RPC in either case.
 - Attribute locks do not close this race. They serialize only with methods that declare the same lock.
+- During a [pending close](../../SKILL.md#flow-timeout-completion-and-cancellation), an RPC that commits still writes its Attributes and returns success, but the Steps it starts or cancels are ignored, so a follow-up Step it starts never runs.
 - The handler cannot know which Steps the cancel hit. When the outcome depends on whether a canceled Step finished, decide in a follow-up Step that reads committed state.
 - Step code must honor cancellation. A handler that ignores it keeps running and its external calls still take effect. Keep external effects idempotent.
 

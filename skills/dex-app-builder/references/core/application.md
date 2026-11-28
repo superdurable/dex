@@ -52,7 +52,7 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 
 - Each Worker serves one task queue (the default task queue when it names none). Inside it, the Worker opens streams for its app Worker ID and every Flow type it registers. Within one task queue, a Flow type name must mean one Flow definition.
 - The app Worker ID identifies one process and must change after every restart. Let the SDK generate it unless the deployment needs an explicit process-unique value.
-- Dex first offers a Flow's work to the Worker that last served it, then to any Worker of the Flow type. When the previous process has no connected streams, Dex goes straight to the Flow type. Sticky routing does not promise the same process, so state a later handler needs lives in Dex ([Must 2](../../SKILL.md#must)). Sticky routing stays inside the Flow's task queue; it never crosses task queues.
+- Dex first offers a Flow's work to the Worker that last served it, then to any Worker of the Flow type. When the previous process has no connected streams, Dex goes straight to the Flow type. Sticky routing does not promise the same process, so state a later handler needs lives in Dex ([Workers](../../SKILL.md#workers-attempts-and-time-bounds)). Sticky routing stays inside the Flow's task queue; it never crosses task queues.
 - A Step that no Worker takes waits durably in Dex until a Worker takes it. It consumes no retry. A closing Flow timeout, a stop, another close, or a cancellation of the Step ends the wait; without a Flow timeout it can wait forever.
 - A Step type that no connected Worker registers also waits, with its attempt number, snapshot, and locks, without blocking other Step types.
 - An RPC never queues. It fails with UNAVAILABLE when no Worker takes it within the dispatch wait, or with FAILED_PRECONDITION naming the RPC when no connected Worker registers it.
@@ -115,7 +115,7 @@ Upgrade order and rollback rules are in the [Server upgrades reference](https://
 
 ## Versioning Flow code
 
-Dex does not replay Flow handler code, so a deployment never causes a replay nondeterminism error. Open Flows can still meet changed business rules, missing Step implementations, renamed RPCs, or incompatible data. An open Flow is a durable contract between its recorded state and future Worker code; see [Must 4](../../SKILL.md#must).
+Dex does not replay Flow handler code, so a deployment never causes a replay nondeterminism error. Open Flows can still meet changed business rules, missing Step implementations, renamed RPCs, or incompatible data. An open Flow is a durable contract between its recorded state and future Worker code; see [Workers](../../SKILL.md#workers-attempts-and-time-bounds) for how an open run finds its code and state.
 
 Treat these names as data: Flow types, Step types, RPC names, Attribute, AttributeMap, Channel, ChannelMap, and Stream names, map instance keys, chunk sizes, partition counts, hash algorithms, and value schemas.
 

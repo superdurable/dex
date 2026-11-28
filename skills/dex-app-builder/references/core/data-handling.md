@@ -71,7 +71,7 @@ The [Payload encryption reference](https://docs.superdurable.io/reference/server
 Dex first offers a Flow's work to the Worker process that last served it, then to any Worker of the Flow type. Repeated Steps and RPCs of one Flow therefore tend to find a warm BlobCache.
 
 - Sticky routing is a performance hint, not a placement guarantee. After a restart, a disconnect, or a busy Worker, another Worker serves the Flow and warms its own cache.
-- So correctness state never lives only in Worker memory or its cache; see [Must 2](../../SKILL.md#must).
+- So correctness state never lives only in Worker memory or its cache; see [Workers](../../SKILL.md#workers-attempts-and-time-bounds).
 
 For API or MCP agents that need no code sandbox, this path is usually enough:
 

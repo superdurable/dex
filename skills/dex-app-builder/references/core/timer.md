@@ -15,7 +15,7 @@ A Timer is a durable Dex Server timer used as a WaitFor Condition. It survives W
 
 ## Rules
 
-- A Timer is a Condition, not an in-process timer. Never sleep in a handler to model a business delay ([Must 2](../../SKILL.md#must)). Deadline and late-firing facts are in [Timers](../../SKILL.md#timers).
+- A Timer is a Condition, not an in-process timer. A sleep in a handler is lost with its Worker and wakes no Flow ([Workers](../../SKILL.md#workers-attempts-and-time-bounds), [Timers](../../SKILL.md#timers)). Deadline and late-firing facts are in [Timers](../../SKILL.md#timers).
 - In Execute, check whether the Timer fired, through the Context, before you assume which Condition won.
 - Timers in Until, AnyOf, and AllOf need no names. Give a Timer an ID when an operation selects it by ID, and always inside AnyCombinationOf.
 - After each accepted activity in an inactivity window, return to a Step that creates a new Timer.
