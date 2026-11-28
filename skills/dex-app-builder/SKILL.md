@@ -145,7 +145,7 @@ signatures are in the SDK reference for the application's language.
 
 - A handler that fails without committing records nothing, so a retry runs it again. A caller-side deadline or cancellation, or UNAVAILABLE after the Server's 60-second commit budget of a transactional or locking RPC, leaves the outcome unknown: the RPC may still commit. On a run over its state budget, an RPC that changes no Flow state keeps no reply or request ID.
 - Each run keeps only its newest request IDs, one window for all its RPCs (see [Default limits](#default-limits)); an older ID runs as a new request. A new run starts with none.
-- One RPC call, including its wait for a Worker, is limited by the RPC timeout set when the RPC is registered, 60 seconds by default; the caller cannot raise it.
+- One RPC call, including its wait for a Worker, is limited by the RPC timeout from the RPC's registration options, 60 seconds by default; the SDK Client has no per-call override.
 - An RPC fails with UNAVAILABLE when no Worker takes it within the dispatch wait, 10 seconds by default; a Step attempt waits for a Worker instead.
 - An RPC can cancel Steps by Step type across the Flow. Dex picks the Steps to cancel when the RPC commits, not from the handler's snapshot, so a selected Step may already have committed its result. The handler cannot know the outcome; a later Step reads committed state.
 - A successful RPC that publishes confirms only that the message is stored, not that a Step has handled it.
