@@ -38,7 +38,7 @@ The Client Attribute read returns committed values of known Attributes and exact
 
 - **One server read.** All requested keys go in one request and come from the same commit.
 - **No Worker.** Dex serves it directly. It works while no Worker runs and costs less latency than an RPC.
-- **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. It takes no run ID.
+- **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. With a run ID it reads that run, even when a newer run exists.
 - **Committed state.** It never sees writes that a running Step or RPC has staged, hard-delete values included.
 - **Batch only.** There is no single-Attribute method. Separate calls can read different commits, so usually pass every Attribute and map instance the response needs in one call. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
 - **Exact keys.** Each read is a singleton Attribute or one exact map instance. It cannot enumerate a map and does not read Channels.

@@ -107,7 +107,7 @@ API choice for a known Flow ID:
 
 | Need | API |
 | --- | --- |
-| Current or latest run status, type, start time | DescribeFlow. It does not wait. A missing Flow returns Flow not found. |
+| Current or latest run status, type, start time | DescribeFlow. It does not wait. With a run ID, it describes that run. A missing Flow returns Flow not found. |
 | Business state | Client Attribute read or typed read-only RPC |
 | Terminal result and output | WaitForFlow |
 | Find Flow IDs | SearchFlows |

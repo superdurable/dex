@@ -238,11 +238,10 @@ The parent receives each child's result durably:
   is a business decision. It ties them when the business can reopen a child
   under the same number while the parent still waits, and the parent must
   not mix runs. When a child number has only one run, the Flow ID is enough.
-  A parent that ties them accepts only reads, reports, and stops that it can
-  tie to the claimed run. The
-  [Production checklist](/design-patterns/subflows/child-flows-with-business-identity#production-checklist)
-  shows the read order.
-  A newer run is another attempt, which the parent handles by business
+  A parent that ties them accepts only reports that carry the claimed run ID.
+  It reads, waits for, and stops the claimed run by its run ID. Client calls
+  with a run ID address that run even when a newer run exists, and a closed
+  run keeps its final status and Attribute values. A newer run is another attempt, which the parent handles by business
   policy.
 - Every start of the same logical request derives the same Flow ID and
   request ID. Another logical request can still start a run with the same
