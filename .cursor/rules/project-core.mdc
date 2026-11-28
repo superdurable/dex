@@ -52,7 +52,8 @@ change skills.
 
 If a Dex change makes existing skills text wrong, remove or correct that text
 in the same work item. That correction adds a skills fragment with
-`bump: patch`. Do not add new volatile detail while doing so.
+`bump: patch`. Add only design-relevant facts while doing so; per-language
+API detail stays in the Developer reference.
 
 Skills hold design-relevant Dex facts, design patterns, and very few hard
 rules. UI and feature details, and edge cases that do not change a design,
@@ -61,8 +62,9 @@ restating it.
 
 Skills contain no Dex version numbers and no release-tag pins.
 Source skills link examples on `main`; the skills mirror sync pins them to the synced Dex commit.
-A skills change does not wait for a Dex release, and a Dex release never
-requires a skills change. A skills release-prep pull request assembles the
+A skills change does not wait for a Dex release. A Dex release that changes a
+design-relevant fact, such as a behavior table, a default, or a limit stated
+in skills, updates skills; other releases do not. A skills release-prep pull request assembles the
 fragments and bumps the version. Merging it syncs `skills/` to the read-only
 `superdurable/dex-skills` mirror, which publishes the skill release.
 
@@ -159,7 +161,9 @@ writes both. Developer reference pages mark its changes "Changed in 1.NN.P".
 
 ## Docs Information Placement
 
-Dex knowledge lives in two layers. Each fact has one home.
+Dex knowledge lives in two layers. The Developer reference is the
+authoritative home of each fact; SKILL.md may restate a design-relevant fact
+and links the reference for the current value.
 
 | Layer | For humans | For coding agents | Changes |
 | --- | --- | --- | --- |

@@ -53,8 +53,10 @@ directly at the repository root.
 
 ## Skill content: the stable layer for agents
 
-The Skills are the coding-agent version of Dex's stable docs layer. They cover
-the same scope as the docs Primitives, Components, and Design pattern pages.
+The Skills are the coding-agent version of Dex's stable docs layer. They state
+the concepts and patterns of the docs Primitives, Components, and Design
+pattern pages, plus the design-relevant facts that the docs keep in the
+Developer reference.
 Write that content for agents: mental models, decision tables, rules,
 anti-patterns, code skeletons, and checklists. Keep every stable fact an agent
 needs to write correct code. Each rule must be complete without its links.
@@ -125,7 +127,9 @@ A typo, link, or wording-only change needs no fragment; its pull request
 description contains a line `skills-release: no bump needed: <reason>`, which
 Check Gate CI accepts instead. Never edit `VERSION`, `dex-app-builder/VERSION`, the
 manifests, or `CHANGELOG.md` by hand; a release-prep pull request assembles
-the fragments and writes them. A Dex release never requires a skills change.
+the fragments and writes them. A Dex release that changes a design-relevant
+fact, such as a behavior table, a default, or a limit stated in the skills,
+updates the skills; other releases do not.
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
 stable knowledge. Check Gate CI fails a pull request that changes a mapped

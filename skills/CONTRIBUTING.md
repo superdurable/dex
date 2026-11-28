@@ -23,9 +23,10 @@ companion skill, or duplicated Core/Go handbooks.
 
 ## Skill content
 
-The Skills are the coding-agent version of Dex's stable docs layer. They cover
-the same scope as the docs Concepts, Components, and Design pattern pages,
-written as mental models, decision tables, rules, anti-patterns, code
+The Skills are the coding-agent version of Dex's stable docs layer. They state
+the concepts and patterns of the docs Concepts, Components, and Design pattern
+pages, plus the design-relevant facts that the docs keep in the Developer
+reference, written as mental models, decision tables, rules, anti-patterns, code
 skeletons, and checklists. Each rule must be complete without its links.
 
 Skills state design-relevant Dex facts inline, including stable behavior
@@ -42,14 +43,15 @@ no release-tag pins. They link only to the Developer reference and to
 Change the Skills only when a stable programming rule, a Primitive concept or
 relation, a Component, a design pattern, or a design-relevant fact changes. Update the matching docs
 pages in the same pull request, or state in the pull request why they need no
-change. A skills change does not wait for a Dex release, and a Dex release
-never requires a skills change.
+change. A skills change does not wait for a Dex release. A Dex release that
+changes a design-relevant fact, such as a behavior table, a default, or a
+limit stated in the Skills, updates the Skills; other releases do not.
 
-The Skills hold only stable core rules. UI and feature details belong in the
-Developer reference. So do nuanced edge-case semantics, such as the order of
-waiters and locks, cancellation and close corner cases, retry deduplication
-details, and naming-restriction corner cases. Link to that reference instead
-of restating it.
+The Skills hold design-relevant facts, design patterns, and very few hard
+rules. Edge-case semantics that change a design, such as the order of waiters
+and locks or cancellation and close corner cases, may be stated inline. UI and
+feature details, and edge cases that do not change a design, belong in the
+Developer reference. Link to that reference instead of restating them.
 
 ## Keep skills and docs in step
 
