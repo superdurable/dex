@@ -4,6 +4,39 @@
 
 Runtime that proposes, commits, and applies server-zd commands and runs their effects: dispatch, timers, deliveries, and recovery.
 
+## Extension record submission
+
+An embedding application defines each extension record's payload. server-zd stamps,
+routes, orders, and acknowledges the record without decoding its payload.
+`CommandCommitter::submit_extension_record(routing_hash, payload, urgency)` derives
+the partition from `routing_hash`. The committer's record kind is fixed at construction.
+A Flow committer rejects extension records with `ExtensionSubmitError::WrongRecordKind`.
+An extension committer rejects Flow commands with `CommitError::Unavailable`.
+Neither wrong-kind submission stamps or enqueues a record.
+
+Before stamping, the extension entry checks the largest possible stamped encoding
+against `min(MAX_RECORD_LENGTH, max_unapplied_bytes)`. A record that could exceed
+that limit returns `ExtensionSubmitError::RecordTooLarge` without stamping or
+enqueueing. Other submission failures match the Flow entry's failures and are
+wrapped in `ExtensionSubmitError::Commit`.
+
+Both entries use the same stamping and enqueueing function, per-partition stamp
+lock, watermarks, and unapplied byte budget. The function stamps the node epoch,
+command ID, and `proposed_at_micros = max(wall clock, partition watermark + 1)`.
+Encoding and enqueueing occur under the partition lock, so log order equals stamp
+order within that partition. The watermark advances only after enqueueing.
+The function returns the stamped value and its ticket, or a `CommitError` when
+nothing was enqueued.
+
+The extension entry returns an `ExtensionStamp` and an `ExtensionCommitTicket`.
+The stamp contains the same values as the log envelope; apply reads them to order
+the partition's records and identify waiting submitters. The ticket resolves after
+the record commits and applies to the local store. Its `ExtensionCommitted` result
+includes the position, stamp, and application's apply outcome. server-zd passes
+that opaque outcome unchanged to the submitter, which downcasts it to its own
+type. `ExtensionCommitTicket::wait` returns a pipeline error on failure, or
+`CommitError::NodeStopping` if the pipeline drops the ticket without resolving it.
+
 ## History segment reads
 
 GetHistoryEvents runs apply's read model in rounds. Each round pins a committed view, reads the page from local rows and the segments loaded so far, and releases the view. When the model needs more uploaded segments, `HistorySegmentReader` fetches their headers and records blocks after the view is gone, at most `history.objectReadConcurrency` at once, so slow object storage never holds a view. The next round reads a new view, so a segment pruned meanwhile reads as pruned and a purged run as not found. The last round, the eighth by default, returns the shorter page of the events before the first unloaded segment, with a next page token, so every read makes progress with bounded work. A segment object still missing on a second round fails the read with UNAVAILABLE. Decoded headers stay in a bounded memory cache. Header and records block bytes also go to a `dex-blob-cache` disk cache, in `<localStorage.directory>-history-read-cache` so that setting the store aside never moves it, keyed by object key, content checksum, and part, which needs no invalidation because uploaded objects never change; keys of hard-delete value references are refused. The reader is created once per process and opens the disk cache on first use.

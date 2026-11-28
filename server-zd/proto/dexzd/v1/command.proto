@@ -26,8 +26,7 @@ message LogRecord {
   }
 }
 
-// A record whose payload the embedding application defines. server-zd never decodes the payload.
-// server-zd stamps, routes, orders, and acknowledges the record.
+// An application defines the payload; server-zd stamps, routes, orders, and acknowledges the record without decoding the payload.
 message ExtensionRecord {
   // Epoch of the owner that proposed the record.
   uint64 epoch = 1;

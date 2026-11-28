@@ -147,8 +147,7 @@ impl CommandCommitter {
     /// partition's stamp lock, before the command is encoded and enqueued. Other partitions keep
     /// stamping meanwhile.
     ///
-    /// Returns what [`Self::submit`] returns. On a node that commits extension records it
-    /// enqueues nothing and returns [`CommitError::Unavailable`].
+    /// Returns what [`Self::submit`] returns.
     pub fn submit_with_final_stamp(
         &self,
         context: ApplyContext,
@@ -204,18 +203,8 @@ impl CommandCommitter {
         )
     }
 
-    /// Stamps one extension record (epoch, command ID, proposed_at_micros = max(wall clock,
-    /// partition watermark + 1)) and enqueues it in the commit pipeline in one step. It shares
-    /// the stamp order, the watermarks, and the unapplied budget with Flow commands. The
-    /// partition is the one `routing_hash` selects. server-zd never decodes `payload`.
-    ///
-    /// Returns the stamp and a ticket that resolves once the record is committed and applied to
-    /// the local store; the ticket carries the embedding application's apply outcome.
-    ///
-    /// Fails without stamping or enqueueing with [`ExtensionSubmitError::WrongRecordKind`] on a
-    /// node that commits Flow commands, and with [`ExtensionSubmitError::RecordTooLarge`] when
-    /// the stamped record could exceed the smaller of the log's record limit and the unapplied
-    /// budget. Otherwise fails like [`Self::submit`], wrapped in [`ExtensionSubmitError::Commit`].
+    /// Stamps and enqueues by `routing_hash`, returning its stamp and ticket;
+    /// see [submission constraints](https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-engine/README.md#extension-record-submission).
     pub fn submit_extension_record(
         &self,
         routing_hash: FlowHash,
@@ -275,11 +264,7 @@ impl CommandCommitter {
         Ok(stamped)
     }
 
-    /// Stamps one record of a serving node's `partition` and enqueues it under the partition's
-    /// stamp lock, so log order equals stamp order within the partition. `encode` runs under the
-    /// lock; the watermark advances only when the record is enqueued.
-    ///
-    /// Returns the stamped value and the ticket, or the [`CommitError`] when nothing was enqueued.
+    /// Encodes and enqueues under the partition stamp lock; advances the watermark only after enqueueing.
     fn stamp_and_enqueue<Stamped, Ticket>(
         &self,
         partition: PartitionId,

@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Extension records: records of an application that embeds server-zd. server-zd stamps, routes,
-//! orders, and acknowledges them, and never decodes their payload.
+//! server-zd stamps, routes, orders, and acknowledges embedding applications' extension records without decoding their payloads.
 
 use std::any::Any;
 use std::fmt;
@@ -24,16 +23,10 @@ use crate::flow_coordination::CommitError;
 #[cfg(test)]
 mod extension_record_submit_tests;
 
-/// The result that the embedding application's apply returns for one extension record.
-///
-/// server-zd never inspects it. It hands the value to the record's submitter through
-/// [`ExtensionCommitted::outcome`], and the submitter downcasts it to the application's own type.
+/// Application-defined apply result; server-zd passes it uninspected through [`ExtensionCommitted::outcome`] for the submitter to downcast.
 pub type ExtensionRecordOutcome = Box<dyn Any + Send>;
 
-/// The values that server-zd stamps on one extension record before it enqueues the record.
-///
-/// The same values are in the record's log envelope. server-zd reads them back at apply time to
-/// order the partition's commands and to find the record's waiting submitter.
+/// Server-stamped envelope values used during apply to order records and identify waiting submitters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExtensionStamp {
     /// Epoch of the node that stamped the record.
@@ -85,10 +78,7 @@ impl ExtensionCommitTicket {
         (ExtensionCommitTicketSender { sender }, Self { receiver })
     }
 
-    /// Waits for the commit result.
-    ///
-    /// Returns the committed record with its apply outcome, the pipeline's error, or
-    /// [`CommitError::NodeStopping`] when the pipeline dropped the ticket without resolving it.
+    /// Waits for the committed record and outcome, a pipeline error, or [`CommitError::NodeStopping`] if dropped unresolved.
     pub async fn wait(self) -> Result<ExtensionCommitted, CommitError> {
         match self.receiver.await {
             Ok(result) => result,
@@ -140,8 +130,7 @@ pub(crate) enum CommittedRecordKind {
     ExtensionRecord,
 }
 
-/// Returns the encoded `LogRecord` length of an extension record holding `payload` once stamped
-/// with the largest-encoding stamp values, so no real stamp makes the record longer.
+/// Returns the maximum stamped `LogRecord` encoding length for `payload`, covering every possible stamp.
 pub(crate) fn largest_stamped_extension_record_bytes(payload: &Bytes) -> usize {
     LogRecord {
         partition: u32::MAX,
