@@ -15,6 +15,7 @@ use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_keyspace::PartitionId;
 use tokio::sync::{OwnedSemaphorePermit, watch};
 
+use crate::commit::extension_record::ExtensionCommitTicketSender;
 use crate::flow_coordination::{CommitError, CommitTicketSender};
 
 /// Why a node stopped serving.
@@ -62,15 +63,31 @@ pub(crate) enum NodeState {
     Stopped(NodeStopReason),
 }
 
-pub(crate) struct PendingCommand {
-    pub(crate) responder: CommitTicketSender,
+pub(crate) struct PendingCommand<Responder = CommitTicketSender> {
+    pub(crate) responder: Responder,
     /// Releases the command's bytes from the unapplied budget when dropped.
     pub(crate) _admission: OwnedSemaphorePermit,
 }
 
+/// A submitted log record that waits for apply, by the kind of record.
+pub(crate) enum PendingCommit {
+    FlowCommand(PendingCommand),
+    ExtensionRecord(PendingCommand<ExtensionCommitTicketSender>),
+}
+
+impl PendingCommit {
+    /// Fails the submitter's ticket with `error`.
+    pub(crate) fn fail(self, error: CommitError) {
+        match self {
+            Self::FlowCommand(command) => command.responder.resolve(Err(error)),
+            Self::ExtensionRecord(record) => record.responder.resolve(Err(error)),
+        }
+    }
+}
+
 #[derive(Default)]
 struct PendingCommands {
-    by_command_id: BTreeMap<Vec<u8>, PendingCommand>,
+    by_command_id: BTreeMap<Vec<u8>, PendingCommit>,
     stop_reason: Option<NodeStopReason>,
 }
 
@@ -150,10 +167,10 @@ impl CommitState {
             pending.stop_reason = Some(reason.clone());
             std::mem::take(&mut pending.by_command_id)
         };
-        for (_, command) in drained {
-            command.responder.resolve(Err(CommitError::NodeStopping {
+        for (_, pending) in drained {
+            pending.fail(CommitError::NodeStopping {
                 detail: reason.to_string(),
-            }));
+            });
         }
     }
 
@@ -224,22 +241,34 @@ impl CommitState {
     pub(crate) fn register(
         &self,
         command_id: Vec<u8>,
-        command: PendingCommand,
+        commit: PendingCommit,
     ) -> Result<(), CommitError> {
         let mut pending = self.lock_pending();
         if let Some(reason) = &pending.stop_reason {
             let error = CommitError::NodeStopping {
                 detail: reason.to_string(),
             };
-            command.responder.resolve(Err(error.clone()));
+            commit.fail(error.clone());
             return Err(error);
         }
-        pending.by_command_id.insert(command_id, command);
+        pending.by_command_id.insert(command_id, commit);
         Ok(())
     }
 
-    pub(crate) fn take(&self, command_id: &[u8]) -> Option<PendingCommand> {
+    pub(crate) fn take(&self, command_id: &[u8]) -> Option<PendingCommit> {
         self.lock_pending().by_command_id.remove(command_id)
+    }
+
+    /// Takes the pending Flow command with `command_id`; a Flow record never acknowledges another kind.
+    pub(crate) fn take_flow_command(&self, command_id: &[u8]) -> Option<PendingCommand> {
+        let mut pending = self.lock_pending();
+        match pending.by_command_id.remove(command_id)? {
+            PendingCommit::FlowCommand(command) => Some(command),
+            other @ PendingCommit::ExtensionRecord(_) => {
+                pending.by_command_id.insert(command_id.to_vec(), other);
+                None
+            }
+        }
     }
 
     pub(crate) fn halt_partition(&self, partition: PartitionId) {

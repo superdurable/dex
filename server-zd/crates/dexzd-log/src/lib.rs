@@ -16,8 +16,8 @@ mod stream_recovery;
 mod stream_tail_reader;
 
 pub use batch_codec::{
-    BatchContent, BatchRecord, DecodedBatch, LogError, StreamIdentity, decode_batch, encode_batch,
-    read_partition_records,
+    BatchContent, BatchRecord, DecodedBatch, LogError, MAX_RECORD_LENGTH, StreamIdentity,
+    decode_batch, encode_batch, read_partition_records,
 };
 pub use batch_read_ahead::{LogReadAheadConfig, OrderedBatchReader};
 pub use commit_pipeline::{

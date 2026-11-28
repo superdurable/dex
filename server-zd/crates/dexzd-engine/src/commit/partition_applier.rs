@@ -665,7 +665,7 @@ impl FrameApplier {
             .map_err(|error| FrameFailure::StoreFailed(error.to_string()))?;
         // Taken under the write admission, so `stop` cannot fail these tickets after the write.
         for command in &mut applied {
-            command.pending = self.state.take(&command.command.command_id);
+            command.pending = self.state.take_flow_command(&command.command.command_id);
         }
         Ok(Some(applied))
     }
@@ -952,7 +952,7 @@ impl FrameApplier {
             else {
                 continue;
             };
-            if let Some(pending) = self.state.take(&command.command_id) {
+            if let Some(pending) = self.state.take_flow_command(&command.command_id) {
                 let error = detail.map_or_else(
                     || partition_stopped_error(frame.partition),
                     |detail| CommitError::Unavailable {

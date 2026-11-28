@@ -29,8 +29,9 @@ pub use attribute_sync::{
 pub use blocking_work::BlockingWorkPlacement;
 pub use command_applier::{CommandApplier, DeterministicCommandApplier};
 pub use commit::{
-    CommandCommitter, CommitConfig, CommittedStateView, EngineLocalStore, NodeStopReason,
-    ReplayCheck, ReplayMismatch,
+    CommandCommitter, CommitConfig, CommittedStateView, EngineLocalStore, ExtensionCommitTicket,
+    ExtensionCommitted, ExtensionRecordOutcome, ExtensionStamp, ExtensionSubmitError,
+    NodeStopReason, ReplayCheck, ReplayMismatch,
 };
 pub use effects::{
     AttemptDrainProgress, EffectDependencies, EffectError, EffectRunner, EffectTasks,
