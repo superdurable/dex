@@ -11,7 +11,7 @@ A Flow is one durable run of a business process, with a stable identity and life
 | Run ID | Dex Server | One run of that Flow ID | Time travel keeps it, so it never tells attempts within a run apart and is never a business revision. A claimed run ID can tie a child to its run; see [child jobs](#child-jobs-with-their-own-identity). |
 | Run attempt | Dex Server | Increments on each time travel of a run | Capture it before an operator mutation. |
 | Step type | the application | Stable name of a Step definition in the Flow | Part of the durable contract of open runs, not just a function name. |
-| Step execution ID | Dex Server | One execution of a Step type, formatted Step type plus a number | With the Flow ID, it keys an effect when one Step execution is one logical effect. A later run of the same Flow ID numbers executions from the start again, so add the run's start time when the Flow ID can be reused. A later execution that can repeat the same effect, such as a manual retry or a loop, gets a new ID, so key that effect by a business ID. |
+| Step execution ID | Dex Server | One execution of a Step type, formatted Step type plus a number | With the Flow ID, it keys an effect when one Step execution is one logical effect. A later run of the same Flow ID numbers executions from the start again, so include the Run ID when the effect belongs to one run and the Flow ID can be reused, and an operation key when one Step execution performs several effects. A later execution that can repeat the same effect, such as a manual retry or a loop, gets a new ID, so key that effect by a business ID. |
 | RPC name | the application | Durable name of an RPC handler | Usually a concrete action verb first. |
 
 Go, Java, Python, and Rust derive the default Flow type from the type or class name without its package or module. Flow types must therefore be unique within one Worker registry and on one Server. A generic Flow or Step type must override its type name. Dex Web and search show the Flow type as written.
@@ -170,7 +170,7 @@ The timeout handler is the Flow's last chance to record a business outcome and c
 - Configure its method timeout, heartbeat timeout, retry, failure route, durability, locks, and state loads in its timeout handler options. These need a positive Flow timeout and the handler policy.
 - Its timing starts after the deadline fires.
 - Active Steps, including Steps that wait on a Channel or Timer, keep running until the handler commits. ForceComplete or ForceFail then starts closing the Flow and cancels them, so those Steps need no deadline check of their own. GracefulComplete, or a GoTo to a Step that completes gracefully, waits until every other active Step ends. To start closing the Flow when the Timer fires, use the fail or cancel timeout policy.
-- When no work may start after the deadline, use the fail or cancel timeout policy, or give the handler a short retry budget and let it withdraw work by its stable reference.
+- When no new Step may start once Dex processes the timeout, use the fail or cancel timeout policy, or give the handler a short retry budget and let it withdraw work by its stable reference. The timeout can fire late, so a strict external cutoff is also enforced at admission or at the receiver.
 - It runs once per run. There is no Flow-level retry.
 - It may stage Attribute writes, Channel deletions, and Channel publications with its decision.
 - It receives ordinary Attributes and Channel sizes. AttributeMap values and pending messages need explicit selections in its options.

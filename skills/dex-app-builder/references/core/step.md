@@ -125,9 +125,9 @@ Both modes run the same attempts. Retry policy, method timeout, heartbeat timeou
 A method call is one logical execution. Its attempts share the maximum attempts, the retry total duration, and 1-based attempt numbers.
 
 - An attempt starts when Dex hands it to a Worker. Time spent waiting for locks or in the task queue does not count.
-- A Step that no Worker takes waits in a durable task queue. It does not fail and consumes no retry. Only a Flow timeout or a stop ends that wait.
+- A Step that no Worker takes waits in a durable task queue. It does not fail and consumes no retry. Only a closing Flow timeout, a stop, another close, or a cancellation of that Step ends that wait.
 - Do not rely on the order in which ready Steps start. Use a Channel or an Attribute lock when order matters.
-- Dex never hands the same attempt number to a second Worker. A Worker crash or disconnect after hand-out fails the attempt as possibly run and consumes a retry, in both modes.
+- A Worker crash or disconnect after hand-out fails the attempt as possibly run and consumes a retry, in both modes. Lock and snapshot state by attempt state, and the ASYNC case where the same attempt number runs again, are in the [attempt state table](../../SKILL.md#repeated-execution-snapshots-and-locks).
 - An attempt goes back to the queue without consuming a retry only when the Worker certainly never ran it: an unregistered Step type, a task never delivered, or a graceful Worker shutdown.
 - Attempts of one Step can overlap in time, because cancellation is cooperative. Keep handlers idempotent.
 - Dex sends cancellation to the Worker when a Step is canceled by a decision, an RPC, a stop, Flow close, or time travel. The handler sees it through the SDK's cancellation signal.
@@ -193,7 +193,7 @@ Every WaitFor and Execute call receives ordinary Attributes and Channel size met
 The Step Context exposes, among others:
 
 - the Flow ID, Run ID, Step execution ID, and attempt number;
-- the Flow run's start time. It is the same for every Step, retry, timeout handler, and RPC in one run, while the wall clock differs per retry ([Must 1](../../SKILL.md#must)). Derive identities from the Flow ID, adding this start time when the Flow ID can be reused. It does not identify a run across Flow ID reuse alone.
+- the Flow run's start time. It is the same for every Step, retry, timeout handler, and RPC in one run, while the wall clock differs per retry ([Must 1](../../SKILL.md#must)). Derive identities from the Flow ID, adding the Run ID when the Flow ID can be reused; the start time is not a unique run identity.
 - the last heartbeat value;
 - the recovery error and whether WaitFor failed;
 - Timer and SubFlow results of the Wait;
@@ -215,7 +215,7 @@ Exact option names and defaults are in the language's Developer reference.
 
 ## External effects
 
-- Key each external effect by an ID that is stable across attempts and send it to the target service ([Must 1](../../SKILL.md#must)): the Flow ID plus the Step execution ID when one Step execution is one logical effect (adding the run's start time when the Flow ID can be reused, because a later run numbers executions from the start again), or a business key when a later execution can repeat it.
+- Key each external effect by an ID that is stable across attempts and send it to the target service ([Must 1](../../SKILL.md#must)): the Flow ID plus the Step execution ID when one Step execution is one logical effect (adding the Run ID when the Flow ID can be reused, because a later run numbers executions from the start again, and an operation key when one Step execution makes several effects), or a business key when a later execution can repeat it.
 - Dex retries a possibly-run attempt, so on such a failure reconcile at the target by that key before you repeat or report.
 - Record the outcome in the Flow.
 - Correctness state lives in Dex, not Worker memory ([Must 2](../../SKILL.md#must)).

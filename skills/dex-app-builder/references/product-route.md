@@ -4,6 +4,19 @@ Read this file on the product route, before Stage 0. The SDK-only route does
 not need it. Then continue with every section of
 [SKILL.md](../SKILL.md#mental-model) from Mental model on.
 
+## Delivery
+
+Build the smallest coherent Dex product that satisfies the request. A clear
+implementation request authorizes its stated UI and routine engineering
+choices. Ask only for missing business facts, access, or consequential
+choices. Do not turn discovery, design, wireframes, or source checks into
+repeated approval gates. A clear build request is done only when every
+requested deliverable exists. Never hand back a partial implementation with
+the rest only described. Pause only the part that depends on a missing
+business fact, access, a required approval, an open consequential decision,
+or a required API you cannot verify in the installed package. Name what is
+missing and finish the rest.
+
 ## The workflow
 
 The product route builds the backend: the Flows, their Dex state, the Workers,

@@ -59,6 +59,8 @@ Each section names its Go folder. The other languages use the same folder name i
 | Append-only history that grows | [Sequentially chunked AttributeMap](patterns/flow-shapes-and-state.md#sequentially-chunked-attributemap) | [flow-shapes-and-state.md](patterns/flow-shapes-and-state.md) |
 | Keyed records with direct lookup | [Hash-partitioned AttributeMap](patterns/flow-shapes-and-state.md#hash-partitioned-attributemap) | [flow-shapes-and-state.md](patterns/flow-shapes-and-state.md) |
 | Durable AI agent | [Durable AI agents](patterns/ai-agents.md#durable-ai-agents) | [ai-agents.md](patterns/ai-agents.md) |
+| Interrupt one turn of a conversation or job | [Stop a turn with canceling steps](patterns/ai-agents.md#stop-a-turn-with-canceling-steps) | [ai-agents.md](patterns/ai-agents.md) |
+| Change Flow code while runs are open | [Versioning Flow code](application.md#versioning-flow-code) | [application.md](application.md) |
 
 Use Channels for durable commands, Attributes for durable state, and Streams for best-effort progress.
 

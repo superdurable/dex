@@ -15,14 +15,13 @@ This section maps an agent onto Dex. Model context, reasoning output, plan, tool
 ### Keep the conversation in Dex
 
 - A later model call may run on another Worker, so keep the messages in Dex state, not in Worker memory. A retry or a replacement Worker then rebuilds the model input from committed messages.
-- Store messages in a [sequentially chunked AttributeMap](flow-shapes-and-state.md#sequentially-chunked-attributemap). Keep the next sequence, retained range, summarized range, pending calls, and status in a small Attribute. Read known chunk keys; never enumerate the map to paginate.
+- Keep conversation state within the run's budget; a transcript that can grow fits a [sequentially chunked AttributeMap](flow-shapes-and-state.md#sequentially-chunked-attributemap). Keep the next sequence, retained range, summarized range, pending calls, and status in a small Attribute. Read known chunk keys; never enumerate the map to paginate.
 - When compaction deletes archived chunks, commit the summary that covers them before or with the deletes, so no commit leaves messages that neither a chunk nor the summary holds.
 - Keep per-session configuration, such as model choice, effort, or tool policy, in its own Attribute, changed through a typed RPC. The first Step of a turn copies it into the turn state, so a change applies at the next turn. Store references such as a model ID or connection name; credentials follow [Attributes and secrets](../../../SKILL.md#attributes-loading-and-secrets).
 
 ### Plans and output
 
-- Keep a short plan in a regular Attribute that is replaced as one value.
-- Bind plan approval to the current plan revision through a Channel.
+- When the product supports editable plans, keep the approved revision in a regular Attribute that is replaced as one value, and bind plan approval to the current plan revision through a Channel.
 - Commit completed assistant messages and tool results to Attributes. Stream token deltas, tool progress, and status. Streams can drop messages, so the UI recovers from durable state.
 - Raise the heartbeat timeout for model calls that can stay silent; see [step.md](../step.md#heartbeats-and-checkpoints).
 
@@ -80,6 +79,7 @@ rpc stopTurn(turn)                   // transactional, locks turnState
 - The commit Step that schedules a tool checks the stop request under the turn-state lock and marks the call admitted in the same commit as its move to RunTool. The call counts as in flight from then on, even while RunTool still waits in the queue.
 - Stop does not cancel a Step that runs a non-idempotent tool: cancellation cannot undo its external effect. An admitted call stays in flight until its CommitToolResult, or a later resolve path, records the outcome and settles the turn.
 - Dex picks the Steps to cancel when Stop commits, so a model Step may already have committed. Each commit Step checks the stop request, so no new tool call is admitted after Stop commits. Calls admitted earlier may still start or finish and must be resolved. When an external action must never start after Stop, the receiver needs its own fence.
+- Canceling by Step type selects every active Step of those types in the Flow. When one session can run several turns at once, keep turns serial or run each turn in its own Flow, because a cancel cannot single out one turn's Step. Streamed text already sent stays sent and can repeat or miss deltas, so the UI tags live text by turn and replaces it with the committed turn snapshot after Stop or completion.
 - The resolution Step takes the turn-state lock, reloads committed messages and pending calls, keeps every committed message and result, records as canceled only planned calls that were never admitted, leaves admitted calls to their commit Step, clears approval and Timer state, and marks the turn stopped once no call is in flight. It is idempotent.
 
 ### Long waits and the browser

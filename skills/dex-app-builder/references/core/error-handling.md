@@ -56,7 +56,7 @@ A start is atomic per Flow ID, so a read before it only adds a round trip and st
 Dex is the start deduplication boundary. It compares only the Request ID, not the input or options; see [Starting a Flow and ID reuse](../../SKILL.md#starting-a-flow-and-id-reuse) for the reuse policy and Request ID tables.
 
 - Derive the Flow ID from the logical operation or resource.
-- Derive the start Request ID from the complete logical start request. Keep it the same across retries of that request. Never reuse it for a different request: Dex treats it as a retry of the earlier start.
+- Give each logical start one stable Request ID, such as an operation ID the caller stores or one derived from the complete logical request. Keep it the same across retries of that start. Never reuse it for a different logical start, even one with an identical payload: Dex treats it as a retry of the earlier start.
 - A table, row, outbox, lease, lock, cache, or admission projection added only to deduplicate starts repeats what the Flow ID already does. To serialize starts across Flow IDs, start them from one owner Flow.
 
 A stable Request ID alone does not suppress AlreadyStarted; add the SDK's ignore-already-started option, and a retry of the latest run's start returns that run. The exact option names are in the [StartFlowOptions reference](https://docs.superdurable.io/reference/python/start-flow-options#flow-id-request-id-and-already-started).

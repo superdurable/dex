@@ -53,7 +53,7 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 - Each Worker serves one task queue (the default task queue when it names none). Inside it, the Worker opens streams for its app Worker ID and every Flow type it registers. Within one task queue, a Flow type name must mean one Flow definition.
 - The app Worker ID identifies one process and must change after every restart. Let the SDK generate it unless the deployment needs an explicit process-unique value.
 - Dex first offers a Flow's work to the Worker that last served it, then to any Worker of the Flow type. When the previous process has no connected streams, Dex goes straight to the Flow type. Sticky routing does not promise the same process, so state a later handler needs lives in Dex ([Must 2](../../SKILL.md#must)). Sticky routing stays inside the Flow's task queue; it never crosses task queues.
-- A Step that no Worker takes waits durably in Dex until a Worker takes it. It consumes no retry. A Flow timeout or stop ends the wait; without a Flow timeout it can wait forever.
+- A Step that no Worker takes waits durably in Dex until a Worker takes it. It consumes no retry. A closing Flow timeout, a stop, another close, or a cancellation of the Step ends the wait; without a Flow timeout it can wait forever.
 - A Step type that no connected Worker registers also waits, with its attempt number, snapshot, and locks, without blocking other Step types.
 - An RPC never queues. It fails with UNAVAILABLE when no Worker takes it within the dispatch wait, or with FAILED_PRECONDITION naming the RPC when no connected Worker registers it.
 - A Worker that does not register a requested Step type or RPC name declines it before any application code runs. Dex tries another Worker without consuming an attempt.
@@ -121,7 +121,8 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 
 ### Lock business behavior at Flow start
 
-- When a rule change must not affect open Flows, persist a business version at start, in an Attribute or the start input, and branch on it. Do not branch on the Worker build.
+- When a rule change must not affect open Flows, persist a business version at start, in an Attribute or the start input, and branch on it. Do not branch on the Worker build: an open run is not pinned to one. Runs started before the version existed have none, so the code gives an absent version its legacy meaning. Deploy Workers that understand a new version value before new starts use it.
+- Alternatively, start new runs on another task queue or Flow type and keep the old Worker pool for the old runs. A run's task queue is fixed at start.
 
 ### Evolve data and contracts additively
 

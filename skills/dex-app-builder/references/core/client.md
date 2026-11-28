@@ -115,7 +115,7 @@ Step outputs live only in history, and only a COMPLETED Flow keeps an output; se
 ## Lifecycle APIs
 
 - StopFlow cancel closes the run as canceled. Fail closes it as failed with a reason. Terminate closes it as terminated. Each records a different terminal status. None proves provider cleanup or projection completion.
-- A stop runs no more application code, and a handler that ignores cancellation keeps making external calls; see [Flow timeout, completion, and cancellation](../../SKILL.md#flow-timeout-completion-and-cancellation). So whoever waits for the stopped Flow reconciles from its terminal state and accepts an earlier report idempotently.
+- A cancel, fail, or terminate stop starts no more application code, and a handler that ignores cancellation keeps making external calls; see [Flow timeout, completion, and cancellation](../../SKILL.md#flow-timeout-completion-and-cancellation). So whoever waits for the stopped Flow reconciles from its terminal state and accepts an earlier report idempotently.
 - A later write to a closed run is rejected. Write what the Flow needs before you stop it.
 - DescribeFlow on a missing ID, or an ID that is not a Flow, returns Flow not found.
 - SearchFlows excludes internal Flow runs. A generic-slot query constrains FlowType; see [indexed Attributes](attribute.md#indexed-attributes-and-search). Keep the query unchanged across pages.

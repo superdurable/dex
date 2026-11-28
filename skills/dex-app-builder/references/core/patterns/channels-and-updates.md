@@ -74,7 +74,7 @@ rpc requestStop        -> stopRequested = true
 ```
 
 - Keep the loop position in the Step input and the controls in Attributes. An RPC validates and writes each control.
-- Read every control at the start of each `Execute`. A new value applies from the next iteration.
+- Read every control at the start of each `Execute`. Each iteration is a new `Execute`, so a new value applies from the next iteration; a read later in the same `Execute`, or in its retries, still sees the old snapshot.
 - Never let a Step write a control's default: a Step's write could overwrite an RPC that arrived first. Apply the default at read time, or pass it as an initial Attribute at start, which commits with the Flow's creation.
 - Use an Attribute for a parameter, such as a batch size, a rate, or a pause flag: the latest value wins. Use a Channel for per-item commands, such as skip or retry: accepted commands queue in FIFO order and one consumer takes them in that order.
 - The loop then waits on the Timer and the Channel with `AnyOf`, and `Execute` checks which branch won: it handles the consumed commands when the Channel won and processes the next batch when the Timer won. Later commands stay queued.
