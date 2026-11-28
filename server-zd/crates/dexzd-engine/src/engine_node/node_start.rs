@@ -210,7 +210,7 @@ where
     // Fails fast on a contradicting manifest; the predecessor may still change it until the lease.
     let unleased_metadata = tokio::select! {
         metadata = ClusterMetadata::bootstrap_or_validate(
-            startup_store.as_ref(), clock.as_ref(), config.cluster, &config.node,
+            startup_store.as_ref(), clock.as_ref(), &config.cluster, &config.node,
         ) => match metadata {
             Ok(metadata) => metadata,
             Err(error) => {

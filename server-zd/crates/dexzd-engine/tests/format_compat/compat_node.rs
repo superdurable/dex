@@ -54,7 +54,10 @@ pub(crate) fn engine_node_config(
             incarnation,
             internal_address: "127.0.0.1:9000".to_owned(),
         },
-        cluster: ClusterConfig { partition_count },
+        cluster: ClusterConfig {
+            partition_count,
+            embedding_application: None,
+        },
         lease: LeaseConfig {
             duration: LEASE_DURATION,
             ..LeaseConfig::default()

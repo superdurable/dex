@@ -144,7 +144,7 @@ async fn recorded_positions_after_voided_pipelined_batches_keep_every_write() {
     let cluster_object = dexzd_cluster_metadata::bootstrap_or_validate(
         cluster.object_store.as_ref(),
         cluster.clock.as_ref(),
-        config.cluster,
+        &config.cluster,
     )
     .await
     .expect("cluster exists");

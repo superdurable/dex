@@ -12,6 +12,14 @@ Create the initial manifest with `create_initial_manifest`; existing nodes read 
 
 Manifest changes use `update_manifest` and ETag comparison. `raise_version_barrier` and `update_partition_snapshot` apply the common updates. `register_attribute_indexes` adds tenant attribute index declarations and returns `AttributeIndexConflict` if an existing key changes type.
 
+## Embedding application identity and version barrier
+
+An application that embeds server-zd and keeps its own state in the cluster supplies `Some(EmbeddingApplication)` in `ClusterConfig.embedding_application`. server-zd itself uses `None`. The immutable cluster object records the application's `name` and `key_layout_version` at creation. A node opens it only when both match its configuration, so server-zd and embedding applications never open each other's clusters.
+
+`VersionBarrier.application_version` in the manifest records the creating application's apply version. Every log record after each partition's snapshot uses that version. The value is 0 when there is no embedding application; server-zd clusters always record 0. The engine checks that the value lies in `supported_versions` before acquiring the lease and again in `ClusterMetadata::read_under_lease`. A node starts only when both checks pass.
+
+The application version changes only in the same manifest update as snapshot references covering every record of the previous version. Changing the barrier alone does not establish this condition.
+
 ## Optional Attribute index capacity
 
 Pass `Some(&AttributeIndexCapacity::postgres())` to `register_attribute_indexes` to limit each tenant to ten Keyword keys and three keys per other supported type. The CAS loop checks only the requesting tenant and types receiving new keys before writing. Re-registering existing keys succeeds even when that tenant is already over capacity. Other tenants and unchanged types do not affect registration. Capacity rejection includes the requesting tenant, type, limit, previously registered keys, and rejected new keys. Registrations are append-only; there is no delete operation.

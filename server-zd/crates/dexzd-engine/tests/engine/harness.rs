@@ -605,6 +605,7 @@ impl TestCluster {
             },
             cluster: ClusterConfig {
                 partition_count: PARTITION_COUNT,
+                embedding_application: None,
             },
             lease: LeaseConfig::default(),
             local_store,
@@ -658,7 +659,7 @@ impl TestCluster {
         let cluster = dexzd_cluster_metadata::bootstrap_or_validate(
             self.object_store.as_ref(),
             self.clock.as_ref(),
-            config.cluster,
+            &config.cluster,
         )
         .await
         .expect("cluster exists");

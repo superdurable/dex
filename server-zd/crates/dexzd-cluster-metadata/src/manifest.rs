@@ -17,7 +17,10 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
-use crate::{MAX_BEHAVIOR_VERSION, METADATA_FORMAT_VERSION, MIN_BEHAVIOR_VERSION, MetadataError};
+use crate::{
+    EmbeddingApplication, MAX_BEHAVIOR_VERSION, METADATA_FORMAT_VERSION, MIN_BEHAVIOR_VERSION,
+    MetadataError,
+};
 
 /// Node details recorded in the manifest.
 #[derive(Debug, Clone)]
@@ -57,11 +60,15 @@ pub async fn read_manifest(store: &dyn ObjectStore) -> Result<Option<Manifest>, 
 }
 
 /// Creates the first manifest with every partition owned by the specified node.
+///
+/// The version barrier records the `current_version` of `embedding_application`, or application
+/// version 0 for a cluster of server-zd itself.
 pub async fn create_initial_manifest(
     store: &dyn ObjectStore,
     clock: &dyn WallClock,
     partition_count: u32,
     node: &NodeConfig,
+    embedding_application: Option<&EmbeddingApplication>,
 ) -> Result<Manifest, MetadataError> {
     validate_node_identifier(&node.node_id)?;
     if !partition_count.is_power_of_two() || partition_count > 65_536 {
@@ -103,6 +110,8 @@ pub async fn create_initial_manifest(
         version_barrier: Some(VersionBarrier {
             behavior_version: MIN_BEHAVIOR_VERSION,
             format_version: METADATA_FORMAT_VERSION,
+            application_version: embedding_application
+                .map_or(0, |application| application.current_version),
         }),
         controller_lease: None,
         updated_at_unix_micros: now,

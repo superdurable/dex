@@ -206,7 +206,7 @@ impl StandbyDriver {
         let read_at = Instant::now();
         let Some(metadata) = ClusterMetadata::read_existing(
             self.object_store.as_ref(),
-            config.cluster,
+            &config.cluster,
             &config.node,
         )
         .await?
@@ -422,6 +422,16 @@ impl StandbyDriver {
             Ok(current) => current,
             Err(error) if is_configuration_error(&error) => {
                 return Some(FollowingOutcome::Failed(error));
+            }
+            // A barrier that moved past this binary stops following; bootstrap retries until it fits.
+            Err(
+                error @ EngineStartError::Metadata(MetadataError::UnsupportedApplicationVersion {
+                    ..
+                }),
+            ) => {
+                return Some(FollowingOutcome::Restart {
+                    error: Some(error.to_string()),
+                });
             }
             Err(error) => {
                 tracing::warn!(%error, "the hot standby could not reread the manifest");
@@ -681,5 +691,17 @@ mod tests {
         let missing_manifest =
             EngineStartError::Metadata(MetadataError::Missing { key: "manifest" });
         assert!(!is_configuration_error(&missing_manifest));
+    }
+
+    #[test]
+    fn an_unsupported_application_version_is_retried() {
+        let unsupported =
+            EngineStartError::Metadata(MetadataError::UnsupportedApplicationVersion {
+                application_name: "test-embedding-application".to_owned(),
+                recorded: 1,
+                oldest_supported: 2,
+                newest_supported: 2,
+            });
+        assert!(!is_configuration_error(&unsupported));
     }
 }

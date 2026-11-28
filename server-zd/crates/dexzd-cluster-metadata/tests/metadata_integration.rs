@@ -415,10 +415,10 @@ fn node() -> NodeConfig {
 async fn first_bootstrap_and_second_node_validate_immutable_cluster() {
     let store = MemoryStore::default();
     let clock = TestClock::default();
-    let first = bootstrap_or_validate(&store, &clock, ClusterConfig::default())
+    let first = bootstrap_or_validate(&store, &clock, &ClusterConfig::default())
         .await
         .unwrap();
-    let second = bootstrap_or_validate(&store, &clock, ClusterConfig::default())
+    let second = bootstrap_or_validate(&store, &clock, &ClusterConfig::default())
         .await
         .unwrap();
     assert_eq!(first.cluster, second.cluster);
@@ -428,8 +428,9 @@ async fn first_bootstrap_and_second_node_validate_immutable_cluster() {
     let error = bootstrap_or_validate(
         &store,
         &clock,
-        ClusterConfig {
+        &ClusterConfig {
             partition_count: 512,
+            ..ClusterConfig::default()
         },
     )
     .await
@@ -458,7 +459,7 @@ async fn first_bootstrap_and_second_node_validate_immutable_cluster() {
         .await
         .unwrap();
     assert!(matches!(
-        bootstrap_or_validate(&store, &clock, ClusterConfig::default()).await,
+        bootstrap_or_validate(&store, &clock, &ClusterConfig::default()).await,
         Err(MetadataError::ClusterMismatch {
             field: "partition hash algorithm",
             ..
@@ -475,7 +476,7 @@ async fn first_bootstrap_and_second_node_validate_immutable_cluster() {
         .await
         .unwrap();
     assert!(matches!(
-        bootstrap_or_validate(&store, &clock, ClusterConfig::default()).await,
+        bootstrap_or_validate(&store, &clock, &ClusterConfig::default()).await,
         Err(MetadataError::ClusterMismatch {
             field: "key layout version",
             ..
@@ -492,7 +493,7 @@ async fn rejected_node_ids_never_enter_manifest_or_lease_keys() {
         ..node()
     };
     assert!(matches!(
-        create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &invalid_node).await,
+        create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &invalid_node, None).await,
         Err(MetadataError::InvalidNodeIdentifier(_))
     ));
     assert!(matches!(
@@ -511,12 +512,12 @@ async fn create_only_retries_when_unknown_write_did_not_land() {
     let store = MemoryStore::default();
     let clock = TestClock::default();
     *store.unknown_next_create_key.lock().unwrap() = Some("cluster");
-    let cluster = bootstrap_or_validate(&store, &clock, ClusterConfig::default())
+    let cluster = bootstrap_or_validate(&store, &clock, &ClusterConfig::default())
         .await
         .unwrap();
     assert_eq!(cluster.partition_hasher.partition_count(), 1024);
     *store.unknown_next_create_key.lock().unwrap() = Some("manifest");
-    let manifest = create_initial_manifest(&store, &clock, 2, &node())
+    let manifest = create_initial_manifest(&store, &clock, 2, &node(), None)
         .await
         .unwrap();
     assert_eq!(manifest.version, 1);
@@ -527,7 +528,7 @@ async fn create_only_retries_when_unknown_write_did_not_land() {
 async fn concurrent_manifest_edits_both_apply_with_increasing_versions() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    let initial = create_initial_manifest(store.as_ref(), clock.as_ref(), 4, &node())
+    let initial = create_initial_manifest(store.as_ref(), clock.as_ref(), 4, &node(), None)
         .await
         .unwrap();
     *store.manifest_read_barrier.lock().unwrap() = Some((Arc::new(Barrier::new(2)), 2));
@@ -590,7 +591,7 @@ async fn concurrent_manifest_edits_both_apply_with_increasing_versions() {
 async fn manifest_write_with_unknown_outcome_is_applied_once() {
     let store = MemoryStore::default();
     let clock = TestClock::default();
-    create_initial_manifest(&store, &clock, 2, &node())
+    create_initial_manifest(&store, &clock, 2, &node(), None)
         .await
         .unwrap();
     store
@@ -610,7 +611,7 @@ async fn manifest_write_with_unknown_outcome_is_applied_once() {
 async fn snapshot_and_version_barrier_updates_reject_unsupported_versions() {
     let store = MemoryStore::default();
     let clock = TestClock::default();
-    create_initial_manifest(&store, &clock, 2, &node())
+    create_initial_manifest(&store, &clock, 2, &node(), None)
         .await
         .unwrap();
     let snapshot = SnapshotReference {
@@ -665,7 +666,7 @@ async fn snapshot_and_version_barrier_updates_reject_unsupported_versions() {
 async fn lease_acquires_renews_and_rejects_second_process_with_same_node_id() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -703,7 +704,7 @@ async fn lease_acquires_renews_and_rejects_second_process_with_same_node_id() {
 async fn a_proven_stopped_holder_is_taken_over_at_once_with_a_raised_epoch() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let crashed_holder = acquire_lease(
@@ -743,7 +744,7 @@ async fn a_proven_stopped_holder_is_taken_over_at_once_with_a_raised_epoch() {
 async fn lease_takeover_after_expiry_and_grace() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -770,7 +771,7 @@ async fn lease_takeover_after_expiry_and_grace() {
 async fn lease_waiter_acquires_only_after_expiry_and_grace() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let first = acquire_lease(
@@ -799,7 +800,7 @@ async fn lease_waiter_acquires_only_after_expiry_and_grace() {
 async fn lease_waiter_takes_a_released_lease_within_the_poll_interval() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let holder = acquire_lease(
@@ -836,7 +837,7 @@ async fn lease_waiter_takes_a_released_lease_within_the_poll_interval() {
 async fn lease_waiter_jitters_its_reads_within_the_poll_interval() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let holder = acquire_lease(
@@ -880,7 +881,7 @@ async fn lease_waiter_jitters_its_reads_within_the_poll_interval() {
 async fn lease_waiter_reads_a_held_lease_within_the_configured_poll_limit() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let holder = acquire_lease(
@@ -938,7 +939,7 @@ async fn a_delayed_waiter_leaves_each_released_lease_to_a_readier_process_first(
     const ACQUISITION_DELAY: Duration = Duration::from_secs(2);
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let holder = acquire_lease(
@@ -988,7 +989,7 @@ async fn a_delayed_waiter_leaves_each_released_lease_to_a_readier_process_first(
 async fn lease_waiter_polling_a_short_lease_still_waits_out_the_grace() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1018,7 +1019,7 @@ async fn lease_waiter_polling_a_short_lease_still_waits_out_the_grace() {
 async fn lease_release_allows_immediate_reacquire() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1049,7 +1050,7 @@ async fn lease_release_allows_immediate_reacquire() {
 async fn release_after_takeover_preserves_new_holder() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1079,7 +1080,7 @@ async fn release_after_takeover_preserves_new_holder() {
 async fn release_conflict_preserves_a_concurrent_new_holder() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1112,7 +1113,7 @@ async fn release_conflict_preserves_a_concurrent_new_holder() {
 async fn subscribers_see_loss_before_a_blocked_release_times_out() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let holder = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
@@ -1139,7 +1140,7 @@ async fn subscribers_see_loss_before_a_blocked_release_times_out() {
 async fn a_rejected_release_is_reported_and_the_lease_stays_held() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1169,7 +1170,7 @@ async fn a_rejected_release_is_reported_and_the_lease_stays_held() {
 async fn a_failed_epoch_update_releases_the_written_lease() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1199,7 +1200,7 @@ async fn a_failed_epoch_update_releases_the_written_lease() {
 async fn a_cancelled_acquisition_releases_the_written_lease() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1250,7 +1251,7 @@ async fn release_handles_unknown_outcomes_with_and_without_a_write() {
     for was_written in [true, false] {
         let store = Arc::new(MemoryStore::default());
         let clock = Arc::new(TestClock::default());
-        create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+        create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
             .await
             .unwrap();
         let holder = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
@@ -1278,7 +1279,7 @@ async fn release_handles_unknown_outcomes_with_and_without_a_write() {
 async fn waiter_stays_pending_while_holder_renews() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let holder = acquire_lease(
@@ -1308,7 +1309,7 @@ async fn waiter_stays_pending_while_holder_renews() {
 async fn old_holder_reports_loss_after_takeover() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1335,7 +1336,7 @@ async fn old_holder_reports_loss_after_takeover() {
 async fn hung_renewal_attempts_time_out_retry_and_report_loss_before_the_local_deadline() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let holder = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
@@ -1372,7 +1373,7 @@ const SLOW_RENEWAL_WRITE: Duration = Duration::from_secs(15);
 async fn a_thirty_second_lease_with_derived_attempts_loses_slow_renewals() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1409,7 +1410,7 @@ async fn a_thirty_second_lease_with_derived_attempts_loses_slow_renewals() {
 async fn a_ninety_second_lease_with_twenty_second_attempts_keeps_slow_renewals() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let config = LeaseConfig {
@@ -1453,7 +1454,7 @@ async fn a_ninety_second_lease_with_twenty_second_attempts_keeps_slow_renewals()
 async fn one_transient_renewal_failure_is_retried_without_losing_the_lease() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let handle = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
@@ -1480,7 +1481,7 @@ async fn one_transient_renewal_failure_is_retried_without_losing_the_lease() {
 async fn a_timed_out_renewal_that_landed_is_adopted_on_the_retry() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let handle = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
@@ -1513,7 +1514,7 @@ async fn a_timed_out_renewal_that_landed_is_adopted_on_the_retry() {
 async fn a_renewal_with_an_unknown_outcome_that_landed_is_confirmed_by_a_read() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let handle = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
@@ -1546,7 +1547,7 @@ async fn a_renewal_with_an_unknown_outcome_that_landed_is_confirmed_by_a_read() 
 async fn persistent_renewal_failures_report_loss_before_the_local_deadline() {
     let store = Arc::new(MemoryStore::default());
     let clock = Arc::new(TestClock::default());
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .unwrap();
     let handle = acquire_lease(store.clone(), clock, &node(), &LeaseConfig::default())
