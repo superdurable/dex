@@ -42,14 +42,16 @@ Never report compilation as provider or end-to-end success.
 
 ## Product constraints
 
-Product route only; the SDK-only route skips this section. These rules add
-to the general rules in [Model before implementation](../SKILL.md#model-before-implementation)
-and are stricter than them. They take precedence.
+Product route only; the SDK-only route skips this section. These are
+product choices; the Dex facts, Must rules, and patterns in
+[SKILL.md](../SKILL.md#facts) apply unchanged.
 
-- **One backend language, chosen in Stage 0.** Go, Python, TypeScript, Java,
-  and Rust are equal choices. Stage 0 keeps an existing application's
-  language, uses the language the user names, and otherwise uses TypeScript.
-  The rest of the workflow is the same for every language.
+- **Prefer one backend language, chosen in Stage 0.** Go, Python,
+  TypeScript, Java, and Rust are equal choices. Stage 0 keeps an existing
+  application's language, uses the language the user names, and otherwise
+  uses TypeScript. The rest of the workflow is the same for every language.
+  Add a Worker in a second language only for a Flow whose required library
+  exists only there.
 - **Strict FDG 2.0, with the directives listed for the language.** Use only
   the `dex:` directives and options that the
   [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
@@ -62,36 +64,20 @@ and are stricter than them. They take precedence.
   UI. When the user also uses Dex Web, leave its Runs, Work Queue, Actions,
   edits, history, and diagnostics to it unless the user asks for them in
   their own UI. Locally, `dexcli dev` always serves Dex Web to inspect Flows.
-- **Dex is the default store.** Add a store outside Dex only when Dex's
-  model does not fit an access pattern or scale need, and name one owner per
-  fact. No speculative database, projection, or cache.
-- **Flow boundaries.** Never split work whose parts
-  would exchange RPCs or messages on frequent events, such as every
-  operation, callback, or poll. Each call between Flows, even a read, adds
-  latency and history to both Flows.
-- **No mutation in WaitFor.** `WaitFor` mutates no provider and writes no Dex
-  state except Step execution local values, which record a read error or pass
-  a read value to `Execute`. It may
-  make read-only, idempotent provider calls. Connector write
-  operations run in `Execute`. Each provider effect in `Execute` has an
-  idempotency identity and recovery.
-- **Start identity.** Derive the Flow ID from the business operation. When
-  a caller may retry a start after an unknown outcome, add a stable Request
-  ID with ignore-already-started so the retry attaches to its own run. Set a
-  reuse policy only when the default does not fit the lifecycle. Keep typed
-  error recovery.
+- **Dex is the default store.** Keep new process state in Attributes and
+  AttributeMaps. Use a store outside Dex when another system already owns
+  the fact, or Dex's model does not fit an access pattern or scale need;
+  name one owner per fact. No speculative database, projection, or cache.
 - **Write a short model.** For a non-trivial Flow, write a short model of
   its Steps, state, and failure handling in the application's own
   documentation before coding.
-- **Credentials stay outside.** Keep them out of code, Flow state, logs, and
-  definitions. The application reads them from its configuration or
-  environment at run time. With a released Connector, it reads its
-  connections through the project configuration loader of its language's
-  Connector SDK, and locally Dex Web configures them.
-  An operator or hosting platform supplies the deployed configuration. Dex
-  hosts none.
-- **Authorization at the trusted boundary.** A browser permission selection
-  grants nothing. Enforce actor permissions at the trusted server boundary.
-  Use stable, granular Action permissions.
-- Do not mutate another repository or publish or deploy without
-  authorization.
+- **Connector connections come from configuration.** With a released
+  Connector, the application reads its connections through the project
+  configuration loader of its language's Connector SDK, and locally Dex Web
+  configures them. An operator or hosting platform supplies the deployed
+  configuration. Dex hosts none. Credentials in Flow state follow the
+  [secrets facts](../SKILL.md#attributes-loading-and-secrets).
+- **The graph reads from source.** Return analyzer-visible decisions from
+  `Execute`, use targets the analyzer can resolve, compose Steps instead of
+  subclassing them, and fix every `dexcli visualize` error diagnostic before
+  handoff.
