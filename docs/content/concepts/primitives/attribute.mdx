@@ -495,8 +495,9 @@ and [whole-map coordination](/reference/server/runtime-data#whole-map-coordinati
 
 A **hard-delete Attribute** holds a short-lived secret, such as an API key that
 a Flow uses a few times and then discards. Deleting it erases the stored value
-permanently. Neither Dex APIs nor Flow history can recover it. Unlike other
-writes, a hard-delete write takes effect before Dex saves the handler's result.
+permanently. Neither Dex APIs nor Flow history can recover it. Like other
+writes, a hard-delete write takes effect only when Dex saves the handler's
+result. Each Flow run has its own values.
 See
 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)
 for the requirements and their consequences.

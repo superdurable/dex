@@ -120,11 +120,11 @@ Which RPCs need an active Flow:
 
 - An RPC with no Attribute locks, no transactional execution, and no returned durable effects runs on a snapshot. It can read a retained closed run. Success does not prove the Flow is active.
 - A non-transactional RPC that returns durable effects runs its handler first. If the Flow closes in between, applying the effects fails as not active after the handler ran. Keep its external effects idempotent.
-- A new invocation of a locked or transactional RPC, or of any RPC under a Server policy that runs RPCs transactionally, needs an active run. Dex rejects it before any handler runs. A retained recorded request ID of such an RPC still replays its reply after close; see [RPCs](../../SKILL.md#rpcs).
+- A new invocation of a locked or transactional RPC needs an active run. Dex rejects it before any handler runs. A retained recorded request ID of such an RPC still replays its reply after close; see [RPCs](../../SKILL.md#rpcs).
 
 ### Terminal read RPC rule
 
-Before you handle a not-active error from an RPC, check its registered options, invocation locks, handler result, and Server policy. A business snapshot RPC with no locks, no transactional execution, no durable effects, and no active-only Server policy must read the retained run directly. Closure alone is not a reason for it to fail.
+Before you handle a not-active error from an RPC, check its registered options, invocation locks, and handler result. A business snapshot RPC with no locks, no transactional execution, and no durable effects must read the retained run directly. Closure alone is not a reason for it to fail.
 
 Never add a `not-active -> WaitForFlow -> decode an earlier Step output` fallback to a business read. Execution history is not the entity's read contract. An intermediate Step output can omit later committed state.
 

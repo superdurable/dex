@@ -90,7 +90,7 @@ A cancelling join's round is never reset. Its canceled branches produce no resul
 - Each branch is its own Step execution, with its own retries, failure route, and durable result. In-process work retries as one method, so it fits operations that are repeat-safe and share one recovery boundary.
 - In the cancelling variant, each branch handles its Step's cancellation signal as in [First-win parallel Steps](#first-win-parallel-steps).
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes.
-- Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
+- Sibling Steps are the active Steps of the named Step types that the same Step execution started. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. Steps that any invocation of one RPC started are all siblings, so a round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
 
 ### First-win parallel Steps
 

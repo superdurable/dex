@@ -97,7 +97,7 @@ Use a hard-delete Attribute or AttributeMap for a short-lived secret that the Fl
 
 - Dex keeps the value out of Flow history. Deleting it, or writing null, permanently deletes the stored value.
 - Delete the secret as soon as the Flow no longer needs it.
-- The value is written before the attempt commits, so a failed attempt's write can be visible. Make handlers safe to repeat, and never read-modify-write a hard-delete Attribute.
+- A write becomes readable only when its method commits, like an ordinary write; a failed or uncommitted attempt leaves the stored value unchanged. Each run has its own values, so a later run under the same Flow ID does not see an earlier run's secret.
 - It cannot be indexed, synced to an Attribute Store, or used in an Attribute match or an Action condition. Keep a revision in a regular Attribute when something must wait on a change.
 - When the value can be absent, such as after time travel, design the Flow to request a fresh secret.
 

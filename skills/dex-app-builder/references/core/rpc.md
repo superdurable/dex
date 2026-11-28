@@ -28,7 +28,7 @@ Usually name an RPC with a concrete action verb and its subject, such as `getQue
 | --- | --- | --- | --- |
 | Snapshot (query-only) | no locks, not transactional, no durable effects returned | a snapshot of the current or retained run | No. A retained closed run can serve it. |
 | Non-transactional with effects | returns durable effects, no locks | a snapshot; effects applied after the handler | Yes for the effects. If the Flow closes first, the effects fail as not active after the handler ran. |
-| Transactional | Attribute locks, or the explicit transactional option, or a Server policy | the handler and its effects commit together | Yes for a new invocation. Dex rejects it before the handler runs. A retained recorded request ID replays its reply even after close; see [RPCs](../../SKILL.md#rpcs). |
+| Transactional | Attribute locks, or the explicit transactional option | the handler and its effects commit together | Yes for a new invocation. Dex rejects it before the handler runs. A retained recorded request ID replays its reply even after close; see [RPCs](../../SKILL.md#rpcs). |
 
 - Every mode runs the handler on a snapshot. Steps and other RPCs can commit between the snapshot and the RPC's commit, and transactional mode does not prevent that. Only a shared Attribute lock excludes a Step or RPC that declares it.
 - Success of a snapshot RPC does not prove the Flow is active. Use DescribeFlow when the response needs status.

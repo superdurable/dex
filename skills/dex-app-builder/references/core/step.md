@@ -17,7 +17,7 @@ Each WaitFor call, each Execute call, and each RPC call is a separate commit bou
 - WaitFor and Execute never share a commit.
 - External API calls are outside this boundary. Dex cannot roll them back.
 - Heartbeat checkpoints and Stream messages sent before the result are not part of the commit.
-- Hard-delete Attribute writes are the exception: they are stored before the commit. See [attribute.md](attribute.md#hard-delete-attributes).
+- Hard-delete Attribute writes follow the same boundary: Dex stores the value before the commit but references it only after the commit. See [attribute.md](attribute.md#hard-delete-attributes).
 
 ## WaitFor versus Execute
 
@@ -205,7 +205,7 @@ The Step Context exposes, among others:
 The defaults fit short, idempotent methods. Usually set StepOptions only for a method that runs long or stays silent, holds a lock, makes a non-idempotent effect, needs a failure route, or loads AttributeMaps or pending messages. The options cover:
 
 - durability override;
-- method timeout and, for Execute, the heartbeat timeout;
+- method timeout and heartbeat timeout;
 - retry attempts, backoff, and total duration;
 - selective AttributeMap and Channel loads;
 - Attribute or map-instance locks;

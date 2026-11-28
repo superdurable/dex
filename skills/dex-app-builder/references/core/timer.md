@@ -28,7 +28,7 @@ SkipTimer makes a pending Timer behave as fired. It selects the Step execution a
 
 - Acceptance is not proof of execution. The Timer may fire on its own before the skip applies.
 - The Execute that follows runs asynchronously. Confirm it with a Step-completion wait or a business read.
-- The Flow timeout is also a Timer. SkipTimer can fire it early by index.
+- The Flow timeout is also a Timer. SkipTimer can fire it early, which starts the timeout policy at once; it takes a dedicated selector, given in [Skip a Timer](https://docs.superdurable.io/reference/server/runtime-client#skip-a-timer).
 
 ## Self-check
 

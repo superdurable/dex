@@ -27,7 +27,9 @@ Pick the scenarios that match the application:
 - Business failure path: when the provider confirms a permanent rejection, such as rejected input or a refused request, Execute routes to the failure Step itself; verify that branch and that it does not retry.
 - A direct test of the recovery Step verifies its logic. Dex scheduling the recovery Step after the real retry budget is Dex behavior; usually do not re-test it by capping attempts or shortening durations.
 - Test your RPCs' business outcomes, including after the Flow closes when the contract allows reads then.
-- Fire and skip Timers. Verify the business deadline and the timeout handler path. Usually skip the Flow timeout the same way instead of shortening it, as in [Real durations in tests](../../SKILL.md#suggestions); [Skip a Timer](https://docs.superdurable.io/reference/server/runtime-client#skip-a-timer) shows how to select it.
+- Fire and skip Timers. Verify the business deadline and the timeout handler path. Usually keep the business durations and skip the Timer, the Flow timeout included, instead of shortening them; [Skip a Timer](https://docs.superdurable.io/reference/server/runtime-client#skip-a-timer) shows how to select it.
+- Give each test its own Flow IDs, and wait with bounded polling instead of sleeps.
+- Workers of one Flow type on one task queue share its tasks, so a test Worker and another Worker on the same Server and queue take each other's work. Draining a Worker and crashing it show different recovery.
 - Exercise parallel branches, and SubFlows if any, with a deliberate failure and cancellation.
 - Lose a Stream consumer and recover canonical state from a read-only RPC or a Client Attribute read.
 - Disconnect after an external effect but before its result reaches Dex, and verify idempotent replay.

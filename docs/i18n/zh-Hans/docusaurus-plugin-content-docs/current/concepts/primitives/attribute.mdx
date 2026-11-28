@@ -425,7 +425,7 @@ lock 的获取时机，以及 `WaitFor`、`Execute` 和 RPC 的 lock，见 [Lock
 
 ## 短期 secret {#hard-delete-attributes}
 
-**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 Dex 保存 handler 的结果之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
+**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入一样，hard-delete 写入只在 Dex 保存 handler 的结果时才生效。每个 Flow run 有自己的值。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
 
 <a id="与其他组件的关系"></a>
 <a id="配置"></a>

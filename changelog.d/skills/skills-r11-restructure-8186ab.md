@@ -14,4 +14,6 @@ bump: patch
 - core/patterns.md becomes an index; each pattern family lives in its own file under core/patterns/, so an agent opens only the family it needs.
 - New facts: RPC request ID replay by RPC kind, Flow close waiting for admitted RPCs and Attribute Store writes, ForceCompleteIfChannelsEmpty, Join reporting and partial joins, durability, retention and start deduplication, search lag, and index capacity.
 - Removed general advice that is not Dex-specific: browser permission checks, repository conduct, file-reading tips, and test harness recipes. General model and tool guidance moves from the AI agent pattern to the agents Developer reference.
+- Corrected facts: a hard-delete value becomes readable only when its method commits and belongs to one run; StopFlow can also complete gracefully or force-complete; a lock conflict is never retried for the caller; a timeout handler's GoTo leaves no Flow timeout.
+- New facts: history never limits a run, Channel Condition kinds, a new run inherits no state, time travel, heartbeat checkpoints, Server restarts interrupting attempts, the already-started error without a Run ID, and RPC and timeout handler loads.
 - Rust: pass a cancellation check into a call that can poll it, so a canceled branch ends its open request.

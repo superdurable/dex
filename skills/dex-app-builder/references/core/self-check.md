@@ -39,4 +39,5 @@ Sketch, for every non-trivial Flow:
 - [ ] The API usually starts one owning Flow; dependent starts happen in its Steps.
 - [ ] Terminal reads use a Client Attribute read or a query-only RPC, never history.
 - [ ] No correctness state lives only in Worker memory ([Must 2](../../SKILL.md#must)); Stream data is never the record.
-- [ ] Every Attribute, Channel, and Stream is in the persistence schema; stable names stay compatible with open Flows ([Must 4](../../SKILL.md#must)).
+- [ ] Every Attribute, Channel, and Stream is in the persistence schema.
+- [ ] Attribute and Channel names stay compatible with open Flows ([Must 4](../../SKILL.md#must)).

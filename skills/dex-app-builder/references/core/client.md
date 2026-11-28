@@ -24,7 +24,7 @@ The only hard boundary is that a Client never writes Flow state directly; it has
 | WaitForFlow | Wait for terminal status and output | Can return a long-poll timeout while still open; call again. |
 | DescribeFlow | Current or latest run status, type, start time | Does not wait. With a run ID, describes that run. |
 | SearchFlows | Find Flows by query over indexed fields | Eventually consistent. |
-| StopFlow | Close a run: cancel (default), fail with a reason, or terminate | Closes as soon as it commits. |
+| StopFlow | Close a run: cancel (default), fail with a reason, terminate, force-complete, or request a graceful completion; the complete types take an output | Cancel, fail, and terminate close as soon as the stop commits; force-complete begins closing and cancels active Steps; a graceful completion waits for active Steps. See [Flow close](../../SKILL.md#flow-timeout-completion-and-cancellation). |
 | SkipTimer | Make a pending Timer fire | See [timer.md](timer.md#skip-a-timer). |
 | TimeTravel | Reset a run to a recorded point as a new run attempt | Operator recovery. See [error-handling.md](error-handling.md#operator-recovery). |
 | UpdateFlowConfig | Merge supplied Flow configuration fields | Accepted asynchronously. |
@@ -38,8 +38,8 @@ The Client Attribute read returns committed values of known Attributes and exact
 
 - **One server read.** All requested keys go in one request and come from the same commit.
 - **No Worker.** Dex serves it directly. It works while no Worker runs and costs less latency than an RPC.
-- **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. With a run ID it reads that run, even when a newer run exists.
-- **Committed state.** It never sees writes that a running Step or RPC has staged. Hard-delete values are the exception: they are stored before commit, so the read can return a value from an attempt that later failed.
+- **Closed runs.** It reads the current run, or the latest run when none is open. A closed run stays readable until purged. It takes no run ID.
+- **Committed state.** It never sees writes that a running Step or RPC has staged, hard-delete values included.
 - **Batch only.** There is no single-Attribute method. Separate calls can read different commits, so usually pass every Attribute and map instance the response needs in one call. Some SDKs cap the number of reads per call; separate calls can read different commits. When one response needs more values from one commit, use a read-only RPC.
 - **Exact keys.** Each read is a singleton Attribute or one exact map instance. It cannot enumerate a map and does not read Channels.
 - **Registered definitions.** Each definition must be registered by some Flow in the Client's registry. Dex reads by name and does not check that the target Flow declares it, so a same-named Attribute of another type fails to decode.
@@ -76,7 +76,7 @@ Three different guarantees:
 | RPC that writes Attributes or map instances | Client Attribute read of the same keys | Strong. Read once; do not poll. |
 | RPC that publishes or deletes pending messages | Read-only RPC that loads the Channel | Strong for the pending queue. Another consumer can remove a just-published message. |
 | Transactional or locked RPC | Read-only RPC | Strong. Handler and effects commit together. Does not wait for triggered Steps or projections. |
-| Hard-delete Attribute write from a Step or RPC | Any read or a retried attempt | Visible before commit; can reflect a failed attempt. |
+| Hard-delete Attribute write from a Step or RPC | Client Attribute read or read-only RPC | Strong, like an ordinary Attribute write: visible only after its method commits. |
 | Indexed Attribute write | SearchFlows, CLI search, Dex Web search | Eventual. A miss does not prove the write failed. Confirm with a direct read, or bound a search retry when the index itself is needed. |
 | Attribute Store-synced write | External table query | Eventual latest-state projection; never the input of a Flow decision. See [Attribute Store sync](attribute.md#attribute-store-sync). |
 | RPC that moves to Steps or cancels | Step-completion wait, Attribute match, or terminal result | Asynchronous business completion. A direct read is not a scheduling barrier. |
