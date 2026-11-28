@@ -126,7 +126,8 @@ Never add a skill submodule or a floating branch reference to an application
 repository; the coding-agent host supplies the installed Dex Skills release.
 
 A stable content change (a rule, a Primitive concept or relation, a
-Component, a design pattern, skill routing, or packaging) adds a change-log
+Component, a design pattern, a design-relevant fact (a behavior table, a
+default, or a limit stated in the skills), skill routing, or packaging) adds a change-log
 fragment under the Dex repository's `changelog.d/skills/` with its bump level.
 A typo, link, or wording-only change needs no fragment; its pull request
 description contains a line `skills-release: no bump needed: <reason>`, which

@@ -158,8 +158,9 @@ it pins those links to the synced Dex commit so readers see examples from the
 same snapshot as their installed skills.
 
 A stable content change adds a change-log fragment in the Dex repository: a
-rule, a Primitive concept or relation, a Component, a design pattern, skill
-routing, or packaging. Create it from the Dex checkout:
+rule, a Primitive concept or relation, a Component, a design pattern, a
+design-relevant fact (a behavior table, a default, or a limit stated in the
+skills), skill routing, or packaging. Create it from the Dex checkout:
 
 ```bash
 python3 script/release/changelog_fragments.py new skills --bump patch
