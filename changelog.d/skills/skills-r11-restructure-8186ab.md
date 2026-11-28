@@ -1,17 +1,16 @@
 ---
 bump: patch
 ---
-- App Builder SKILL.md groups its rules under Must, Fine: no extra guard needed, and Prefer. Each Must states the rule and its consequence in at most three sentences. Recipes and edge cases moved into the pattern sections.
-- The pattern table gives each pattern a one-sentence shape; the rules live in the pattern sections. A new row maps "keep trying for up to X" to the retry total duration plus an Execute failure route.
-- State four default limits as facts with their workarounds, Dex options first and an external store as one option: a Flow run's active state, one value, pending messages per Channel, and active Step executions per Flow run.
-- An ID reuse policy decides only by how the latest run closed, not by what it saved. A child that records a business failure and completes is closed as completed.
-- A concurrent RPC never locks and rewrites shared state such as a list, a counter, or an admission deadline. A new fact: a later Step or RPC may run on another Worker, and sticky routing does not promise the same process.
-- Stopping an already-decided action is a two-row choice by what the business promises. Drop the state-snapshot timing from reply windows, reminders, and the stop grace.
-- Drop caveats that invited extra guards: late timeout-handler commits, Timer drift, stale queued-attempt snapshots, heartbeat acknowledgment, same-attempt ASYNC reruns, loose dispatch order, and the run-ID double read. Steps need no deadline check when the timeout handler force-closes the Flow.
-- The deadline watchdog is simpler: the polling loop runs as the only branch of a Join, and the join Step waits on its result or the deadline Timer, then decides alone. No shared lock, no losing Step, and no rule that a polling Step avoid the watchdog's lock.
-- When attempts are long, set the retry total duration so the default does not cut the retries you want. The rule about stand-ins for external services is removed; it described test fakes, not Dex behavior.
-- A rejected child admission is its own state; whether the parent goes on with the other children or stops them is a business decision. A parent tied to a claimed run records a newer run as a business outcome, never as an error.
-- Every exit of a critical section returns the token, including each Step's Execute failure route. Start first names a reuse policy that rejects a new run even after the original closes, such as the default.
-- Every RPC that races a decision shares one lock with the deciding Execute and closes the same window. Manual recovery retry and skip RPCs claim the failure under one lock, so only one decision counts.
-- The clock may validate a request against a stored deadline, but never decides which Condition fired, the order of events, or when a deadline fires.
+- App Builder SKILL.md is facts first: fifteen fact groups state how each Dex mechanism behaves in each case and its defaults, from commits, locks, and RPCs to Timers, Flow timeout, starts, runs, SubFlows, Joins, Streams, Workers, and limits.
+- New inline fact tables: the ID reuse policy by the latest run's state, the Request ID with and without ignore-already-started, and the SubFlow reuse policy. A retry with the same Request ID skips the reuse policy and returns the run only with ignore-already-started.
+- The default limits table adds what happens when each limit is exceeded, plus the request IDs kept per run, concurrent waits per Flow, and child results per parent. The heartbeat timeout, retry total duration, and RPC timeout defaults are stated inline.
+- Corrected facts: WaitFor may write Attributes and publish or delete messages; a Timer can fire late after an outage; the last retry attempt can run past the retry total duration by up to one method timeout; AnyOf selection order applies only within one check.
+- Several interchangeable one-message waiters may share a Channel, such as a worker pool; Dex offers messages in the order the waits started, and a wait for more messages than are queued can starve.
+- Only four Must rules remain: repeat-safe external effects with stable IDs, correctness kept in Dex rather than a Worker, one lock or one writer for racing read-modify-writes, and open runs keep their contract.
+- Rules that follow from one or two facts are removed. Former Prefer items, provider writes and polling outside WaitFor, Start first with the policy picked from the table, and generic index slots become suggestions.
+- Each pattern names the facts it derives from and states its conditions: manual recovery claims a failure under a lock only when needed, a critical section returns the token on exits that keep the Flow running, and a child Flow timeout applies when its limit is fixed at start.
+- The reply window supports a hard cutoff by comparing the clock with the stored deadline under the lock. Back pressure loops normally while the parent is full instead of spending the retry budget.
+- The product workflow and product constraints move from SKILL.md to references/product-route.md, which the product route reads before Stage 0. One backend language and the default store become conditional choices.
+- core/patterns.md becomes an index; each pattern family lives in its own file under core/patterns/, so an agent opens only the family it needs.
+- Removed general advice that is not Dex-specific: browser permission checks, repository conduct, file-reading tips, general LLM content in the AI agent pattern, and test harness instructions.
 - Rust: pass a cancellation check into a call that can poll it, so a canceled branch ends its open request.

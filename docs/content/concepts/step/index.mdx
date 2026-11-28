@@ -40,9 +40,9 @@ A Step has one or two methods.
 
 If a Step has no `WaitFor`, `Execute` runs immediately.
 
-Prefer calls that can fail in `Execute`. `WaitFor` never changes an external
-system. Every provider change, including a Connector write operation, runs in
-`Execute`. `WaitFor` may make read-only, idempotent calls with a timeout. For
+Prefer calls that can fail in `Execute`. Usually every provider change,
+including a Connector write operation, runs in `Execute`. `WaitFor` has no
+failure route or compensation point of its own. `WaitFor` may make read-only, idempotent calls with a timeout. For
 example, it can read a due date from a provider and return a Timer for it. The
 Timer is durable once the result of `WaitFor` commits. When the deadline must
 be auditable or visible, or needs its own failure route, read it in the
@@ -355,8 +355,10 @@ its heartbeat timeout itself, and checks its retry total duration:
 
 "Keep trying for up to X" is the retry total duration plus an Execute
 failure route to a Step that handles the failure. The total duration counts
-from the first attempt, so the Step computes no deadline of its own. When work
-must happen at the deadline, such as a notice or a withdrawal, use a
+from the first attempt. Dex checks it after an attempt fails, so the last
+attempt can run past X by up to one method timeout. When nothing may run
+after X, or work must happen at the deadline, such as a notice or a
+withdrawal, use a
 [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules).
 
 These timeouts end a hung attempt. Dex sends cancellation to the handler and

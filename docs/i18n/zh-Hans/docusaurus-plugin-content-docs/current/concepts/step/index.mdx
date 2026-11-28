@@ -29,7 +29,7 @@ Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。�
 
 Step 没有 `WaitFor` 时，`Execute` 立即运行。
 
-可能失败的调用尽量放在 `Execute` 里。`WaitFor` 从不修改外部系统。对 provider 的所有修改，包括 Connector 的写操作，都在 `Execute` 里运行。`WaitFor` 可以做只读、幂等、带超时的调用。例如，它可以从 provider 读取到期日期，并为它返回一个 Timer。`WaitFor` 的结果提交后，这个 Timer 就是持久的。如果截止时间需要可审计或可见，或者需要单独的失败路线，就改在前一个 Step 的 `Execute` 里读取，并把它作为下一个 Step 的输入传入。
+可能失败的调用尽量放在 `Execute` 里。通常对 provider 的所有修改，包括 Connector 的写操作，都在 `Execute` 里运行。`WaitFor` 没有自己的失败路线和补偿位置。`WaitFor` 可以做只读、幂等、带超时的调用。例如，它可以从 provider 读取到期日期，并为它返回一个 Timer。`WaitFor` 的结果提交后，这个 Timer 就是持久的。如果截止时间需要可审计或可见，或者需要单独的失败路线，就改在前一个 Step 的 `Execute` 里读取，并把它作为下一个 Step 的输入传入。
 
 如果 `WaitFor` 里的读取遇到永久性错误，就把错误记在 Step execution local value 里，并返回一个立即就绪的等待，再由 `Execute` 根据这个错误路由。provider 确认是永久性错误时，`Execute` 转到处理失败的 Step，或用 `ForceFail` 让 Flow 失败。重试永久性错误只会重复失败。见 [Step execution local](/reference/python/step#step-execution-local)（英文）。
 
@@ -271,7 +271,7 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 - heartbeat timeout 高于最长的合理静默间隔，并留出余量。或者在调用执行期间发送 heartbeat，可以在短调用之间发，也可以由后台任务发。后台 heartbeat 只表示 Worker 仍在运行，所以真正卡住的调用要到 method timeout 才结束。
 - 默认值允许的重试次数少于 Step 需要的次数，或者重试必须更早停止时，设置 retry total duration。它是重试预算，从第一次尝试开始计算。要允许几次接近完整时长的尝试，大约取最大尝试次数乘以 method timeout，再加上 backoff。整个 Flow 的截止时间用 Flow timeout，一次等待的截止时间用 durable Timer。
 
-“最多持续尝试 X 时间”就是 retry total duration 加上一个 Execute 失败路由，转到处理失败的 Step。total duration 从第一次尝试开始计算，所以 Step 不需要自己计算截止时间。如果业务要求在截止时间做事，例如发通知或撤回，用 [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules)。
+“最多持续尝试 X 时间”就是 retry total duration 加上一个 Execute 失败路由，转到处理失败的 Step。total duration 从第一次尝试开始计算。Dex 在一次尝试失败后才检查它，所以最后一次尝试最多可以超出 X 一个 method timeout。如果 X 之后不能再运行任何工作，或者业务要求在截止时间做事，例如发通知或撤回，用 [deadline watchdog](/design-patterns/durable-timer/polling-with-wait-for-timer#rules)。
 
 这些超时会结束挂住的 attempt。Dex 向 handler 发送取消，并按重试策略重试这个 attempt。把取消信号传给每个支持它的调用。handler 返回之后 Worker 槽才会释放，所以观察不到取消的阻塞调用最好有自己的 timeout。
 
