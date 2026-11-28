@@ -97,7 +97,9 @@ The calling contract for both traits:
   applier lane. Records of one partition arrive in log order; partitions run
   concurrently.
 - `apply_record` is a pure function of the partition, stamp, payload, and state.
-  Keep no mutable state in the applier, so a caught panic leaves nothing poisoned.
+  Equal inputs return equal writes, because replay checks apply every record twice
+  and compare them. Keep no mutable state in the applier, so a caught panic leaves
+  nothing poisoned.
 - `publish_frame` only updates memory and never blocks. The lane waits for it
   before it writes the next frame, so a sink never submits a record or waits for a
   commit inside it. Hand follow-up submissions to a separate task.

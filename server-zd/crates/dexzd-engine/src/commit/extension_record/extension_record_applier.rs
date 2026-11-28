@@ -17,9 +17,8 @@ use crate::commit::extension_record::{ExtensionRecordOutcome, ExtensionStamp};
 pub trait ExtensionRecordApplier: Send + Sync + 'static {
     /// Applies one extension record to committed state plus the writes staged before it.
     ///
-    /// Returns the record's writes and outcome. Equal inputs must return equal writes, because
-    /// replay checks apply every record twice and compare them. Returns [`ExtensionApplyHalt`]
-    /// when the record or state breaks an invariant; the partition then stops applying.
+    /// Returns the record's writes and outcome. Returns [`ExtensionApplyHalt`] when the record
+    /// or state breaks an invariant; the partition then stops applying.
     fn apply_record(
         &self,
         partition: PartitionId,

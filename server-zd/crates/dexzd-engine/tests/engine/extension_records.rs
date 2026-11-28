@@ -50,6 +50,12 @@ async fn a_record_commits_after_the_sink_sees_it_and_returns_its_outcome() {
         .downcast::<FakeOutcome>()
         .expect("the submitter downcasts its outcome");
     assert_eq!(outcome.counter, 1);
+    assert!(
+        outcome
+            .is_seen_by_sink
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "the sink saw the record before its submitter"
+    );
     drop(outcome);
     assert_eq!(node.counter("alpha").await, 1);
     assert_eq!(node.increment("alpha").await, 2);
@@ -199,7 +205,10 @@ async fn a_halted_partition_fails_waiting_records_at_once() {
         .submit(FakeOperation::Halt, "zeta", CommitUrgency::Batched)
         .expect("the record is submitted");
     for ticket in [first, halting] {
-        let error = ticket.wait().await.expect_err("the halted frame fails");
+        let error = tokio::time::timeout(Duration::from_secs(5), ticket.wait())
+            .await
+            .expect("the halt fails the ticket at once")
+            .expect_err("the halted frame fails");
         assert!(
             matches!(&error, CommitError::Unavailable { detail } if detail.contains("stopped applying")),
             "{error:?}"

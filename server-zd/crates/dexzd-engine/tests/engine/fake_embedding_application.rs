@@ -8,7 +8,7 @@
 
 //! A test-only application that embeds server-zd and commits its own extension records.
 
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -79,6 +79,8 @@ pub(crate) struct FakeOutcome {
     pub(crate) name: String,
     pub(crate) operation: FakeOperation,
     pub(crate) counter: u64,
+    /// Set by the sink, so a submitter can tell the sink saw the record first.
+    pub(crate) is_seen_by_sink: AtomicBool,
     _live: LiveOutcome,
 }
 
@@ -161,6 +163,7 @@ impl ExtensionRecordApplier for FakeExtensionApplier {
                 name,
                 operation,
                 counter,
+                is_seen_by_sink: AtomicBool::new(false),
                 _live: LiveOutcome::new(&self.live_outcomes),
             }),
         })
@@ -204,6 +207,7 @@ impl ExtensionRecordSink for RecordingExtensionSink {
                 .outcome
                 .downcast_ref::<FakeOutcome>()
                 .expect("the fake applier returns fake outcomes");
+            outcome.is_seen_by_sink.store(true, Ordering::SeqCst);
             self.seen.lock().expect("seen lock").push(SeenRecord {
                 command_id: record.stamp.command_id,
                 name: outcome.name.clone(),
