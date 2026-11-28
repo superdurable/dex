@@ -10,6 +10,7 @@
 
 mod clone_fork;
 mod commit_path;
+mod embedding_application;
 mod eventual_snapshot_retention;
 mod harness;
 mod history_offload_mode;

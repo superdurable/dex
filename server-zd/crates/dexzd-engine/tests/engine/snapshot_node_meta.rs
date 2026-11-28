@@ -63,7 +63,7 @@ async fn start_node_with_node_meta_services(
     let cluster_metadata = dexzd_cluster_metadata::bootstrap_or_validate(
         cluster.object_store.as_ref(),
         cluster.clock.as_ref(),
-        config.cluster,
+        &config.cluster,
     )
     .await
     .expect("cluster exists");

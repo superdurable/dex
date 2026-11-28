@@ -89,6 +89,22 @@ pub enum MetadataError {
         /// Barrier format version.
         format_version: u32,
     },
+    /// The manifest records an embedding application version that this binary cannot apply.
+    #[error(
+        "the cluster records version {recorded} of embedding application {application_name:?}, \
+         but this binary supports versions {oldest_supported} to {newest_supported}; start a \
+         binary that supports version {recorded}"
+    )]
+    UnsupportedApplicationVersion {
+        /// Name of the embedding application.
+        application_name: String,
+        /// Application version in the manifest's version barrier.
+        recorded: u32,
+        /// Oldest application version this binary applies.
+        oldest_supported: u32,
+        /// Newest application version this binary applies.
+        newest_supported: u32,
+    },
     /// A required object is absent.
     #[error("{key} metadata is missing")]
     Missing {

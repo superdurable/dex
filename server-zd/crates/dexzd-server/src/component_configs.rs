@@ -157,6 +157,7 @@ impl ComponentConfigs {
             },
             cluster: dexzd_cluster_metadata::ClusterConfig {
                 partition_count: config.cluster.partition_count,
+                embedding_application: None,
             },
             lease: dexzd_cluster_metadata::LeaseConfig {
                 duration: config.lease.duration,

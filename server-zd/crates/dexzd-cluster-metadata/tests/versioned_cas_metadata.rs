@@ -185,10 +185,10 @@ async fn bootstrap_and_racing_initial_manifests_agree() {
     let metadata = VersionedMetadataStore::new(true);
     let store = metadata.process_store();
     let clock = metadata.clock();
-    let first = bootstrap_or_validate(store.as_ref(), clock.as_ref(), ClusterConfig::default())
+    let first = bootstrap_or_validate(store.as_ref(), clock.as_ref(), &ClusterConfig::default())
         .await
         .expect("bootstrap");
-    let second = bootstrap_or_validate(store.as_ref(), clock.as_ref(), ClusterConfig::default())
+    let second = bootstrap_or_validate(store.as_ref(), clock.as_ref(), &ClusterConfig::default())
         .await
         .expect("validate");
     assert_eq!(first.cluster, second.cluster);
@@ -197,7 +197,7 @@ async fn bootstrap_and_racing_initial_manifests_agree() {
         let store = metadata.process_store();
         let clock = metadata.clock();
         let creator = tokio::spawn(async move {
-            create_initial_manifest(store.as_ref(), clock.as_ref(), 4, &node()).await
+            create_initial_manifest(store.as_ref(), clock.as_ref(), 4, &node(), None).await
         });
         creators.push(creator);
     }
@@ -234,6 +234,7 @@ async fn racing_epoch_bumps_each_apply_once() {
         clock.as_ref(),
         4,
         &node(),
+        None,
     )
     .await
     .expect("create");
@@ -273,7 +274,7 @@ async fn a_manifest_edit_superseded_before_its_confirmation_applies_once() {
     let metadata = VersionedMetadataStore::new(false);
     let store = metadata.process_store();
     let clock = metadata.clock();
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 4, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 4, &node(), None)
         .await
         .expect("create");
     metadata.faults.delay_listing_after_put(
@@ -317,7 +318,7 @@ async fn leases_acquire_renew_release_and_are_taken_over() {
     let metadata = VersionedMetadataStore::new(false);
     let clock = metadata.clock();
     let store = metadata.process_store();
-    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node())
+    create_initial_manifest(store.as_ref(), clock.as_ref(), 2, &node(), None)
         .await
         .expect("create");
     let config = LeaseConfig {
@@ -448,6 +449,7 @@ async fn acquire_node_lease(
         metadata.clock().as_ref(),
         2,
         &node(),
+        None,
     )
     .await
     .expect("create");

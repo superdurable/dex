@@ -9,6 +9,7 @@
 //! Cluster object, partition manifest, and node leases that decide which server-zd node owns each partition.
 
 mod cluster;
+mod embedding_application;
 mod error;
 mod lease;
 mod lease_acquisition;
@@ -17,6 +18,7 @@ mod manifest;
 mod registry;
 
 pub use cluster::{ClusterBootstrap, ClusterConfig, bootstrap_or_validate, read_cluster};
+pub use embedding_application::EmbeddingApplication;
 pub use error::MetadataError;
 pub use lease::{
     LeaseHandle, LeaseObservers, LeaseReleaseError, LeaseStatus, acquire_lease,

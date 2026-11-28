@@ -34,14 +34,23 @@ impl ClusterMetadata {
     pub(crate) async fn bootstrap_or_validate(
         object_store: &dyn ObjectStore,
         clock: &dyn WallClock,
-        cluster_config: ClusterConfig,
+        cluster_config: &ClusterConfig,
         node: &NodeConfig,
     ) -> Result<Self, EngineStartError> {
         let cluster = bootstrap_or_validate(object_store, clock, cluster_config).await?;
         let partition_count = cluster.cluster.partition_count;
         let manifest = match read_manifest(object_store).await? {
             Some(manifest) => manifest,
-            None => create_initial_manifest(object_store, clock, partition_count, node).await?,
+            None => {
+                create_initial_manifest(
+                    object_store,
+                    clock,
+                    partition_count,
+                    node,
+                    cluster.embedding_application.as_ref(),
+                )
+                .await?
+            }
         };
         Self::validate(cluster, manifest, node)
     }
@@ -51,7 +60,7 @@ impl ClusterMetadata {
     /// Returns `None` while either is missing.
     pub(crate) async fn read_existing(
         object_store: &dyn ObjectStore,
-        cluster_config: ClusterConfig,
+        cluster_config: &ClusterConfig,
         node: &NodeConfig,
     ) -> Result<Option<Self>, EngineStartError> {
         let Some(cluster) = read_cluster(object_store, cluster_config).await? else {
@@ -121,13 +130,21 @@ impl ClusterMetadata {
             .map_or(BehaviorVersion::INITIAL.number(), |barrier| {
                 barrier.behavior_version
             });
-        if behavior_version < BehaviorVersion::MINIMUM_SUPPORTED.number()
-            || behavior_version > BehaviorVersion::CURRENT.number()
-        {
-            return Err(EngineStartError::UnsupportedBehaviorVersion {
-                barrier: behavior_version,
-                newest_supported: BehaviorVersion::CURRENT.number(),
-            });
+        match &cluster.embedding_application {
+            // The application's records carry no server-zd behavior version; its own barrier applies.
+            Some(application) => {
+                application.check_recorded_version(&manifest)?;
+            }
+            None => {
+                if behavior_version < BehaviorVersion::MINIMUM_SUPPORTED.number()
+                    || behavior_version > BehaviorVersion::CURRENT.number()
+                {
+                    return Err(EngineStartError::UnsupportedBehaviorVersion {
+                        barrier: behavior_version,
+                        newest_supported: BehaviorVersion::CURRENT.number(),
+                    });
+                }
+            }
         }
         let streams = NodeStreams::from_manifest(&manifest, node)?;
         Ok(Self {

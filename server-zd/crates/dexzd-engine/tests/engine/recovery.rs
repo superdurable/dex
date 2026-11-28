@@ -555,8 +555,9 @@ async fn a_newer_epoch_in_the_log_fences_the_node() {
     let cluster_object = dexzd_cluster_metadata::bootstrap_or_validate(
         cluster.object_store.as_ref(),
         cluster.clock.as_ref(),
-        dexzd_cluster_metadata::ClusterConfig {
+        &dexzd_cluster_metadata::ClusterConfig {
             partition_count: PARTITION_COUNT,
+            embedding_application: None,
         },
     )
     .await
@@ -695,8 +696,9 @@ async fn voided_batches_after_takeover_keep_submission_order() {
     let cluster_object = dexzd_cluster_metadata::bootstrap_or_validate(
         cluster.object_store.as_ref(),
         cluster.clock.as_ref(),
-        dexzd_cluster_metadata::ClusterConfig {
+        &dexzd_cluster_metadata::ClusterConfig {
             partition_count: PARTITION_COUNT,
+            embedding_application: None,
         },
     )
     .await

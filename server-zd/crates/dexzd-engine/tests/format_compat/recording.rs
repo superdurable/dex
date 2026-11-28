@@ -112,6 +112,7 @@ pub(crate) async fn seed_cluster_object(
         partition_hash_key: partition_hash_key.to_vec(),
         key_layout_version: KEY_LAYOUT_VERSION,
         created_at_unix_micros: now,
+        creating_application: String::new(),
     };
     put_new_object(object_store, "cluster", cluster.encode_to_vec()).await;
     PartitionHasher::new(&partition_hash_key, PARTITION_COUNT).expect("valid partition hasher")

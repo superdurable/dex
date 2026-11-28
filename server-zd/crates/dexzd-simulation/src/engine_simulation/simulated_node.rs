@@ -158,6 +158,7 @@ impl ClusterEnvironment {
             partition_hash_key: PARTITION_HASH_KEY.to_vec(),
             key_layout_version: KEY_LAYOUT_VERSION,
             created_at_unix_micros: START_UNIX_MICROS,
+            creating_application: String::new(),
         };
         self.storage
             .store
@@ -538,6 +539,7 @@ pub(crate) fn engine_node_config(
         },
         cluster: ClusterConfig {
             partition_count: PARTITION_COUNT,
+            embedding_application: None,
         },
         lease: LeaseConfig {
             duration: LEASE_DURATION,
