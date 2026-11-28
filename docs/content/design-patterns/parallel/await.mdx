@@ -325,7 +325,7 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 ## Rules
 
 - Start the join Step in the same fork as the branches. Fork a Join at most once in one Step method. Explicit round keys and RPC forks are in the [Join reference](/reference/server/runtime-data#join).
-- Each branch reports exactly one result per round, on every exit path. That includes the Step that a failure route goes to. A branch that never reports leaves the join waiting forever. A branch that reports twice counts twice.
+- Each branch reports exactly one result per round, on every exit path that leaves the Flow open. That includes the Step that a failure route goes to. A branch that never reports leaves the join waiting forever. A branch that reports twice counts twice.
 - A branch of several Steps passes the round token to its last Step, and only that Step reports.
 - Only the join Step waits for its round; branches move on.
 - A canceled branch stays silent, so cancel the join together with the branches it waits for, or wait for the join and a Timer with `AnyOf`.

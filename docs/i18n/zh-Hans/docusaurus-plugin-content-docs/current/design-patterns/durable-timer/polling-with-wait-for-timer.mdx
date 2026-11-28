@@ -38,7 +38,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
 - join Step 是唯一的决定者。它不需要锁。分支用 `EndBranch` 上报结果。它的 `Execute` 检查是哪个 Condition 触发的。Timer 触发时，它把作业记录为超时并完成，并在同一个决定里用 `CancelSteps` 取消轮询 Step 类型和失败 Step 类型。后面的轮询轮次来自 `GoTo`，不是来自 fork，所以它们不是 join Step 的 sibling。按 Step 类型取消只在同时只有一个活跃轮次时正确。否则 join Step 用 `BranchResults` 读出结果，记录它，然后完成。Timer 胜出之后才报告的结果留在它的轮次里等待处理。它没有害处，也不会阻塞 `GracefulComplete`。
 - <a id="step-input"></a>Step 输入保持小而且大小固定，例如 job ID 和轮次编号。
   累积的状态，例如收集到的结果，放在 Attribute 里，绝不放进不断变大的 Step 输入。
-- <a id="external-calls"></a>在 `Execute` 中检查作业状态。不要在 `WaitFor` 中轮询外部系统。在这个模式中，`WaitFor` 只声明 Timer。
+- <a id="external-calls"></a>在 `Execute` 中检查作业状态。在那里调用可以使用 `Execute` 的重试和失败路由，结果也会提交。在这个模式中，`WaitFor` 只声明 Timer。
 - <a id="retries"></a>`ExecuteRetry` 使用少量带退避的尝试，处理临时错误。
   重试用完后，用 `ExecuteFailure` 选项路由到一个短 Step，由它记录失败；见
   [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)。

@@ -326,7 +326,7 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 ## 规则
 
 - 汇合 Step 要和各分支在同一次 fork 中启动。一个 Step 方法里，同一个 Join 最多 fork 一次。显式 round key 和 RPC fork 见 [Join 参考](/reference/server/runtime-data#join)。
-- 每个分支每轮恰好上报一个结果，所有退出路径都要上报，包括失败路由去往的 Step。从不上报的分支会让汇合一直等下去。上报两次的分支会被计两次。
+- 每个分支每轮恰好上报一个结果，Flow 仍然打开时的所有退出路径都要上报，包括失败路由去往的 Step。从不上报的分支会让汇合一直等下去。上报两次的分支会被计两次。
 - 由多个 Step 组成的分支，要把 round token 一直传到最后一个 Step，并且只由这个 Step 上报。
 - 分支自己不等待汇合。只有汇合 Step 等待它这一轮。
 - 被取消的分支不再上报，所以要么把汇合和它等待的分支一起取消，要么用 `AnyOf` 同时等待汇合和一个 Timer。

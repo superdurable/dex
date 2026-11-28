@@ -61,9 +61,9 @@ Each round of the polling Step runs these steps:
 - <a id="step-input"></a>Keep the Step input small and fixed in size, such as
   the job ID and the round number. Keep accumulated state, such as collected
   results, in Attributes, never in a growing Step input.
-- <a id="external-calls"></a>Check the job status in `Execute`.
-  Never poll the external system from `WaitFor`.
-  In this pattern, `WaitFor` only declares the Timer.
+- <a id="external-calls"></a>Check the job status in `Execute`. A call
+  there gets the retries and failure route of `Execute`, and its result
+  commits. In this pattern, `WaitFor` only declares the Timer.
 - <a id="retries"></a>Give `ExecuteRetry` a few attempts with backoff for
   transient errors. Route exhausted retries with the `ExecuteFailure` option
   to a short Step that records the failure; see
