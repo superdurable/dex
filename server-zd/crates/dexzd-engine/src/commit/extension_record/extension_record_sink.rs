@@ -15,10 +15,7 @@ use crate::commit::extension_record::{ExtensionRecordOutcome, ExtensionStamp};
 
 /// Receives each written frame of extension records before their submitters do; see the crate README.
 pub trait ExtensionRecordSink: Send + Sync + 'static {
-    /// Publishes one written frame in log order; must not block, submit, or wait for a commit.
-    ///
-    /// `is_replayed` is true for frames of an earlier epoch, which recovery replays before the
-    /// partition's rebuild; their records have no waiter.
+    /// Publishes one frame in log order; never blocks or submits. `is_replayed` marks frames of an earlier epoch.
     fn publish_frame(
         &self,
         partition: PartitionId,

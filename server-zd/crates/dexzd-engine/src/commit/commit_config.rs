@@ -35,7 +35,8 @@ pub struct CommitConfig {
     /// apply every command twice and compare the outcomes, and
     /// [`crate::CommandCommitter::check_speculative_outcome`] compares speculative and
     /// committed outcomes. Time-travel reconstruction checks semantic-point hashes.
-    /// Any difference stops the partition.
+    /// Any difference stops the partition. An embedding application's node only applies
+    /// every extension record twice and compares the writes.
     pub debug_replay_checks: bool,
 }
 
