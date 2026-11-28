@@ -270,12 +270,14 @@ pub(crate) fn start_node(
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store,
                 clock,
-                applier: applier.clone(),
+                applier: dexzd_engine::CommittedRecordHandling::FlowCommand(applier.clone()),
                 id_source: Arc::new(dexzd_engine::SystemEngineIdSource),
                 lease_validity_deadline: lease_validity_deadline.clone(),
             },
             move |_services: EngineServices| EngineCommandAndEffectHooks {
-                committed_commands: factory_recording_hooks.clone(),
+                committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(
+                    factory_recording_hooks.clone(),
+                ),
                 rebuilder: factory_recording_hooks,
             },
         )

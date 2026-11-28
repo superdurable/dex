@@ -58,7 +58,9 @@ pub(crate) async fn start_deterministic_node(
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store: cluster.object_store.clone(),
             clock: cluster.clock.clone(),
-            applier: Arc::new(DeterministicCommandApplier),
+            applier: dexzd_engine::CommittedRecordHandling::FlowCommand(Arc::new(
+                DeterministicCommandApplier,
+            )),
             id_source: Arc::new(dexzd_engine::SystemEngineIdSource),
             lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
@@ -66,7 +68,9 @@ pub(crate) async fn start_deterministic_node(
             *captured_for_factory.lock().expect("capture lock") =
                 Some((services.local_store, services.partition_hasher));
             EngineCommandAndEffectHooks {
-                committed_commands: runtime_for_factory.clone(),
+                committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(
+                    runtime_for_factory.clone(),
+                ),
                 rebuilder: runtime_for_factory,
             }
         },

@@ -45,7 +45,7 @@ async fn start_node_with_node_meta_services(
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store: cluster.object_store.clone(),
             clock: cluster.clock.clone(),
-            applier: applier.clone(),
+            applier: dexzd_engine::CommittedRecordHandling::FlowCommand(applier.clone()),
             id_source: Arc::new(SystemEngineIdSource),
             lease_validity_deadline: lease_validity_deadline.clone(),
         },
@@ -53,7 +53,9 @@ async fn start_node_with_node_meta_services(
             *factory_captured.lock().expect("capture lock") =
                 Some((services.local_store, services.node_meta_lock));
             EngineCommandAndEffectHooks {
-                committed_commands: factory_runtime.clone(),
+                committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(
+                    factory_runtime.clone(),
+                ),
                 rebuilder: factory_runtime,
             }
         },

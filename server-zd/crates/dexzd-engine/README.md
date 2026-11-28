@@ -37,6 +37,80 @@ that opaque outcome unchanged to the submitter, which downcasts it to its own
 type. `ExtensionCommitTicket::wait` returns a pipeline error on failure, or
 `CommitError::NodeStopping` if the pipeline drops the ticket without resolving it.
 
+## Extension record apply
+
+A node applies one kind of record, chosen by its dependencies. Server-zd's own
+nodes pass `CommittedRecordHandling::FlowCommand` in `EngineNodeDependencies` and
+`HotStandbyDependencies`, and their hooks factory returns
+`CommittedRecordSink::FlowCommand`. An embedding application passes
+`CommittedRecordHandling::ExtensionRecord` with its `ExtensionRecordApplier`, and
+its hooks factory returns `CommittedRecordSink::ExtensionRecord` with its
+`ExtensionRecordSink`. Both are constructor inputs; nothing is wired later. The
+committer's record kind follows the dependencies.
+
+Startup checks the choice. A node or hot standby whose record kind contradicts
+`cluster.embedding_application` fails with `EngineStartError::InvalidConfig`
+before it reads or creates any cluster metadata: only a named embedding
+application applies extension records, and it applies nothing else. A hooks
+factory that returns the other kind of sink fails the start with the same error
+after the lease, which the start then releases.
+
+For each frame of an extension node, the frame applier:
+
+1. skips a frame the local store already applied;
+2. decodes every record and halts the partition when one is a Flow command, has an
+   invalid command ID, or names another partition in its envelope or through
+   `PartitionHasher::partition_of(routing_hash)`;
+3. calls `ExtensionRecordApplier::apply_record` once per record, in log order,
+   over committed state plus the writes of earlier records in the frame; a returned
+   `ExtensionApplyHalt` or a panic halts the partition;
+4. with `CommitConfig::debug_replay_checks`, calls `apply_record` a second time and halts
+   the partition when the two `writes` differ; the second outcome is dropped;
+5. writes all records' writes and the `PartitionMeta` atomically.
+   `last_command_timestamp_micros` comes from the envelopes, and
+   `last_behavior_version` keeps its value because extension records carry no
+   behavior version;
+6. takes the waiting tickets under the write admission, calls
+   `ExtensionRecordSink::publish_frame` once with every record's stamp, outcome,
+   and `has_waiter`, then checks the lease and moves each waited outcome into its
+   ticket's `ExtensionCommitted`.
+
+Server-zd never decodes a payload, so it checks only that the routing hash selects
+the frame's partition. The applier checks that the hash matches the record's own
+routing key and that its writes stay in that key's partition.
+
+A frame that is skipped, fails its store write, or halts drops every outcome; a
+halt fails the waiting tickets of the frame at once, and later frames of the halted
+partition fail theirs as they arrive. An outcome without a waiter is dropped after
+`publish_frame` returns, so replaying a long log keeps no outcomes.
+
+`is_replayed` is true when the frame's epoch is older than the serving node's
+epoch. Those frames come from recovery's log replay, before the partition's
+`PartitionEffectRebuilder` runs; their records have no waiter. A sink applies only
+idempotent in-memory updates for them and starts no live work, because the
+rebuild owns pending work. A hot standby applies records with the applier and
+never calls a sink; the takeover's serving start creates the sink.
+
+The calling contract for both traits:
+
+- `apply_record` and `publish_frame` run on the blocking thread of a partition's
+  applier lane. Records of one partition arrive in log order; partitions run
+  concurrently.
+- `apply_record` is a pure function of the partition, stamp, payload, and state.
+  Equal inputs return equal writes, because replay checks apply every record twice
+  and compare them. Keep no mutable state in the applier, so a caught panic leaves
+  nothing poisoned.
+- `publish_frame` only updates memory and never blocks. The lane waits for it
+  before it writes the next frame, so a sink never submits a record or waits for a
+  commit inside it. Hand follow-up submissions to a separate task.
+- A sink that `publish_frame` updates synchronously is up to date before any
+  submitter's ticket resolves, so a submitter's next read observes its record.
+
+Server-zd-only diagnostics stay off on an extension node: the semantic-point and
+time-travel checks of `CommitConfig::debug_replay_checks`, the scan of history rows before
+replay, and committed-command metrics. They parse server-zd's own rows, which an
+embedding application's rows are not.
+
 ## History segment reads
 
 GetHistoryEvents runs apply's read model in rounds. Each round pins a committed view, reads the page from local rows and the segments loaded so far, and releases the view. When the model needs more uploaded segments, `HistorySegmentReader` fetches their headers and records blocks after the view is gone, at most `history.objectReadConcurrency` at once, so slow object storage never holds a view. The next round reads a new view, so a segment pruned meanwhile reads as pruned and a purged run as not found. The last round, the eighth by default, returns the shorter page of the events before the first unloaded segment, with a next page token, so every read makes progress with bounded work. A segment object still missing on a second round fails the read with UNAVAILABLE. Decoded headers stay in a bounded memory cache. Header and records block bytes also go to a `dex-blob-cache` disk cache, in `<localStorage.directory>-history-read-cache` so that setting the store aside never moves it, keyed by object key, content checksum, and part, which needs no invalidation because uploaded objects never change; keys of hard-delete value references are refused. The reader is created once per process and opens the disk cache on first use.

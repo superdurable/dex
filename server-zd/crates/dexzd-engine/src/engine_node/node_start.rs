@@ -23,12 +23,12 @@ use tokio_util::sync::CancellationToken;
 use crate::commit::{
     AppliedPositionAdvancer, AppliedPositionSource, CommandCommitter, CommandCommitterParts,
     CommitProgress, CommitState, CommittedBatchRouter, CommittedRecordKind, EngineLocalStore,
-    FrameApplier, FrameApplierParts, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason,
-    PartitionApplierPool, run_log_proposer,
+    FlowReplayDiagnostics, FrameApplier, FrameApplierParts, LEASE_VALIDITY_EXPIRED_DETAIL,
+    NodeStopReason, PartitionApplierPool, run_log_proposer,
 };
 use crate::engine_node::{
     EngineNode, EngineNodeConfig, EngineNodeDependencies, LeasedParts, LocalStoreCloseWaiter,
-    RunningTasks, validate_config,
+    RunningTasks, validate_config, validate_record_kind,
 };
 use crate::hot_standby::HotStandby;
 use crate::recovery::{
@@ -152,9 +152,11 @@ fn other_cluster_error() -> EngineStartError {
 /// Checks the node configuration and that a hot standby follows the node that starts.
 fn validate_start_config(
     config: &EngineNodeConfig,
+    record_kind: CommittedRecordKind,
     local_store_source: &LocalStoreSource,
 ) -> Result<(), EngineStartError> {
     validate_config(config)?;
+    validate_record_kind(config, record_kind)?;
     match local_store_source {
         LocalStoreSource::HotStandby(standby)
             if !standby.is_following_node(&config.node.node_id) =>
@@ -185,7 +187,8 @@ pub(crate) async fn start_engine_node<F>(
 where
     F: FnOnce(EngineServices) -> EngineCommandAndEffectHooks,
 {
-    if let Err(error) = validate_start_config(config, &local_store_source) {
+    let record_kind = dependencies.applier.record_kind();
+    if let Err(error) = validate_start_config(config, record_kind, &local_store_source) {
         return Ok(StartOutcome::FailedBeforeLease {
             error,
             source: local_store_source,
@@ -360,7 +363,7 @@ where
             is_checking_replay: config.commit.debug_replay_checks,
             proposals: proposal_sender,
             hasher: metadata.cluster.partition_hasher.clone(),
-            record_kind: CommittedRecordKind::FlowCommand,
+            record_kind,
         });
         let hooks = command_and_effect_hooks_factory(EngineServices {
             committer: committer.clone(),
@@ -369,17 +372,29 @@ where
             local_store: store.clone(),
             id_source: id_source.clone(),
         });
+        let records = applier
+            .serving_frame_records(hooks.committed_commands.clone(), epoch)
+            .ok_or_else(|| EngineStartError::InvalidConfig {
+                detail: "the hooks' committed record sink takes another record kind than the \
+                         node's applier"
+                    .to_owned(),
+            })?;
+        let flow_replay_diagnostics = FlowReplayDiagnostics::new(
+            store.as_ref(),
+            &records,
+            config.commit.debug_replay_checks,
+        )?;
         let appliers = Arc::new(PartitionApplierPool::start(
             FrameApplier::new(FrameApplierParts {
                 metrics: metrics.clone(),
                 store: store.clone(),
-                applier,
+                records,
                 hasher: metadata.cluster.partition_hasher.clone(),
                 state: state.clone(),
-                committed_commands: hooks.committed_commands.clone(),
                 is_checking_replay: config.commit.debug_replay_checks,
                 blocking_work: config.blocking_work,
-            })?,
+                flow_replay_diagnostics,
+            }),
             config.commit.applier_lanes,
             config.commit.applier_queue_frames,
         ));

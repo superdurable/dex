@@ -12,6 +12,8 @@ mod clone_fork;
 mod commit_path;
 mod embedding_application;
 mod eventual_snapshot_retention;
+mod extension_records;
+mod fake_embedding_application;
 mod harness;
 mod history_offload_mode;
 mod hot_standby;

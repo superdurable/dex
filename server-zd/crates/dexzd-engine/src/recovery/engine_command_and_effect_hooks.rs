@@ -12,7 +12,7 @@ use dexzd_keyspace::{PartitionHasher, PartitionId};
 use dexzd_protocol::dexzd::v1::LogPosition;
 use futures::future::BoxFuture;
 
-use crate::commit::{CommandCommitter, EngineLocalStore};
+use crate::commit::{CommandCommitter, CommittedRecordSink, EngineLocalStore};
 use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::CommittedFlowCommand;
 
@@ -33,8 +33,8 @@ pub struct EngineServices {
 
 /// What the command and effect hooks factory returns: where committed commands go and how partitions rebuild.
 pub struct EngineCommandAndEffectHooks {
-    /// Receives every committed command, including commands replayed during recovery.
-    pub committed_commands: Arc<dyn CommittedCommandSink>,
+    /// Receives every committed record, including records replayed during recovery.
+    pub committed_commands: CommittedRecordSink,
     /// Rebuilds each partition's runtime work after recovery.
     pub rebuilder: Arc<dyn PartitionEffectRebuilder>,
 }

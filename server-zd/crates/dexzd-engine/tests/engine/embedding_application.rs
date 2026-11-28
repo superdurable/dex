@@ -25,8 +25,11 @@ use dexzd_object_store::{
     ObjectStoreResult, WriteCondition, WriteOutcome, node_lease_object_key,
 };
 
-use crate::harness::{CountingApplier, RecordingCommandAndEffectHooks, TestCluster};
-use crate::hot_standby::{fast_standby_config, start_standby, wait_for_status};
+use crate::fake_embedding_application::{
+    start_fake_application, start_fake_application_on, start_fake_application_standby,
+};
+use crate::harness::TestCluster;
+use crate::hot_standby::{fast_standby_config, wait_for_status};
 
 fn embedding_application_config(
     cluster: &TestCluster,
@@ -69,9 +72,8 @@ async fn lease_and_epoch(cluster: &TestCluster) -> (Option<Bytes>, u64) {
 
 #[tokio::test(start_paused = true)]
 async fn an_unsupported_application_version_fails_startup_before_the_lease() {
-    let mut cluster = TestCluster::new();
-    let first = cluster
-        .start_with(&embedding_application_config(&cluster, 1..=1, 1))
+    let cluster = TestCluster::new();
+    let first = start_fake_application(&cluster, &embedding_application_config(&cluster, 1..=1, 1))
         .await
         .expect("the embedding application creates its cluster");
     first.node.shutdown().await.expect("lease released");
@@ -82,9 +84,8 @@ async fn an_unsupported_application_version_fails_startup_before_the_lease() {
         .expect("version barrier");
     assert_eq!(barrier.application_version, 1);
     let before = lease_and_epoch(&cluster).await;
-    let result = cluster
-        .start_with(&embedding_application_config(&cluster, 2..=3, 2))
-        .await;
+    let result =
+        start_fake_application(&cluster, &embedding_application_config(&cluster, 2..=3, 2)).await;
     assert!(
         matches!(
             &result,
@@ -185,10 +186,9 @@ impl ObjectStore for BarrierChangingStore {
 
 #[tokio::test(start_paused = true)]
 async fn a_barrier_changed_while_the_lease_is_taken_fails_the_check_under_the_lease() {
-    let mut cluster = TestCluster::new();
+    let cluster = TestCluster::new();
     let config = embedding_application_config(&cluster, 1..=1, 1);
-    let first = cluster
-        .start_with(&config)
+    let first = start_fake_application(&cluster, &config)
         .await
         .expect("the embedding application creates its cluster");
     first.node.shutdown().await.expect("lease released");
@@ -197,14 +197,7 @@ async fn a_barrier_changed_while_the_lease_is_taken_fails_the_check_under_the_le
         application_version: 2,
         has_changed: AtomicBool::new(false),
     });
-    let result = cluster
-        .start_on_object_store(
-            &config,
-            Arc::new(CountingApplier::default()),
-            Arc::new(RecordingCommandAndEffectHooks::default()),
-            changing_store.clone(),
-        )
-        .await;
+    let result = start_fake_application_on(&cluster, &config, changing_store.clone()).await;
     assert!(
         changing_store.has_changed.load(Ordering::SeqCst),
         "the start took the lease"
@@ -224,14 +217,12 @@ async fn a_barrier_changed_while_the_lease_is_taken_fails_the_check_under_the_le
 #[tokio::test(start_paused = true)]
 async fn server_zd_and_an_embedding_application_reject_each_others_clusters() {
     let mut application_cluster = TestCluster::new();
-    let first = application_cluster
-        .start_with(&embedding_application_config(
-            &application_cluster,
-            1..=1,
-            1,
-        ))
-        .await
-        .expect("the embedding application creates its cluster");
+    let first = start_fake_application(
+        &application_cluster,
+        &embedding_application_config(&application_cluster, 1..=1, 1),
+    )
+    .await
+    .expect("the embedding application creates its cluster");
     first.node.shutdown().await.expect("lease released");
     let before = lease_and_epoch(&application_cluster).await;
     let server_zd_config = application_cluster.config(LocalStoreConfig::InMemory);
@@ -261,9 +252,11 @@ async fn server_zd_and_an_embedding_application_reject_each_others_clusters() {
     let mut server_zd_cluster = TestCluster::new();
     let first = server_zd_cluster.start_in_memory().await;
     first.node.shutdown().await.expect("lease released");
-    let result = server_zd_cluster
-        .start_with(&embedding_application_config(&server_zd_cluster, 1..=1, 1))
-        .await;
+    let result = start_fake_application(
+        &server_zd_cluster,
+        &embedding_application_config(&server_zd_cluster, 1..=1, 1),
+    )
+    .await;
     assert!(
         matches!(
             &result,
@@ -279,10 +272,9 @@ async fn server_zd_and_an_embedding_application_reject_each_others_clusters() {
 
 #[tokio::test(start_paused = true)]
 async fn an_embedding_application_cluster_does_not_check_the_behavior_version_barrier() {
-    let mut cluster = TestCluster::new();
+    let cluster = TestCluster::new();
     let config = embedding_application_config(&cluster, 1..=1, 1);
-    let first = cluster
-        .start_with(&config)
+    let first = start_fake_application(&cluster, &config)
         .await
         .expect("the embedding application creates its cluster");
     first.node.shutdown().await.expect("lease released");
@@ -300,8 +292,7 @@ async fn an_embedding_application_cluster_does_not_check_the_behavior_version_ba
     )
     .await
     .expect("barrier lowered");
-    let second = cluster
-        .start_with(&config)
+    let second = start_fake_application(&cluster, &config)
         .await
         .expect("the embedding application ignores the behavior version barrier");
     second.node.shutdown().await.expect("lease released");
@@ -309,18 +300,19 @@ async fn an_embedding_application_cluster_does_not_check_the_behavior_version_ba
 
 #[tokio::test(start_paused = true)]
 async fn a_hot_standby_retries_an_unsupported_application_version_until_the_barrier_advances() {
-    let mut cluster = TestCluster::new();
-    let serving = cluster
-        .start_with(&embedding_application_config(&cluster, 1..=1, 1))
-        .await
-        .expect("the embedding application creates its cluster");
+    let cluster = TestCluster::new();
+    let serving =
+        start_fake_application(&cluster, &embedding_application_config(&cluster, 1..=1, 1))
+            .await
+            .expect("the embedding application creates its cluster");
     serving.node.shutdown().await.expect("lease released");
-    let standby = start_standby(
+    let standby = start_fake_application_standby(
         &cluster,
         embedding_application_config(&cluster, 2..=2, 2),
         fast_standby_config(),
-    );
-    let retrying = wait_for_status(&standby.standby, "the standby retries", |status| {
+    )
+    .expect("the hot standby starts");
+    let retrying = wait_for_status(&standby, "the standby retries", |status| {
         status
             .last_error
             .as_deref()
@@ -330,29 +322,29 @@ async fn a_hot_standby_retries_an_unsupported_application_version_until_the_barr
     assert_ne!(retrying.state, HotStandbyState::Failed, "{retrying:?}");
     assert!(retrying.failure.is_none(), "{retrying:?}");
     set_application_version(cluster.object_store.as_ref(), 2).await;
-    wait_for_status(&standby.standby, "the standby follows", |status| {
+    wait_for_status(&standby, "the standby follows", |status| {
         status.state == HotStandbyState::Following
     })
     .await;
-    standby.standby.shutdown().await;
+    standby.shutdown().await;
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_following_hot_standby_restarts_when_the_barrier_moves_past_its_versions() {
-    let mut cluster = TestCluster::new();
+    let cluster = TestCluster::new();
     let config = embedding_application_config(&cluster, 1..=1, 1);
-    let serving = cluster
-        .start_with(&config)
+    let serving = start_fake_application(&cluster, &config)
         .await
         .expect("the embedding application creates its cluster");
     serving.node.shutdown().await.expect("lease released");
-    let standby = start_standby(&cluster, config, fast_standby_config());
-    wait_for_status(&standby.standby, "the standby follows", |status| {
+    let standby = start_fake_application_standby(&cluster, config, fast_standby_config())
+        .expect("the hot standby starts");
+    wait_for_status(&standby, "the standby follows", |status| {
         status.state == HotStandbyState::Following
     })
     .await;
     set_application_version(cluster.object_store.as_ref(), 2).await;
-    let restarting = wait_for_status(&standby.standby, "the standby restarts", |status| {
+    let restarting = wait_for_status(&standby, "the standby restarts", |status| {
         status
             .last_error
             .as_deref()
@@ -366,5 +358,5 @@ async fn a_following_hot_standby_restarts_when_the_barrier_moves_past_its_versio
         "{restarting:?}"
     );
     assert!(restarting.failure.is_none(), "{restarting:?}");
-    standby.standby.shutdown().await;
+    standby.shutdown().await;
 }

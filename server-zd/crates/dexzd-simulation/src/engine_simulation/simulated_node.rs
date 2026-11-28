@@ -20,10 +20,10 @@ use dexzd_cluster_metadata::{
 };
 use dexzd_engine::{
     AttributeSyncWaker, BlockingWorkPlacement, CommandApplier, CommitConfig,
-    DeterministicCommandApplier, EffectDependencies, EffectRunner, EffectTasksHandle,
-    EffectsConfig, EngineCommandAndEffectHooks, EngineIdSource, EngineLocalStore, EngineNode,
-    EngineNodeConfig, EngineNodeDependencies, EngineServices, EngineStartError,
-    FlowCoordinationConfig, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
+    CommittedRecordHandling, CommittedRecordSink, DeterministicCommandApplier, EffectDependencies,
+    EffectRunner, EffectTasksHandle, EffectsConfig, EngineCommandAndEffectHooks, EngineIdSource,
+    EngineLocalStore, EngineNode, EngineNodeConfig, EngineNodeDependencies, EngineServices,
+    EngineStartError, FlowCoordinationConfig, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
     HardDeleteObjects, HistoryReadsConfig, HistorySegmentReader, HotStandby, HotStandbyTakeover,
     LocalStoreConfig, NodeMetaUploadLedger, NodeStopReason, RecoveryConfig, SnapshotConfig,
     default_run_settings,
@@ -304,7 +304,7 @@ impl NodeProcess {
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store: object_store_port,
             clock: wall_clock,
-            applier,
+            applier: CommittedRecordHandling::FlowCommand(applier),
             id_source: Arc::clone(&environment.id_source),
             lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         };
@@ -361,7 +361,9 @@ impl NodeProcess {
             );
             let effect_tasks = effect_tasks.start(Arc::new(registry.clone()));
             let hooks = EngineCommandAndEffectHooks {
-                committed_commands: committed_log.sink_for(&factory_label, registry.clone()),
+                committed_commands: CommittedRecordSink::FlowCommand(
+                    committed_log.sink_for(&factory_label, registry.clone()),
+                ),
                 rebuilder: Arc::new(effect_runner),
             };
             *factory_parts

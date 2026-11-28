@@ -69,12 +69,14 @@ fn take_over(
                 metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                 object_store: task_object_store,
                 clock,
-                applier: applier.clone(),
+                applier: dexzd_engine::CommittedRecordHandling::FlowCommand(applier.clone()),
                 id_source: Arc::new(SystemEngineIdSource),
                 lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
             },
             move |_services: EngineServices| EngineCommandAndEffectHooks {
-                committed_commands: factory_recording_hooks.clone(),
+                committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(
+                    factory_recording_hooks.clone(),
+                ),
                 rebuilder: factory_recording_hooks,
             },
             standby,

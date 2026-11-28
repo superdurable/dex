@@ -30,10 +30,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::blocking_work::BlockingWorkPlacement;
-use crate::command_applier::CommandApplier;
 use crate::commit::{
-    AppliedPositionAdvancer, CommandCommitter, CommitConfig, CommitState, NodeStopReason,
-    PartitionApplierPool,
+    AppliedPositionAdvancer, CommandCommitter, CommitConfig, CommitState, CommittedRecordHandling,
+    CommittedRecordKind, NodeStopReason, PartitionApplierPool,
 };
 use crate::engine_id_source::EngineIdSource;
 use crate::engine_node::node_start::{LocalStoreSource, StartOutcome, start_engine_node};
@@ -88,8 +87,8 @@ pub struct EngineNodeDependencies {
     pub object_store: Arc<dyn ObjectStore>,
     /// Wall clock for command timestamps and lease expiry.
     pub clock: Arc<dyn WallClock>,
-    /// Applies committed commands.
-    pub applier: Arc<dyn CommandApplier>,
+    /// Applies committed Flow commands or an embedding application's extension records.
+    pub applier: CommittedRecordHandling,
     /// Creates the command, lineage, and EpochStart writer IDs.
     pub id_source: Arc<dyn EngineIdSource>,
     /// Armed with the lease's local validity; commits are refused and unacknowledged after it passes.
@@ -479,6 +478,26 @@ pub(crate) fn validate_config(config: &EngineNodeConfig) -> Result<(), EngineSta
         }),
         None => Ok(()),
     }
+}
+
+/// Checks that only a node of an embedding application applies extension records.
+pub(crate) fn validate_record_kind(
+    config: &EngineNodeConfig,
+    record_kind: CommittedRecordKind,
+) -> Result<(), EngineStartError> {
+    let is_embedding_application = config.cluster.embedding_application.is_some();
+    let detail = match record_kind {
+        CommittedRecordKind::FlowCommand if is_embedding_application => {
+            "cluster.embedding_application names an embedding application, but the node applies Flow commands"
+        }
+        CommittedRecordKind::ExtensionRecord if !is_embedding_application => {
+            "the node applies extension records, but cluster.embedding_application names no embedding application"
+        }
+        CommittedRecordKind::FlowCommand | CommittedRecordKind::ExtensionRecord => return Ok(()),
+    };
+    Err(EngineStartError::InvalidConfig {
+        detail: detail.to_owned(),
+    })
 }
 
 /// Background tasks of a node; dropping it cancels and aborts every task.

@@ -394,7 +394,7 @@ pub(crate) fn start_standby(
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store: object_store.clone(),
             clock: cluster.clock.clone(),
-            applier: applier.clone(),
+            applier: dexzd_engine::CommittedRecordHandling::FlowCommand(applier.clone()),
             id_source: Arc::new(SystemEngineIdSource),
             restart_jitter_seed: 7,
         },

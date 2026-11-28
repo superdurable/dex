@@ -20,8 +20,19 @@ use uuid::Uuid;
 
 use crate::flow_coordination::CommitError;
 
+mod committed_record_handling;
+mod extension_frame_applier;
+mod extension_record_applier;
+mod extension_record_sink;
 #[cfg(test)]
 mod extension_record_submit_tests;
+
+pub use committed_record_handling::{CommittedRecordHandling, CommittedRecordSink};
+pub use extension_record_applier::{ExtensionApplied, ExtensionApplyHalt, ExtensionRecordApplier};
+pub use extension_record_sink::{ExtensionRecordSink, PublishedExtensionRecord};
+
+pub(crate) use committed_record_handling::FrameRecordHandling;
+pub(crate) use extension_frame_applier::{AppliedExtensionRecord, ExtensionFrameApplier};
 
 /// Application-defined apply result; server-zd passes it uninspected through [`ExtensionCommitted::outcome`] for the submitter to downcast.
 pub type ExtensionRecordOutcome = Box<dyn Any + Send>;

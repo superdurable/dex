@@ -618,7 +618,9 @@ async fn submissions_during_recovery_are_unavailable() {
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store: cluster.object_store.clone(),
             clock: cluster.clock.clone(),
-            applier: Arc::new(CountingApplier::default()),
+            applier: dexzd_engine::CommittedRecordHandling::FlowCommand(Arc::new(
+                CountingApplier::default(),
+            )),
             id_source: Arc::new(dexzd_engine::SystemEngineIdSource),
             lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
@@ -639,7 +641,9 @@ async fn submissions_during_recovery_are_unavailable() {
                 )
                 .err();
             EngineCommandAndEffectHooks {
-                committed_commands: factory_runtime.clone(),
+                committed_commands: dexzd_engine::CommittedRecordSink::FlowCommand(
+                    factory_runtime.clone(),
+                ),
                 rebuilder: factory_runtime,
             }
         },

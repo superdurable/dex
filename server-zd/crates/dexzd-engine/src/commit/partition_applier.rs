@@ -6,18 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
-use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
 use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, StateWrite, WaitableChange};
 use dexzd_keyspace::row_keys::SEARCH_ORDER_INDEX_VERSION;
 use dexzd_keyspace::{
-    ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, parse_run_key,
+    ColumnFamily, PartitionHasher, PartitionId, RunTable, TenantId, parse_run_key,
 };
 use dexzd_log::{DecodedBatch, StreamIdentity};
 use dexzd_metrics::{
@@ -28,7 +27,7 @@ use dexzd_protocol::dexzd::v1::{
     FlowCommand, HistoryRecord, LogPosition, LogRecord, PartitionMeta, StepAttemptFailedCommand,
     StepAttemptFailureKind, StepExecutionRecord, command_reply, flow_command::Command, log_record,
 };
-use dexzd_storage::{LocalReadView, LocalStore, ScanDirection, StorageError};
+use dexzd_storage::{LocalReadView, LocalStore};
 use prost::Message;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -37,19 +36,23 @@ use tokio_util::sync::CancellationToken;
 use crate::blocking_work::{BlockingWorkFailure, BlockingWorkPlacement};
 use crate::command_applier::CommandApplier;
 use crate::commit::commit_state::{
-    CommitState, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason, PendingCommand,
+    CommitState, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason, PendingCommand, PendingCommit,
     lease_validity_expired_error, partition_stopped_error,
 };
-use crate::commit::replay_checks::{
-    compare_repeated_apply, compare_semantic_point_hash, semantic_metadata_points,
+use crate::commit::extension_record::{
+    AppliedExtensionRecord, ExtensionFrameApplier, FrameRecordHandling,
 };
+use crate::commit::replay_checks::compare_repeated_apply;
 use crate::commit::staged_state_reader::StagedStateReader;
 use crate::commit::{CommitProgress, EngineLocalStore};
 use crate::flow_coordination::{CommitError, CommittedCommand, CommittedFlowCommand};
 use crate::recovery::CommittedCommandSink;
 
+mod flow_replay_diagnostics;
 #[path = "partition_applier_metrics.rs"]
 mod metrics;
+
+pub(crate) use flow_replay_diagnostics::FlowReplayDiagnostics;
 
 /// The records of one partition in one committed log batch.
 pub(crate) struct PartitionFrame {
@@ -81,70 +84,52 @@ pub(crate) struct FrameApplier {
     pub(crate) metrics: Arc<NodeMetrics>,
     pub(crate) metrics_enabled: AtomicBool,
     pub(crate) store: Arc<EngineLocalStore>,
-    pub(crate) applier: Arc<dyn CommandApplier>,
+    pub(crate) records: FrameRecordHandling,
     pub(crate) hasher: PartitionHasher,
     pub(crate) state: Arc<CommitState>,
-    pub(crate) committed_commands: Arc<dyn CommittedCommandSink>,
     pub(crate) is_checking_replay: bool,
     pub(crate) blocking_work: BlockingWorkPlacement,
-    pub(crate) semantic_point_hashes: Mutex<BTreeMap<(RunId, u32, u64), [u8; 16]>>,
-    pub(crate) pre_replay_semantic_points: BTreeSet<(RunId, u32, u64)>,
-    pub(crate) verified_time_travels: AtomicU64,
-    pub(crate) unverifiable_time_travels: AtomicU64,
+    flow_replay_diagnostics: FlowReplayDiagnostics,
 }
 
 /// What a [`FrameApplier`] applies frames with.
 pub(crate) struct FrameApplierParts {
     pub(crate) metrics: Arc<NodeMetrics>,
     pub(crate) store: Arc<EngineLocalStore>,
-    pub(crate) applier: Arc<dyn CommandApplier>,
+    /// The applier and sink of the node's record kind; serving extension nodes add their epoch.
+    pub(crate) records: FrameRecordHandling,
     pub(crate) hasher: PartitionHasher,
     /// Halted partitions and the write fence; once stopped, no frame or position is written.
     pub(crate) state: Arc<CommitState>,
-    pub(crate) committed_commands: Arc<dyn CommittedCommandSink>,
     pub(crate) is_checking_replay: bool,
     pub(crate) blocking_work: BlockingWorkPlacement,
+    pub(crate) flow_replay_diagnostics: FlowReplayDiagnostics,
 }
 
 impl FrameApplier {
     /// Creates an applier whose metrics stay off until [`PartitionApplierPool::enable_metrics`].
-    ///
-    /// Returns the store error of indexing semantic points when replay checks are on.
-    pub(crate) fn new(parts: FrameApplierParts) -> Result<Self, StorageError> {
+    pub(crate) fn new(parts: FrameApplierParts) -> Self {
         let FrameApplierParts {
             metrics,
             store,
-            applier,
+            records,
             hasher,
             state,
-            committed_commands,
             is_checking_replay,
             blocking_work,
+            flow_replay_diagnostics,
         } = parts;
-        let pre_replay_semantic_points = if is_checking_replay {
-            Self::pre_replay_semantic_points(store.as_ref())?
-        } else {
-            BTreeSet::new()
-        };
-        tracing::debug!(
-            unverifiable_semantic_points = pre_replay_semantic_points.len(),
-            "semantic points present before log replay lack independent hashes"
-        );
-        Ok(Self {
+        Self {
             metrics,
             metrics_enabled: AtomicBool::new(false),
             store,
-            applier,
+            records,
             hasher,
             state,
-            committed_commands,
             is_checking_replay,
             blocking_work,
-            semantic_point_hashes: Mutex::new(BTreeMap::new()),
-            pre_replay_semantic_points,
-            verified_time_travels: AtomicU64::new(0),
-            unverifiable_time_travels: AtomicU64::new(0),
-        })
+            flow_replay_diagnostics,
+        }
     }
 }
 
@@ -276,14 +261,9 @@ impl PartitionApplierPool {
     }
 
     pub(crate) fn time_travel_verification_counts(&self) -> (u64, u64) {
-        (
-            self.frame_applier
-                .verified_time_travels
-                .load(Ordering::Relaxed),
-            self.frame_applier
-                .unverifiable_time_travels
-                .load(Ordering::Relaxed),
-        )
+        self.frame_applier
+            .flow_replay_diagnostics
+            .time_travel_verification_counts()
     }
 }
 
@@ -524,53 +504,24 @@ struct AppliedCommand {
     pending: Option<PendingCommand>,
 }
 
+/// A written frame's applied records and the sink they publish to.
+enum AppliedFrame<'a> {
+    FlowCommands {
+        commands: Vec<AppliedCommand>,
+        committed_commands: &'a dyn CommittedCommandSink,
+    },
+    ExtensionRecords {
+        records: Vec<AppliedExtensionRecord>,
+        extension: &'a ExtensionFrameApplier,
+    },
+}
+
 enum FrameFailure {
     Halt(String),
     StoreFailed(String),
 }
 
 impl FrameApplier {
-    pub(crate) fn pre_replay_semantic_points(
-        store: &dyn LocalReadView,
-    ) -> Result<BTreeSet<(RunId, u32, u64)>, StorageError> {
-        let mut points = BTreeSet::new();
-        let mut runs = BTreeSet::new();
-        let mut start = None;
-        loop {
-            let rows = store.scan(
-                ColumnFamily::History,
-                start.as_deref(),
-                None,
-                ScanDirection::Forward,
-                256,
-            )?;
-            if rows.is_empty() {
-                break;
-            }
-            for (key, value) in &rows {
-                let parsed = parse_run_key(key)
-                    .map_err(|error| StorageError::Invalid(format!("history key: {error}")))?;
-                runs.insert((parsed.flow_hash, parsed.run_id));
-                if parsed.table == RunTable::HistoryRecord {
-                    let history = HistoryRecord::decode(value.as_slice())?;
-                    if history.is_semantic {
-                        points.insert((parsed.run_id, history.attempt, history.seq));
-                    }
-                }
-            }
-            let mut next = rows
-                .last()
-                .expect("a nonempty page has a last key")
-                .0
-                .clone();
-            next.push(0);
-            start = Some(next);
-        }
-        // Offload deletes uploaded records; their semantic metadata stays for the window.
-        points.extend(semantic_metadata_points(store, &runs)?);
-        Ok(points)
-    }
-
     fn apply_frame(&self, frame: PartitionFrame) {
         let partition = frame.partition;
         if self.state.is_partition_halted(partition) {
@@ -595,7 +546,7 @@ impl FrameApplier {
     fn try_apply_frame(
         &self,
         frame: &PartitionFrame,
-    ) -> Result<Option<Vec<AppliedCommand>>, FrameFailure> {
+    ) -> Result<Option<AppliedFrame<'_>>, FrameFailure> {
         let store: &EngineLocalStore = &self.store;
         let meta = store
             .partition_meta(frame.partition)
@@ -612,39 +563,52 @@ impl FrameApplier {
         {
             return Ok(None);
         }
-        let commands = frame
-            .records
-            .iter()
-            .map(|record| self.decode_command(frame.partition, record))
-            .collect::<Result<Vec<_>, _>>()?;
         let mut reader = StagedStateReader::new(store);
-        let mut applied = Vec::with_capacity(commands.len());
-        let mut last_command_timestamp_micros = meta.last_command_timestamp_micros;
-        let mut last_behavior_version = meta.last_behavior_version;
-        for DecodedCommand { command, context } in commands {
-            let outcome = self.apply_command(&context, &reader, &command, &frame.position)?;
-            if self.is_checking_replay
-                && matches!(
-                    &outcome.reply.reply,
-                    Some(command_reply::Reply::TimeTravel(_))
+        let (mut applied, last_command_timestamp_micros, last_behavior_version) = match &self
+            .records
+        {
+            FrameRecordHandling::FlowCommand {
+                applier,
+                committed_commands,
+            } => {
+                let commands = self.apply_flow_commands(applier.as_ref(), frame, &mut reader)?;
+                let last_command_timestamp_micros = commands
+                    .iter()
+                    .map(|applied| applied.command.proposed_at_micros)
+                    .fold(meta.last_command_timestamp_micros, i64::max);
+                let last_behavior_version = commands
+                    .last()
+                    .map_or(meta.last_behavior_version, |applied| {
+                        applied.command.behavior_version
+                    });
+                let committed_commands = committed_commands.as_ref();
+                let applied = AppliedFrame::FlowCommands {
+                    commands,
+                    committed_commands,
+                };
+                (
+                    applied,
+                    last_command_timestamp_micros,
+                    last_behavior_version,
                 )
-            {
-                self.check_time_travel_target(&context, &reader, &command, &frame.position)?;
             }
-            reader.stage(&outcome.writes);
-            if self.is_checking_replay {
-                self.record_semantic_point(&context, &reader, &outcome, &command)?;
+            FrameRecordHandling::ExtensionRecord(extension) => {
+                let records = extension
+                    .apply_records(&self.hasher, frame, &mut reader, self.is_checking_replay)
+                    .map_err(FrameFailure::Halt)?;
+                let last_command_timestamp_micros = records
+                    .iter()
+                    .map(|record| record.stamp.proposed_at_micros)
+                    .fold(meta.last_command_timestamp_micros, i64::max);
+                // Extension records carry no behavior version.
+                let applied = AppliedFrame::ExtensionRecords { records, extension };
+                (
+                    applied,
+                    last_command_timestamp_micros,
+                    meta.last_behavior_version,
+                )
             }
-            last_command_timestamp_micros =
-                last_command_timestamp_micros.max(command.proposed_at_micros);
-            last_behavior_version = command.behavior_version;
-            applied.push(AppliedCommand {
-                command,
-                context,
-                outcome,
-                pending: None,
-            });
-        }
+        };
         let mut batch = reader.into_batch();
         batch
             .put_partition_meta(&PartitionMeta {
@@ -664,10 +628,63 @@ impl FrameApplier {
             .write(batch)
             .map_err(|error| FrameFailure::StoreFailed(error.to_string()))?;
         // Taken under the write admission, so `stop` cannot fail these tickets after the write.
-        for command in &mut applied {
-            command.pending = self.state.take_flow_command(&command.command.command_id);
+        match &mut applied {
+            AppliedFrame::FlowCommands { commands, .. } => {
+                for command in commands {
+                    command.pending = self.state.take_flow_command(&command.command.command_id);
+                }
+            }
+            AppliedFrame::ExtensionRecords { records, .. } => {
+                ExtensionFrameApplier::take_waiters(&self.state, records);
+            }
         }
         Ok(Some(applied))
+    }
+
+    /// Applies the frame's Flow commands in order, staging each command's writes in `reader`.
+    ///
+    /// Returns the applied commands, or the failure that halts the partition.
+    fn apply_flow_commands(
+        &self,
+        applier: &dyn CommandApplier,
+        frame: &PartitionFrame,
+        reader: &mut StagedStateReader<'_>,
+    ) -> Result<Vec<AppliedCommand>, FrameFailure> {
+        let commands = frame
+            .records
+            .iter()
+            .map(|record| self.decode_command(frame.partition, record))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut applied = Vec::with_capacity(commands.len());
+        for DecodedCommand { command, context } in commands {
+            let outcome =
+                self.apply_command(applier, &context, reader, &command, &frame.position)?;
+            if self.is_checking_replay
+                && matches!(
+                    &outcome.reply.reply,
+                    Some(command_reply::Reply::TimeTravel(_))
+                )
+            {
+                self.flow_replay_diagnostics.check_time_travel_target(
+                    &context,
+                    reader,
+                    &command,
+                    &frame.position,
+                )?;
+            }
+            reader.stage(&outcome.writes);
+            if self.is_checking_replay {
+                self.flow_replay_diagnostics
+                    .record_semantic_point(&context, reader, &outcome, &command)?;
+            }
+            applied.push(AppliedCommand {
+                command,
+                context,
+                outcome,
+                pending: None,
+            });
+        }
+        Ok(applied)
     }
 
     fn advance_applied_position(
@@ -734,8 +751,14 @@ impl FrameApplier {
     ) -> Result<DecodedCommand, FrameFailure> {
         let record = LogRecord::decode(record.clone())
             .map_err(|error| FrameFailure::Halt(format!("undecodable log record: {error}")))?;
-        let Some(log_record::Body::Flow(command)) = record.body else {
-            return Err(FrameFailure::Halt("log record has no command".to_owned()));
+        let command = match record.body {
+            Some(log_record::Body::Flow(command)) => command,
+            Some(log_record::Body::ExtensionRecord(_)) => {
+                return Err(FrameFailure::Halt(
+                    "a node that applies Flow commands read an extension record".to_owned(),
+                ));
+            }
+            None => return Err(FrameFailure::Halt("log record has no command".to_owned())),
         };
         let flow_hash = self
             .hasher
@@ -758,143 +781,39 @@ impl FrameApplier {
 
     fn apply_command(
         &self,
+        applier: &dyn CommandApplier,
         context: &ApplyContext,
         reader: &StagedStateReader<'_>,
         command: &FlowCommand,
         position: &LogPosition,
     ) -> Result<ApplyOutcome, FrameFailure> {
-        let outcome = self.apply_catching_panics(context, reader, command)?;
+        let outcome = apply_catching_panics(applier, context, reader, command)?;
         if self.is_checking_replay {
-            let repeated = self.apply_catching_panics(context, reader, command)?;
+            let repeated = apply_catching_panics(applier, context, reader, command)?;
             compare_repeated_apply(command, context.partition, position, &outcome, &repeated)
                 .map_err(|mismatch| FrameFailure::Halt(mismatch.to_string()))?;
         }
         Ok(outcome)
     }
 
-    fn check_time_travel_target(
-        &self,
-        context: &ApplyContext,
-        reader: &StagedStateReader<'_>,
-        command: &FlowCommand,
-        position: &LogPosition,
-    ) -> Result<(), FrameFailure> {
-        let target = time_travel_target_hash(context, reader, command).map_err(|error| {
-            FrameFailure::Halt(format!(
-                "time-travel diagnostic for Flow {} at seq {} failed: {error}",
-                command.flow_id, position.seq
-            ))
-        })?;
-        let Some(target) = target else {
-            return Ok(());
-        };
-        let hashes = self
-            .semantic_point_hashes
-            .lock()
-            .expect("semantic point hash lock is not poisoned");
-        let key = (target.run_id, target.run_attempt, target.run_seq);
-        if let Some(expected) = hashes.get(&key) {
-            compare_semantic_point_hash(expected, &target, command, position)
-                .map_err(FrameFailure::Halt)?;
-            self.verified_time_travels.fetch_add(1, Ordering::Relaxed);
-        } else if self.pre_replay_semantic_points.contains(&key) {
-            let unverifiable_count = self
-                .unverifiable_time_travels
-                .fetch_add(1, Ordering::Relaxed)
-                + 1;
-            tracing::debug!(
-                flow_id = %command.flow_id,
-                log_seq = position.seq,
-                run_id = %target.run_id,
-                run_attempt = target.run_attempt,
-                run_seq = target.run_seq,
-                unverifiable_count,
-                "time-travel target predates replay and has no independent hash"
-            );
-        } else {
-            return Err(FrameFailure::Halt(format!(
-                "time-travel verification has no expected hash for Flow {} command {:?} at log seq {} semantic key ({}, {}, {})",
-                command.flow_id,
-                command.command_id,
-                position.seq,
-                target.run_id,
-                target.run_attempt,
-                target.run_seq
-            )));
-        }
-        Ok(())
-    }
-
-    fn record_semantic_point(
-        &self,
-        context: &ApplyContext,
-        reader: &StagedStateReader<'_>,
-        outcome: &ApplyOutcome,
-        command: &FlowCommand,
-    ) -> Result<(), FrameFailure> {
-        if !outcome.writes.is_empty() && matches!(&command.command, Some(Command::RunPurge(_))) {
-            let run_id = RunId::from_slice(&command.run_id).map_err(|error| {
-                FrameFailure::Halt(format!(
-                    "RunPurge command {:?} has invalid run ID: {error}",
-                    command.command_id
-                ))
-            })?;
-            self.semantic_point_hashes
-                .lock()
-                .expect("semantic point hash lock is not poisoned")
-                .retain(|(stored_run_id, _, _), _| *stored_run_id != run_id);
-            return Ok(());
-        }
-        let Some(run_id) = outcome.run_id else {
-            return Ok(());
-        };
-        let point = current_semantic_point_hash(context, reader, run_id, &command.command_id)
-            .map_err(|error| {
-                FrameFailure::Halt(format!(
-                    "semantic-point diagnostic for Flow {} command {:?} failed: {error}",
-                    command.flow_id, command.command_id
-                ))
-            })?;
-        if let Some(point) = point {
-            let mut hashes = self
-                .semantic_point_hashes
-                .lock()
-                .expect("semantic point hash lock is not poisoned");
-            hashes.retain(|(run_id, _, run_seq), _| {
-                *run_id != point.run_id
-                    || *run_seq >= point.window_start_seq
-                    || *run_seq == point.genesis_seq
-            });
-            hashes.insert(
-                (point.run_id, point.run_attempt, point.run_seq),
-                point.state_hash,
-            );
-        }
-        Ok(())
-    }
-
-    fn apply_catching_panics(
-        &self,
-        context: &ApplyContext,
-        reader: &StagedStateReader<'_>,
-        command: &FlowCommand,
-    ) -> Result<ApplyOutcome, FrameFailure> {
-        match catch_unwind(AssertUnwindSafe(|| {
-            self.applier.apply(context, reader, command)
-        })) {
-            Ok(Ok(outcome)) => Ok(outcome),
-            Ok(Err(error)) => Err(FrameFailure::Halt(format!(
-                "apply of command {} failed: {error}",
-                hex(&command.command_id)
-            ))),
-            Err(_) => Err(FrameFailure::Halt(format!(
-                "apply of command {} panicked",
-                hex(&command.command_id)
-            ))),
+    fn publish(&self, frame: &PartitionFrame, applied: AppliedFrame<'_>) {
+        match applied {
+            AppliedFrame::FlowCommands {
+                commands,
+                committed_commands,
+            } => self.publish_flow_commands(frame, commands, committed_commands),
+            AppliedFrame::ExtensionRecords { records, extension } => {
+                extension.publish(&self.state, frame, records);
+            }
         }
     }
 
-    fn publish(&self, frame: &PartitionFrame, applied: Vec<AppliedCommand>) {
+    fn publish_flow_commands(
+        &self,
+        frame: &PartitionFrame,
+        applied: Vec<AppliedCommand>,
+        committed_commands: &dyn CommittedCommandSink,
+    ) {
         // The sink sees the whole frame before any proposer, so reads after a commit observe it.
         let mut resolved = Vec::new();
         for AppliedCommand {
@@ -914,15 +833,13 @@ impl FrameApplier {
             if let Some(pending) = pending {
                 resolved.push((pending, committed.clone()));
             }
-            self.committed_commands
-                .apply_committed(CommittedFlowCommand {
-                    command,
-                    context,
-                    committed,
-                });
+            committed_commands.apply_committed(CommittedFlowCommand {
+                command,
+                context,
+                committed,
+            });
         }
-        self.committed_commands
-            .finish_frame(frame.partition, &frame.position);
+        committed_commands.finish_frame(frame.partition, &frame.position);
         if resolved.is_empty() {
             return;
         }
@@ -946,13 +863,22 @@ impl FrameApplier {
     fn reject_frame(&self, frame: &PartitionFrame, detail: Option<&str>) {
         for record in &frame.records {
             let Ok(LogRecord {
-                body: Some(log_record::Body::Flow(command)),
-                ..
+                body: Some(body), ..
             }) = LogRecord::decode(record.clone())
             else {
                 continue;
             };
-            if let Some(pending) = self.state.take_flow_command(&command.command_id) {
+            let pending = match body {
+                log_record::Body::Flow(command) => self
+                    .state
+                    .take_flow_command(&command.command_id)
+                    .map(PendingCommit::FlowCommand),
+                log_record::Body::ExtensionRecord(record) => self
+                    .state
+                    .take_extension_record(&record.command_id)
+                    .map(PendingCommit::ExtensionRecord),
+            };
+            if let Some(pending) = pending {
                 let error = detail.map_or_else(
                     || partition_stopped_error(frame.partition),
                     |detail| CommitError::Unavailable {
@@ -962,9 +888,28 @@ impl FrameApplier {
                         ),
                     },
                 );
-                pending.responder.resolve(Err(error));
+                pending.fail(error);
             }
         }
+    }
+}
+
+fn apply_catching_panics(
+    applier: &dyn CommandApplier,
+    context: &ApplyContext,
+    reader: &StagedStateReader<'_>,
+    command: &FlowCommand,
+) -> Result<ApplyOutcome, FrameFailure> {
+    match catch_unwind(AssertUnwindSafe(|| applier.apply(context, reader, command))) {
+        Ok(Ok(outcome)) => Ok(outcome),
+        Ok(Err(error)) => Err(FrameFailure::Halt(format!(
+            "apply of command {} failed: {error}",
+            hex(&command.command_id)
+        ))),
+        Err(_) => Err(FrameFailure::Halt(format!(
+            "apply of command {} panicked",
+            hex(&command.command_id)
+        ))),
     }
 }
 
