@@ -30,6 +30,7 @@ pub struct RpcInvokeOptions {
     pub(crate) load_attribute_map_instances: Vec<AttributeMapLoad>,
     pub(crate) load_channel_map_instances: Vec<ChannelMapLoad>,
     pub(crate) request_id: Option<String>,
+    pub(crate) run_id: String,
 }
 
 impl RpcInvokeOptions {
@@ -96,6 +97,46 @@ impl RpcInvokeOptions {
     #[must_use]
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());
+        self
+    }
+
+    /// Invokes the RPC on this run of the Flow ID instead of its active or latest run.
+    ///
+    /// Use it when the caller tracks one run, such as a parent that started a child Flow and
+    /// recorded its run ID. An empty string, the default, keeps the active or latest run.
+    ///
+    /// A query-only RPC, one without locks, transactional execution, or durable effects, can read
+    /// a closed run that Dex still retains. An RPC that needs an active execution returns
+    /// [`crate::SdkError::FlowNotActiveOrNotFound`] when that run is closed. It never runs on a
+    /// newer run of the same Flow ID. A run that does not exist, belongs to another Flow ID, or is
+    /// being deleted also returns [`crate::SdkError::FlowNotActiveOrNotFound`]. Request IDs are
+    /// recorded per run, so a retry with the same [`Self::request_id`] and run ID deduplicates
+    /// against that run only. A run ID that is not in its canonical 36-character lowercase
+    /// hyphenated UUID form returns [`crate::SdkError::Service`] whose
+    /// [`crate::ServiceError::code`] is [`crate::GrpcCode::InvalidArgument`].
+    ///
+    /// Returns these options with the supplied run ID.
+    ///
+    /// Since 1.45.9.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Client, Rpc, RpcInvokeOptions, SdkResult};
+    ///
+    /// const GET_SHIPMENT_STATUS: Rpc<(), String> = Rpc::new("get_shipment_status");
+    ///
+    /// fn read_tracked_shipment(client: &Client, tracked_run_id: &str) -> SdkResult<String> {
+    ///     client.invoke_rpc_without_input_with_options(
+    ///         "shipment-42",
+    ///         GET_SHIPMENT_STATUS,
+    ///         RpcInvokeOptions::new().run_id(tracked_run_id),
+    ///     )
+    /// }
+    /// ```
+    #[must_use]
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = run_id.into();
         self
     }
 

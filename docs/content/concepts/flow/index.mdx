@@ -233,12 +233,11 @@ The parent receives each child's result durably:
   is a business decision. It ties them when the business can reopen a child
   under the same number while the parent still waits, and the parent must
   not mix runs. When a child number has only one run, the Flow ID is enough.
-  A parent that ties them accepts only reads, reports, and stops that it can
-  tie to the claimed run. When it reads the outcome by Flow ID, it confirms
-  the run ID before and after the read; see the
-  [Production checklist](/design-patterns/subflows/child-flows-with-business-identity#production-checklist).
-  A newer run is another attempt, which the parent handles by business
-  policy.
+  A parent that ties them accepts only reports that carry the claimed run ID.
+  It reads, waits for, and stops the claimed run by its run ID. Client calls
+  with a run ID address that run even when a newer run exists, and a closed
+  run keeps its final status and Attribute values. A newer run is another
+  attempt, which the parent handles by business policy.
 - Every start of the same logical request derives the same Flow ID and
   request ID. Another logical request can still start a run with the same
   Flow ID, even from the same entry point or parent run. Then the start
@@ -254,10 +253,11 @@ The parent receives each child's result durably:
   start option. A child that must report its timeout uses a timeout handler
   that reports, not a Timer Step. A closing parent never stops its children.
 - A client stop that cancels, fails, or terminates the child starts no new
-  handlers in it, so the child may never report. A client stop targets the
-  latest run of the Flow ID. To stop only the claimed run of a child that can
-  be reopened, call a child RPC that carries the claimed run ID; the child
-  compares it with its own run ID before it stops. A running handler can ignore cancellation, so a report already sent
+  handlers in it, so the child may never report. A client stop with the
+  claimed run ID stops only that run and never a newer run. When the claimed
+  run has already closed, the stop reports that the Flow was not found, which
+  means it already stopped. A stop without a run ID targets the active run of
+  the Flow ID. A running handler can ignore cancellation, so a report already sent
   can still arrive.
 - When the parent does not need to know how a stopped child ended, it stops
   the child and moves on. A parent that needs only a quorum stops the
@@ -268,10 +268,11 @@ The parent receives each child's result durably:
   For a parent that tracks the claimed run, reconcile as follows. A parent
   that follows the Flow ID reconciles its latest run instead.
   After a stop, a refused stop, or a timer for unreported children, the
-  parent describes the child first. A child that does not exist, or whose
-  latest run is not the claimed one, is recorded by business policy, such as
-  "unavailable". The parent reads a running claimed run again later. For a
-  closed claimed run, it records the terminal status and the stored outcome.
+  parent describes the claimed run by its run ID first. A claimed run that
+  is not found, for example because its data was deleted after retention, is
+  recorded by business policy, such as "unavailable". The parent reads a
+  running claimed run again later. For a closed claimed run, it records the
+  terminal status and the outcome stored in that run.
   It returns any other error, so the Step retries. A report that still
   arrives after the stop fills the same record. Children that finish after a
   quorum, or while the parent stops the rest, count in the parent's result as
@@ -288,7 +289,7 @@ identifiers keep them apart.
 |----------|-------------|---------|
 | `FlowType` | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results. |
 | **Flow ID** | Application client on start | Business identity for one Flow run. The ID reuse policy controls whether another run may start with the same Flow ID. |
-| **Run ID** | Dex Server | Identity of one run of the Flow ID. Time travel keeps it and creates a new run attempt. Address a Flow by its Flow ID; the Run ID is diagnostic. |
+| **Run ID** | Dex Server | Identity of one run of the Flow ID. Time travel keeps it and creates a new run attempt. Address a Flow by its Flow ID. Add the Run ID only to address one exact run, such as a claimed child run. |
 | `StepType` | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
 | `StepExecutionID` | Dex Server | One execution of a Step type, formatted as **StepType-Number**. |
 

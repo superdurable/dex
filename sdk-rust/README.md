@@ -279,6 +279,15 @@ order is not deterministic. No-output Flows return an empty slice;
 completions. Every terminal status returns a `FlowResult`; inspect `status`,
 `error_type`, and `error_message` for unsuccessful completion.
 
+To work with one exact run of a Flow ID, such as a child run whose run ID the
+caller recorded, use `describe_flow_run(flow_id, run_id)`,
+`get_flow_run_attributes(flow_id, run_id, reads)`,
+`wait_for_flow_with_options` with `WaitForFlowOptions::run_id`, and the `run_id`
+builder of `StopFlowOptions` and `RpcInvokeOptions`. They address that run even
+when a newer run exists. A stop with a run ID never affects a newer run. A
+closed run returns `FlowNotActiveOrNotFound` to a stop, and a missing run
+returns the call's not-found error. Since 1.45.9.
+
 SubFlows are normal, independently addressable Flows used as durable Conditions:
 
 ```rust

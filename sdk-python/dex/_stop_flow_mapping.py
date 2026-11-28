@@ -25,10 +25,11 @@ _COMPLETE_STOP_TYPES = frozenset({StopType.GRACEFUL_COMPLETE, StopType.FORCE_COM
 
 
 def map_stop_flow_request(
-    flow_id: str, options: StopFlowOptions, values: ValueMapper
+    flow_id: str, run_id: str, options: StopFlowOptions, values: ValueMapper
 ) -> pb.StopFlowRequest:
     request = pb.StopFlowRequest(
         flow_id=require_name(flow_id),
+        run_id=run_id,
         reason=options.reason or "",
         stop_type=_STOP_TYPES[options.type],
     )

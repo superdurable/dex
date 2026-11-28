@@ -233,16 +233,75 @@ func (result AttributeReadResult) hasSetDefinition(definition AttributeDef, inst
 // Every error names the Flow ID.
 // An error about one read or returned value also names its Attribute or physical key.
 // Match error types with errors.As.
+//
+// To read the Attributes of one exact run, which may be older than the latest run, use
+// GetFlowRunAttributes.
 func (client *Client) GetAttributes(
 	ctx context.Context,
 	flowID string,
 	reads ...AttributeRead,
 ) (AttributeReadResult, error) {
+	return client.doGetAttributes(ctx, flowID, "", reads)
+}
+
+// GetFlowRunAttributes reads Attributes and AttributeMap instances of one exact run of a Flow ID.
+//
+// Use it when the caller tracks one run, such as a parent that started a child Flow under a
+// business Flow ID and recorded the returned run ID. It reads that run's values even when a
+// newer run of the same Flow ID exists. A closed run returns the values it held when it closed.
+// Use GetAttributes to read the latest run instead.
+//
+// It reads, decodes, and writes destinations exactly like GetAttributes. See GetAttributes for
+// the read rules, the AttributeReadResult, and an example of reads.
+//
+//	var outcome string
+//	_, err := client.GetFlowRunAttributes(ctx, "shipment-42", claimedRunID,
+//		dex.ReadAttribute(shipmentOutcome, &outcome),
+//	)
+//	var notFound *dex.FlowNotFoundError
+//	if errors.As(err, &notFound) {
+//		return recordShipmentUnavailable(ctx)
+//	}
+//
+// Parameters:
+//   - ctx controls cancellation and the deadline of the server request and LoadBlobs calls.
+//   - flowID is the Flow ID. It must be non-empty.
+//   - runID is the run ID, such as one StartFlow returned. It must be non-empty.
+//   - reads lists at least one AttributeRead, as for GetAttributes.
+//
+// Returns an AttributeReadResult and nil after every destination of a set value has been written.
+// Returns the zero AttributeReadResult and an error otherwise. The errors are those of
+// GetAttributes, with these differences:
+//   - *FlowNotFoundError when the run does not exist, belongs to another Flow ID, or is being
+//     deleted after its retention period.
+//   - A *ServiceError whose Code is codes.InvalidArgument when runID is not a run ID in its
+//     canonical 36-character form.
+//   - A plain error for an empty runID.
+//
+// Since 1.45.17.
+func (client *Client) GetFlowRunAttributes(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	reads ...AttributeRead,
+) (AttributeReadResult, error) {
+	if runID == "" {
+		return AttributeReadResult{}, fmt.Errorf("dex: GetFlowRunAttributes Flow %q requires a run ID", flowID)
+	}
+	return client.doGetAttributes(ctx, flowID, runID, reads)
+}
+
+func (client *Client) doGetAttributes(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	reads []AttributeRead,
+) (AttributeReadResult, error) {
 	keys, err := client.validateAttributeReads(ctx, flowID, reads)
 	if err != nil {
 		return AttributeReadResult{}, err
 	}
-	values, err := client.fetchAttributeValues(ctx, flowID, keys)
+	values, err := client.fetchAttributeValues(ctx, flowID, runID, keys)
 	if err != nil {
 		return AttributeReadResult{}, err
 	}
@@ -313,11 +372,13 @@ func (client *Client) validateAttributeReads(
 func (client *Client) fetchAttributeValues(
 	ctx context.Context,
 	flowID string,
+	runID string,
 	keys []string,
 ) (map[string]*dexpb.Value, error) {
 	joinedKeys := strings.Join(keys, ", ")
 	response, err := client.service.GetAttributes(ctx, &dexpb.GetAttributesRequest{
 		FlowId: flowID,
+		RunId:  runID,
 		Keys:   keys,
 	})
 	if err != nil {

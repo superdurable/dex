@@ -1176,9 +1176,10 @@ the FlowService TLS option in a later release.
 
 ## Calling FlowService
 
-Client methods target the current run by sending an empty run ID. This always
-reaches the Flow's current run. `StartFlow` and `TimeTravel` return run IDs for
-diagnostics, while normal calls need only the flow ID.
+By default, Client methods send an empty run ID and use the Flow ID to select
+the current or latest run. To address one exact run, use the run-targeted
+methods or `RunID` options described below. `StartFlow` returns the run ID to
+track; time travel keeps that run ID.
 
 `CloneForkFlow` creates a new Flow from a point of another Flow run, while the
 source keeps running. It takes the source run's registered Flow, the source and
@@ -1315,6 +1316,14 @@ Flow has failed. Its `FlowInfo` contains `FlowID`, `RunID`, `FlowType`, `Status`
 `StartedAt`, and `ClosedAt`. `ClosedAt` is zero while the run is open or when
 the close time is unavailable. Use `WaitForFlow` when the caller needs to wait
 for a terminal result, and `SearchFlows` to find Flow IDs by query.
+
+To work with one exact run of a Flow ID, such as a child run whose run ID the
+caller recorded, use `DescribeFlowRun(ctx, flowID, runID)`,
+`GetFlowRunAttributes(ctx, flowID, runID, reads...)`, and the `RunID` field of
+`WaitForFlowOptions`, `StopOptions`, and `RPCInvokeOptions`. They address that
+run even when a newer run exists. A stop with a run ID never affects a newer
+run. A closed run returns `FlowNotActiveOrNotFoundError` to a stop, and a
+missing run returns the call's not-found error. Since 1.45.17.
 
 `GetAttributes` reads selected registered Attributes in one server call, without
 dispatching a Worker. A read sees committed state, including on a closed run

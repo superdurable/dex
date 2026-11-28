@@ -122,6 +122,59 @@ final class ClientExceptionIntegrationTest {
     }
 
     @Test
+    void runIdTargetingReachesEveryRequest() {
+        final String runId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+        client.describeFlow("failed");
+        assertEquals("", flowService.getFlowSummaryRequest.getRunId());
+        client.describeFlowRun("failed", runId);
+        assertEquals("failed", flowService.getFlowSummaryRequest.getFlowId());
+        assertEquals(runId, flowService.getFlowSummaryRequest.getRunId());
+
+        client.getAttributes("attributes-null", STATUS);
+        assertEquals("", flowService.getAttributesRequest.getRunId());
+        client.getFlowRunAttributes("attributes-null", runId, STATUS);
+        assertEquals(runId, flowService.getAttributesRequest.getRunId());
+        client.getFlowRunAttributes(
+                "attributes", runId, Collections.<AttributeRead<?>>singletonList(COUNT));
+        assertEquals(runId, flowService.getAttributesRequest.getRunId());
+        assertEquals(
+                Collections.singletonList("count"),
+                flowService.getAttributesRequest.getKeysList());
+
+        client.waitForFlow("single");
+        assertEquals("", flowService.waitForFlowRequest.getRunId());
+        client.waitForFlowRun("single", runId);
+        assertEquals(runId, flowService.waitForFlowRequest.getRunId());
+        client.waitForFlowRun("single", runId, Duration.ofSeconds(1));
+        assertEquals(runId, flowService.waitForFlowRequest.getRunId());
+        assertEquals(1, flowService.waitForFlowRequest.getWaitTimeSeconds());
+
+        assertThrows(FlowNotActiveOrNotFoundException.class, () -> client.stopFlow("inactive"));
+        assertEquals("", flowService.stopFlowRequest.getRunId());
+        final FlowNotActiveOrNotFoundException closedRun = assertThrows(
+                FlowNotActiveOrNotFoundException.class,
+                () -> client.stopFlow(
+                        "inactive",
+                        new StopFlowOptions(StopType.TERMINATE, "claim expired")
+                                .withRunId(runId)));
+        assertEquals(ErrorSubStatus.FLOW_NOT_EXISTS, closedRun.getSubStatus());
+        assertEquals(runId, flowService.stopFlowRequest.getRunId());
+        assertEquals("claim expired", flowService.stopFlowRequest.getReason());
+    }
+
+    @Test
+    void runIdTargetingRejectsBlankRunIdBeforeAnyRequest() {
+        assertThrows(IllegalArgumentException.class, () -> client.describeFlowRun("failed", " "));
+        assertThrows(IllegalArgumentException.class, () -> client.waitForFlowRun("single", ""));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> client.getFlowRunAttributes("attributes-null", null, STATUS));
+        assertEquals(0, flowService.getAttributesCalls.get());
+        assertThrows(NullPointerException.class, () -> new StopFlowOptions().withRunId(null));
+    }
+
+    @Test
     void mapsFlowClosingToTypedException() {
         final FlowClosingException closing = assertThrows(
                 FlowClosingException.class,
@@ -554,10 +607,15 @@ final class ClientExceptionIntegrationTest {
             observer.onCompleted();
         }
 
+        private GetFlowSummaryRequest getFlowSummaryRequest;
+        private StopFlowRequest stopFlowRequest;
+        private WaitForFlowRequest waitForFlowRequest;
+
         @Override
         public void getFlowSummary(
                 final GetFlowSummaryRequest request,
                 final StreamObserver<GetFlowSummaryResponse> observer) {
+            getFlowSummaryRequest = request;
             if ("failed".equals(request.getFlowId())) {
                 observer.onNext(GetFlowSummaryResponse.newBuilder()
                         .setFlowRunId(io.superdurable.gen.FlowRunID.newBuilder()
@@ -606,6 +664,7 @@ final class ClientExceptionIntegrationTest {
         public void stopFlow(
                 final StopFlowRequest request,
                 final StreamObserver<Empty> observer) {
+            stopFlowRequest = request;
             if ("closing".equals(request.getFlowId())) {
                 observer.onError(error(
                         Status.Code.FAILED_PRECONDITION,
@@ -645,6 +704,7 @@ final class ClientExceptionIntegrationTest {
         public void waitForFlow(
                 final WaitForFlowRequest request,
                 final StreamObserver<io.superdurable.gen.FlowResult> observer) {
+            waitForFlowRequest = request;
             if ("multi".equals(request.getFlowId())
                     || "single".equals(request.getFlowId())
                     || "empty".equals(request.getFlowId())

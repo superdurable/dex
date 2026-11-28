@@ -136,7 +136,9 @@ For a Client that waits for a change and then calls a read RPC, see
 
 - [Flow](/concepts/flow): `StartFlow` creates a Flow run under a **Flow ID** that you
   choose. The Flow ID is the business identity, such as an order number. Dex
-  creates the Run ID. Later calls address the Flow by its Flow ID.
+  creates the Run ID. Later calls address the Flow by its Flow ID. To read,
+  wait for, or stop one exact run, such as a claimed child run, a call also
+  passes its Run ID.
 - [RPC](/concepts/primitives/rpc): change a running Flow through RPCs. To change Attribute,
   AttributeMap, Channel, or ChannelMap state, define a typed RPC for each
   command and call it with `InvokeRPC`. Validation, authorization, locks, and

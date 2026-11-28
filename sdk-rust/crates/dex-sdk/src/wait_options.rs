@@ -68,6 +68,84 @@ impl WaitForAttributeOptions {
     }
 }
 
+/// Configures one [`crate::Client::wait_for_flow_with_options`] call: which run it waits for and
+/// how long it waits.
+///
+/// [`Self::new`] waits for the latest run of the Flow ID without a client-side timeout, like
+/// [`crate::Client::wait_for_flow`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::time::Duration;
+///
+/// use dex_sdk::{Client, FlowResult, SdkResult, WaitForFlowOptions};
+///
+/// fn wait_for_tracked_shipment(client: &Client, tracked_run_id: &str) -> SdkResult<FlowResult> {
+///     client.wait_for_flow_with_options(
+///         "shipment-42",
+///         WaitForFlowOptions::new()
+///             .run_id(tracked_run_id)
+///             .timeout(Duration::from_secs(60)),
+///     )
+/// }
+/// ```
+///
+/// Since 1.45.9.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WaitForFlowOptions {
+    pub(crate) run_id: String,
+    pub(crate) timeout: Option<Duration>,
+}
+
+impl WaitForFlowOptions {
+    /// Creates options that wait for the latest run without a client-side timeout.
+    ///
+    /// Since 1.45.9.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Waits for this run of the Flow ID instead of its latest run.
+    ///
+    /// Use it when the caller tracks one run, such as a parent that started a child Flow under a
+    /// business Flow ID and recorded the returned run ID. An empty string, the default, waits for
+    /// the latest run.
+    ///
+    /// When the run has already closed, the wait returns its result at once, even while a newer
+    /// run of the same Flow ID is running. A run that does not exist, belongs to another Flow ID,
+    /// or is being deleted after its retention period returns [`crate::SdkError::FlowNotFound`].
+    /// A run ID that is not in its canonical 36-character lowercase hyphenated UUID form returns
+    /// [`crate::SdkError::Service`] whose [`crate::ServiceError::code`] is
+    /// [`crate::GrpcCode::InvalidArgument`].
+    ///
+    /// Returns these options with the supplied run ID.
+    ///
+    /// Since 1.45.9.
+    #[must_use]
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = run_id.into();
+        self
+    }
+
+    /// Bounds the wait to `timeout`, which must use whole seconds.
+    ///
+    /// When the timeout elapses while the run is still active, the wait returns
+    /// [`crate::SdkError::LongPollTimeout`], like [`crate::Client::wait_for_flow_with_timeout`].
+    /// A wait timeout does not stop the Flow. A timeout with a fractional second is rejected
+    /// with [`crate::SdkError::InvalidArgument`] before WaitForFlow is sent, after any required
+    /// protocol negotiation. By default the wait has no client-side timeout.
+    ///
+    /// Returns these options with the supplied timeout.
+    ///
+    /// Since 1.45.9.
+    #[must_use]
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+}
+
 pub(crate) struct ClientRequestAttempt {
     pub(crate) request_timeout_seconds: i32,
     pub(crate) transport_timeout: Option<Duration>,

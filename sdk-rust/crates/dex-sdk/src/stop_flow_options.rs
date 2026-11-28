@@ -37,6 +37,7 @@ pub struct StopFlowOptions {
     pub(crate) stop_type: StopType,
     pub(crate) reason: Option<String>,
     pub(crate) output: Option<StopFlowOutput>,
+    pub(crate) run_id: String,
 }
 
 impl StopFlowOptions {
@@ -45,6 +46,7 @@ impl StopFlowOptions {
             stop_type,
             reason: None,
             output: None,
+            run_id: String::new(),
         }
     }
 
@@ -169,6 +171,40 @@ impl StopFlowOptions {
         self
     }
 
+    /// Stops this run of the Flow ID instead of its active run.
+    ///
+    /// Use it to stop exactly the run the caller tracks, such as a child run whose run ID a parent
+    /// recorded. An empty string, the default, stops the active run.
+    ///
+    /// A stop with a run ID never affects a newer run of the same Flow ID. When that run has
+    /// already closed, does not exist, or belongs to another Flow ID, [`crate::Client::stop_flow`]
+    /// returns [`crate::SdkError::FlowNotActiveOrNotFound`]. Treat that error as "the tracked run
+    /// already closed". A run ID that is not in its canonical 36-character lowercase hyphenated
+    /// UUID form returns [`crate::SdkError::Service`] whose [`crate::ServiceError::code`] is
+    /// [`crate::GrpcCode::InvalidArgument`].
+    ///
+    /// ```no_run
+    /// # use dex_sdk::{Client, SdkError, SdkResult, StopFlowOptions};
+    /// # fn cancel_tracked_shipment(client: &Client, tracked_run_id: &str) -> SdkResult<()> {
+    /// match client.stop_flow(
+    ///     "shipment-42",
+    ///     StopFlowOptions::cancel().run_id(tracked_run_id),
+    /// ) {
+    ///     // The tracked run had already closed; a newer run keeps running.
+    ///     Ok(()) | Err(SdkError::FlowNotActiveOrNotFound { .. }) => Ok(()),
+    ///     Err(error) => Err(error),
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// Returns these options with the supplied run ID.
+    ///
+    /// Since 1.45.9.
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = run_id.into();
+        self
+    }
+
     pub(crate) fn into_request(self, flow_id: &str) -> SdkResult<StopFlowRequest> {
         let stop_type = match self.stop_type {
             StopType::Cancel => ProtoStopType::Cancel,
@@ -191,7 +227,7 @@ impl StopFlowOptions {
         };
         Ok(StopFlowRequest {
             flow_id: flow_id.to_string(),
-            run_id: String::new(),
+            run_id: self.run_id,
             reason: self.reason.unwrap_or_default(),
             stop_type: stop_type as i32,
             output,

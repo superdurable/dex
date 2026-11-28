@@ -30,6 +30,14 @@ const [status, note] = await client.getAttributes(
   `FlowDefinitionError` before contacting Dex. Duplicate reads and calls with no
   reads are rejected before contacting Dex.
 
+To work with one exact run of a Flow ID, such as a child run whose run ID the
+caller recorded, use `getFlowRunAttributes(flowId, runId, ...reads)`, the
+optional `runId` of `describeFlow`, `waitForFlow`, and `invokeRPC`, and
+`StopFlowOptions.runId`. They address that run even when a newer run exists. A
+stop with a run ID never affects a newer run. A closed run rejects a stop with
+`FlowNotActiveOrNotFoundError`, and a missing run rejects with the call's
+not-found error. Since 1.45.17.
+
 An RPC can stage `channel.delete(context, messageId)`. Set the decorator option
 `isTransactional: true` when a missing ID must abort all other RPC writes.
 Attribute locks already select transactional execution; Channel deletion requires
@@ -947,7 +955,8 @@ try {
 ## Errors
 
 Client calls reject with concrete `DexServiceError` subclasses. Existing-Flow
-reads (`describeFlow`, `getAttributes`, `waitForFlow`, and `timeTravel`) use
+reads (`describeFlow`, `getAttributes`, `getFlowRunAttributes`, `waitForFlow`,
+and `timeTravel`) use
 `FlowNotFoundError`; operations that require a running Flow use
 `FlowNotActiveOrNotFoundError`. Start conflicts, worker failures, RPC lock contention,
 and long-poll timeouts use `FlowAlreadyStartedError`,

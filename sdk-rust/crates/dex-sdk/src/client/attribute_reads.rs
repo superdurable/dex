@@ -387,13 +387,92 @@ impl Client {
     /// - [`SdkError::Service`] for an invalid server response, a failed large-value request, or
     ///   another server or transport failure. Other service-backed variants are possible when
     ///   Dex reports a more specific status.
+    ///
+    /// To read the Attributes of one exact run, which may be older than the latest run, use
+    /// [`Self::get_flow_run_attributes`].
     pub fn get_attributes<Reads: AttributeReads>(
         &self,
         flow_id: &str,
         reads: Reads,
     ) -> SdkResult<Reads::Values> {
+        self.get_attributes_of_run(flow_id, "", reads)
+    }
+
+    /// Reads Attributes and AttributeMap instances of one exact run of a Flow ID.
+    ///
+    /// Use it when the caller tracks one run, such as a parent that started a child Flow under a
+    /// business Flow ID and recorded the returned run ID. It reads that run's values even when a
+    /// newer run of the same Flow ID exists. A closed run returns the values it held when it
+    /// closed. Use [`Self::get_attributes`] to read the latest run instead.
+    ///
+    /// It validates, reads, and decodes exactly like [`Self::get_attributes`]. See that method for
+    /// the read rules and the definition matching.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Attribute, Client, SdkError};
+    /// use std::sync::LazyLock;
+    ///
+    /// static SHIPMENT_OUTCOME: LazyLock<Attribute<String>> =
+    ///     LazyLock::new(|| Attribute::new("shipment-outcome"));
+    ///
+    /// fn tracked_outcome(client: &Client, tracked_run_id: &str) -> Result<String, SdkError> {
+    ///     match client.get_flow_run_attributes("shipment-42", tracked_run_id, (&SHIPMENT_OUTCOME,)) {
+    ///         Ok((outcome,)) => Ok(outcome.unwrap_or_else(|| "pending".to_string())),
+    ///         Err(SdkError::FlowNotFound { .. }) => Ok("unavailable".to_string()),
+    ///         Err(error) => Err(error),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Parameters
+    ///
+    /// - `flow_id` is the Flow ID. It must be non-blank.
+    /// - `run_id` is the run ID, such as one [`Client::start_flow`] returned. It must be
+    ///   non-blank.
+    /// - `reads` is a tuple of 1 to 12 [`AttributeRead`] values, as for [`Self::get_attributes`].
+    ///
+    /// Returns one `Option<T>` per read, in read order, where `T` is the read's value type.
+    ///
+    /// Since 1.45.9.
+    ///
+    /// # Errors
+    ///
+    /// The errors are those of [`Self::get_attributes`], and service-backed errors also report
+    /// `get_attributes` as their [`ServiceError::operation`](crate::ServiceError::operation).
+    /// These differ:
+    ///
+    /// - [`SdkError::InvalidArgument`] for an empty or whitespace-only run ID. The Client does
+    ///   not contact Dex.
+    /// - [`SdkError::FlowNotFound`] when the run does not exist, belongs to another Flow ID, or
+    ///   is being deleted after its retention period.
+    /// - [`SdkError::Service`] whose [`ServiceError::code`](crate::ServiceError::code) is
+    ///   [`GrpcCode::InvalidArgument`](crate::GrpcCode::InvalidArgument) when `run_id` is not in
+    ///   its canonical 36-character lowercase hyphenated UUID form.
+    pub fn get_flow_run_attributes<Reads: AttributeReads>(
+        &self,
+        flow_id: &str,
+        run_id: &str,
+        reads: Reads,
+    ) -> SdkResult<Reads::Values> {
+        if run_id.trim().is_empty() {
+            return Err(invalid(format!(
+                "get_flow_run_attributes Flow {flow_id:?} requires a non-blank run ID"
+            )));
+        }
+        self.get_attributes_of_run(flow_id, run_id, reads)
+    }
+
+    /// Reads `reads` from `run_id`, or from the latest run when `run_id` is empty.
+    fn get_attributes_of_run<Reads: AttributeReads>(
+        &self,
+        flow_id: &str,
+        run_id: &str,
+        reads: Reads,
+    ) -> SdkResult<Reads::Values> {
         let keys = self.validate_attribute_reads(flow_id, reads.attribute_read_targets())?;
-        let values = self.fetch_attribute_values(flow_id, &keys)?;
+        let values = self.fetch_attribute_values(flow_id, run_id, &keys)?;
         let mut decoder = sealed::AttributeValueDecoder {
             flow_id: flow_id.to_string(),
             values: keys.into_iter().zip(values).collect::<Vec<_>>().into_iter(),
@@ -440,9 +519,14 @@ impl Client {
     fn fetch_attribute_values(
         &self,
         flow_id: &str,
+        run_id: &str,
         keys: &[String],
     ) -> SdkResult<Vec<Option<ProtoValue>>> {
-        let call_context = format!("get_attributes Flow {flow_id:?} Attributes {keys:?}");
+        let call_context = if run_id.is_empty() {
+            format!("get_attributes Flow {flow_id:?} Attributes {keys:?}")
+        } else {
+            format!("get_attributes Flow {flow_id:?} run {run_id:?} Attributes {keys:?}")
+        };
         let with_context = |error: SdkError| {
             error.with_call_context(GET_ATTRIBUTES_OPERATION, flow_id, call_context.clone())
         };
@@ -452,7 +536,7 @@ impl Client {
             .runtime
             .block_on(service.get_attributes(GetAttributesRequest {
                 flow_id: flow_id.to_string(),
-                run_id: String::new(),
+                run_id: run_id.to_string(),
                 keys: keys.to_vec(),
                 all_keys: false,
             }))

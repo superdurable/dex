@@ -123,7 +123,8 @@ caller must confirm each message:
 - To deliver a missing message again, keep its business ID and use a new RPC
   request ID. A network retry of the same delivery reuses its request ID; a
   new delivery that reuses it returns the old reply and publishes nothing.
-- **GetAttributes** reads the latest run of a Flow ID. When a Flow ID is
+- **GetAttributes** reads the latest run of a Flow ID unless it names a run ID;
+  see [Target one run](#target-one-run). When a Flow ID is
   reused across runs, keep a receipt that must survive the reuse where the
   caller can read it across runs. The latest run's record does not show what
   an earlier run handled.
@@ -404,6 +405,36 @@ or latest Flow run. The Go SDK also returns the close time when available.
 DescribeFlow does not wait for the Flow to finish. Use it for a one-off status check, for example
 after a read-only RPC returns a non-terminal business state. A missing ID, or an
 ID that does not belong to a Flow, returns a typed Flow-not-found error.
+
+## Target one run {#target-one-run}
+
+DescribeFlow, GetAttributes, WaitForFlow, StopFlow, and InvokeRPC take an
+optional run ID. Without it, reads and waits address the latest run of the
+Flow ID, and StopFlow and InvokeRPC address its active or latest run. With it,
+the call addresses that run, even when a newer run of the Flow ID exists. Use
+it when a caller tracks one run, such as a parent that claimed a child run.
+
+- **Reads.** DescribeFlow returns that run's status and close time.
+  GetAttributes returns the values that run holds; a closed run keeps the
+  values it held when it closed.
+- **Wait.** WaitForFlow on a run that has already closed returns its result at
+  once.
+- **Stop.** StopFlow with a run ID never affects a newer run. When that run has
+  already closed, it returns **NOT_FOUND** with the Flow-not-found sub-status,
+  so the caller can treat the run as already stopped.
+- **RPC.** A query-only RPC can read that run while the server retains it. An
+  RPC that needs an active run fails when that run is closed, as it does for
+  a closed Flow, and never runs on a newer run. Request IDs are recorded per
+  run.
+- **Errors.** A run that does not exist, belongs to another Flow ID, or is being
+  deleted after its retention period returns the call's typed Flow-not-found
+  error. A run ID that is not in its canonical 36-character form returns
+  **INVALID_ARGUMENT**.
+
+The SDK Clients expose the run ID on all five calls since Go SDK 1.45.17,
+Python SDK 1.45.18, Java SDK 1.45.4, TypeScript SDK 1.45.17, and Rust SDK
+1.45.9. Earlier SDKs already take it on some RPC calls; see each SDK's API
+reference.
 
 ## Read open Step executions {#read-open-step-executions}
 

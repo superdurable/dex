@@ -46,8 +46,10 @@ class AttributeReadPlan:
     def keys(self) -> tuple[str, ...]:
         return tuple(planned.key for planned in self.reads)
 
-    def request(self) -> pb.GetAttributesRequest:
-        return pb.GetAttributesRequest(flow_id=self.flow_id, keys=self.keys)
+    def request(self, run_id: str) -> pb.GetAttributesRequest:
+        return pb.GetAttributesRequest(
+            flow_id=self.flow_id, run_id=run_id, keys=self.keys
+        )
 
     def service_error(
         self, error: grpc.RpcError, service_method: str

@@ -433,6 +433,17 @@ export class Client {
    * Lock acquisition is nonblocking; retry a lock conflict only when the operation is safe to repeat.
    * Each call sends a new request ID. To retry one logical call idempotently, use
    * invokeRPCWithOptions with a stable {@link RPCInvokeOptions.requestId}.
+   *
+   * Pass `runId` to invoke the RPC on one exact run instead of the active or latest run, such as a
+   * child run whose run ID the caller recorded. A query-only RPC, one without locks,
+   * transactional execution, or durable effects, can read a closed run that Dex still retains. An
+   * RPC that needs an active execution rejects with {@link FlowNotActiveOrNotFoundError} when that
+   * run is closed; it never runs on a newer run of the same Flow ID. A run that does not exist,
+   * belongs to another Flow ID, or is being deleted rejects with the same error. Request IDs are
+   * recorded per run, so a retry with the same request ID and run ID deduplicates against that run
+   * only. A `runId` that is not a run ID in its canonical 36-character form rejects with a
+   * {@link DexServiceError} whose code is `INVALID_ARGUMENT`. Every invokeRPC and
+   * invokeRPCWithOptions overload takes `runId` the same way.
    * @example
    * ```ts
    * try {
@@ -460,6 +471,7 @@ export class Client {
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
+   * With it, the RPC never runs on a newer run of the same Flow ID.
    * @returns The decoded RPCResult output.
    */
   public invokeRPC<Input, Output>(
@@ -569,6 +581,7 @@ export class Client {
 
   /**
    * Invokes an input-bearing RPC with call-time options: map-instance selections and a request ID.
+   * See the typed-input invokeRPC overload for how `runId` targets one exact run.
    * @typeParam Input - RPC input type.
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
@@ -947,17 +960,36 @@ export class Client {
    * Long-polls until a Flow closes and returns every output-bearing completion.
    * Failed, canceled, and terminated Flows return a FlowResult too; inspect its status and error fields.
    * A long-poll timeout does not stop the Flow; call again to continue waiting.
+   *
+   * Without `runId`, it waits for the latest run. Pass `runId` to wait for one exact run, such as
+   * a child run whose run ID the caller recorded. When that run has already closed, the call
+   * returns its result at once, even when a newer run of the same Flow ID is running.
+   *
+   * Changed in 1.45.17: accepts `runId` to wait for one exact run.
+   * @example
+   * ```ts
+   * const childRunId = await client.startFlow(shipments, "shipment-42", input);
+   * const result = await client.waitForFlow("shipment-42", 30_000, childRunId);
+   * console.log(result.status);
+   * ```
    * @param flowId - Non-empty existing Flow ID.
-   * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
+   * @param timeoutMs - Optional server-side long-poll duration in milliseconds. Pass `undefined` to
+   * use the server default together with `runId`.
+   * @param runId - Optional exact run, such as one `startFlow` returned. Empty or omitted waits for
+   * the latest run.
    * @returns The closed Flow's status, error fields, and immutable Step completions in server collection order.
-   * @throws {@link FlowNotFoundError} when no retained target exists.
+   * @throws {@link FlowNotFoundError} when no retained target exists. With `runId`, also when that
+   * run does not exist, belongs to another Flow ID, or is being deleted after its retention period.
    * @throws {@link LongPollTimeoutError} when the Flow remains open at timeout.
    * @throws {@link ValueMappingError} when Dex returns malformed blob-backed output.
    * @throws {@link BlobMessageTooLargeError} when one output blob alone exceeds a gRPC message size limit.
+   * @throws {@link DexServiceError} with code `INVALID_ARGUMENT` when `runId` is not a run ID in its
+   * canonical 36-character form, and for other service or transport failures.
    */
   public async waitForFlow(
     flowId: string,
     timeoutMs?: number,
+    runId = "",
   ): Promise<FlowResult> {
     const response = await this.unary<ProtoFlowResult>(
       { operation: "waitForFlow", flowId, requirement: "existing" },
@@ -965,7 +997,7 @@ export class Client {
         this.service.waitForFlow(
           {
             flowId: requireName(flowId),
-            runId: "",
+            runId,
             needsResults: true,
             waitTimeSeconds: seconds(timeoutMs),
           },
@@ -1000,8 +1032,13 @@ export class Client {
    * A handler must observe cancellationSignal; stopping cannot undo an external side effect.
    * Use waitForFlow to observe the terminal result after acceptance.
    *
+   * `options.runId` stops one exact run instead of the active run. Such a stop never affects a
+   * newer run of the same Flow ID; see {@link StopFlowOptions.runId}.
+   *
    * Changed in 1.45.6: accepts `StopType.GRACEFUL_COMPLETE`, `StopType.FORCE_COMPLETE`, and
    * `StopFlowOptions.output`.
+   *
+   * Changed in 1.45.17: sends `StopFlowOptions.runId`.
    * @example
    * ```ts
    * await client.stopFlow("order-42", { type: StopType.CANCEL, reason: "Order withdrawn" });
@@ -1010,10 +1047,12 @@ export class Client {
    * @throws `TypeError` when `options.output` is set for a stop type that does not complete the
    * Flow; the Client sends no request.
    * @throws {@link ValueMappingError} when `options.output` cannot be encoded.
-   * @throws {@link FlowNotActiveOrNotFoundError} when the Flow is closed or missing.
-   * @throws {@link DexServiceError} for other service or transport failures.
+   * @throws {@link FlowNotActiveOrNotFoundError} when the Flow is closed or missing. With
+   * `options.runId`, also when that run has closed, does not exist, or belongs to another Flow ID.
+   * @throws {@link DexServiceError} with code `INVALID_ARGUMENT` when `options.runId` is not a run
+   * ID in its canonical 36-character form, and for other service or transport failures.
    * @param flowId - Non-empty active Flow ID.
-   * @param options - Stop mode, optional recorded reason, and optional output.
+   * @param options - Stop mode, optional recorded reason, optional output, and optional exact run.
    */
   public async stopFlow(flowId: string, options: StopFlowOptions = {}): Promise<void> {
     const request = mapStopFlowRequest(flowId, options);
@@ -1033,14 +1072,47 @@ export class Client {
   }
 
   /**
-   * Returns summary metadata for the current or latest Flow run.
+   * Returns summary metadata for the current or latest Flow run, or for one exact run.
+   *
+   * Without `runId`, it reads the current run, or the latest run when none is open.
+   *
+   * Pass `runId` when the caller tracks one run, such as a parent that started a child Flow under
+   * a business Flow ID and recorded the run ID that `startFlow` returned. The result then
+   * describes that run even when a newer run of the same Flow ID exists, so the caller does not
+   * need to check that the latest run is still the tracked one. A closed run returns its final
+   * status.
+   *
+   * Changed in 1.45.17: accepts `runId` to read one exact run.
+   * @example
+   * ```ts
+   * try {
+   *   const info = await client.describeFlow("shipment-42", claimedRunId);
+   *   if (info.status === "running") {
+   *     await waitForShipment();
+   *   }
+   * } catch (error) {
+   *   if (error instanceof FlowNotFoundError) {
+   *     await recordShipmentUnavailable();
+   *   } else {
+   *     throw error;
+   *   }
+   * }
+   * ```
    * @param flowId - Non-empty existing Flow ID.
-   * @returns Flow ID, run ID, type, status, and UTC start time.
+   * @param runId - Optional exact run, such as one `startFlow` returned. Empty or omitted reads the
+   * current or latest run.
+   * @returns Flow ID, run ID, type, status, and UTC start time. With `runId`, the returned run ID
+   * equals it.
+   * @throws {@link FlowNotFoundError} when the Flow does not exist. With `runId`, also when that run
+   * does not exist, belongs to another Flow ID, or is being deleted after its retention period;
+   * treat it as "the tracked run is gone".
+   * @throws {@link DexServiceError} with code `INVALID_ARGUMENT` when `runId` is not a run ID in its
+   * canonical 36-character form, and for other service or transport failures.
    */
-  public async describeFlow(flowId: string): Promise<FlowInfo> {
+  public async describeFlow(flowId: string, runId = ""): Promise<FlowInfo> {
     const response = await this.unary<GetFlowSummaryResponse>(
       { operation: "describeFlow", flowId, requirement: "existing" },
-      (callback) => this.service.getFlowSummary({ flowId: requireName(flowId), runId: "" }, callback),
+      (callback) => this.service.getFlowSummary({ flowId: requireName(flowId), runId }, callback),
     );
     if (response.flowRunId === undefined || response.startTime === undefined) {
       throw new TypeError(`Dex returned an incomplete summary for Flow ${flowId}`);
@@ -1210,14 +1282,79 @@ export class Client {
    * Changed in 1.45.16: rejects with {@link PayloadEncryptionError} when a value cannot be decrypted.
    * Changed in 1.45.17: a failed BlobCache write no longer rejects. The SDK logs it with
    * `console.warn` and returns the values it loaded from Dex.
+   * To read the Attributes of one exact run, which may be older than the latest run, use
+   * {@link Client.getFlowRunAttributes}.
    * @since 1.29.0
    */
   public async getAttributes<
     Reads extends readonly [AttributeRead<unknown>, ...AttributeRead<unknown>[]],
   >(flowId: string, ...reads: Reads): Promise<AttributeReadValues<Reads>> {
+    return this.readAttributeValues(flowId, "", reads);
+  }
+
+  /**
+   * Reads Attributes and AttributeMap instances of one exact run of a Flow ID.
+   *
+   * Use it when the caller tracks one run, such as a parent that started a child Flow under a
+   * business Flow ID and recorded the run ID that `startFlow` returned. It reads that run's values
+   * even when a newer run of the same Flow ID exists. A closed run returns the values it held when
+   * it closed. Use {@link Client.getAttributes} to read the current or latest run instead.
+   *
+   * It selects, hydrates, and decodes values exactly like `getAttributes`. See `getAttributes` for
+   * the read rules, the registration requirement, and the result tuple. This separate method exists
+   * because the reads are a rest parameter, so `getAttributes` cannot take a trailing run ID.
+   *
+   * @example
+   * ```ts
+   * const shipmentOutcome = new Attribute("shipment-outcome", stringCodec);
+   * // Register shipmentOutcome in a Flow's getPersistenceSchema.
+   *
+   * try {
+   *   const [outcome] = await client.getFlowRunAttributes(
+   *     "shipment-42",
+   *     claimedRunId,
+   *     shipmentOutcome,
+   *   );
+   *   console.log(outcome ?? "no outcome yet");
+   * } catch (error) {
+   *   if (error instanceof FlowNotFoundError) {
+   *     console.log("the claimed shipment run is gone");
+   *   } else {
+   *     throw error;
+   *   }
+   * }
+   * ```
+   * @typeParam Reads - Tuple of reads, as for `getAttributes`.
+   * @param flowId - Non-empty Flow ID.
+   * @param runId - Non-empty run ID of that Flow ID, such as one `startFlow` returned.
+   * @param reads - At least one Attribute or AttributeMap instance selection, as for
+   * `getAttributes`.
+   * @returns A tuple with one decoded value or `undefined` per read, in read order.
+   * @throws {@link TypeError} before any request when `runId` is empty, and for every reason
+   * `getAttributes` throws it.
+   * @throws {@link FlowNotFoundError} when the run does not exist, belongs to another Flow ID, or is
+   * being deleted after its retention period. Treat it as "the tracked run is gone".
+   * @throws {@link DexServiceError} with code `INVALID_ARGUMENT` when `runId` is not a run ID in its
+   * canonical 36-character form.
+   * @throws The other errors of `getAttributes`, such as {@link FlowDefinitionError},
+   * {@link ValueMappingError}, and {@link DexServiceError}.
+   * @since 1.45.17
+   */
+  public async getFlowRunAttributes<
+    Reads extends readonly [AttributeRead<unknown>, ...AttributeRead<unknown>[]],
+  >(flowId: string, runId: string, ...reads: Reads): Promise<AttributeReadValues<Reads>> {
+    if (runId.trim().length === 0) {
+      throw new TypeError(`getFlowRunAttributes Flow ${flowId} requires a non-empty run ID`);
+    }
+    return this.readAttributeValues(flowId, runId, reads);
+  }
+
+  private async readAttributeValues<
+    Reads extends readonly [AttributeRead<unknown>, ...AttributeRead<unknown>[]],
+  >(flowId: string, runId: string, reads: Reads): Promise<AttributeReadValues<Reads>> {
     const selected = this.selectAttributeReads(flowId, reads);
     const keys = selected.map((read) => read.key);
-    const values = await this.fetchAttributeValues(flowId, keys);
+    const values = await this.fetchAttributeValues(flowId, runId, keys);
     const decoded = selected.map((read) => {
       const value = values.get(read.key);
       if (value === undefined) {
@@ -1267,6 +1404,7 @@ export class Client {
 
   private async fetchAttributeValues(
     flowId: string,
+    runId: string,
     keys: readonly string[],
   ): Promise<Map<string, ProtoValue>> {
     const joinedKeys = keys.join(", ");
@@ -1278,7 +1416,7 @@ export class Client {
         messagePrefix: `getAttributes Flow ${flowId} Attributes ${joinedKeys}`,
       },
       (callback) => this.service.getAttributes(
-        { flowId, runId: "", keys: [...keys], allKeys: false },
+        { flowId, runId, keys: [...keys], allKeys: false },
         callback,
       ),
     );
@@ -2215,7 +2353,7 @@ function mapIdReusePolicy(policy: IdReusePolicy | undefined): ProtoIdReusePolicy
 function mapStopFlowRequest(flowId: string, options: StopFlowOptions): StopFlowRequest {
   const request: StopFlowRequest = {
     flowId: requireName(flowId),
-    runId: "",
+    runId: options.runId ?? "",
     reason: options.reason ?? "",
     stopType: mapStopType(options.type),
     output: undefined,

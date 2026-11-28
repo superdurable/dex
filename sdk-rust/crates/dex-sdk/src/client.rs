@@ -52,7 +52,7 @@ use crate::{
     Registry, RetryPolicy, Rpc, RpcInvokeOptions, SdkError, SdkResult, SearchFlowEntry,
     SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability, StepExecutionId,
     StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value,
-    WaitForAttributeOptions, WaitForStepCompletionOptions,
+    WaitForAttributeOptions, WaitForFlowOptions, WaitForStepCompletionOptions,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -317,7 +317,10 @@ impl Client {
     /// Invokes a registered RPC with typed input and per-call options.
     ///
     /// Use [`RpcInvokeOptions::request_id`] to retry the same logical call, or use the map-instance
-    /// options to add runtime locks and loads to the RPC definition.
+    /// options to add runtime locks and loads to the RPC definition. Use
+    /// [`RpcInvokeOptions::run_id`] to invoke the RPC on one exact run.
+    ///
+    /// Changed in 1.45.9: sends [`RpcInvokeOptions::run_id`].
     ///
     /// # Errors
     ///
@@ -510,7 +513,7 @@ impl Client {
     /// Returns FlowNotFound for an unknown ID or a mapping/service error. Every terminal status is
     /// represented by [`FlowResult`]. This overload has no client-side timeout.
     pub fn wait_for_flow(&self, flow_id: &str) -> SdkResult<FlowResult> {
-        self.wait_for_flow_result(flow_id, None)
+        self.wait_for_flow_result(flow_id, "", None)
     }
 
     /// Blocks up to `timeout` and returns the terminal result with all output-bearing completions.
@@ -528,29 +531,114 @@ impl Client {
         flow_id: &str,
         timeout: Duration,
     ) -> SdkResult<FlowResult> {
-        self.wait_for_flow_result(flow_id, Some(timeout))
+        self.wait_for_flow_result(flow_id, "", Some(timeout))
+    }
+
+    /// Blocks until a Flow run closes, as configured by `options`, and returns its terminal result.
+    ///
+    /// Use [`WaitForFlowOptions::run_id`] to wait for one exact run, such as a child run whose run
+    /// ID the caller recorded. A closed run returns its result at once, even while a newer run of
+    /// the same Flow ID is running. Use [`WaitForFlowOptions::timeout`] to bound the wait. With
+    /// default options this behaves like [`Self::wait_for_flow`]. See [`WaitForFlowOptions`] for an
+    /// example.
+    ///
+    /// Since 1.45.9.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::FlowNotFound`] when the Flow, or the selected run, does not exist,
+    /// belongs to another Flow ID, or is being deleted. Returns [`SdkError::LongPollTimeout`] when
+    /// the timeout elapses while the run remains active, [`SdkError::InvalidArgument`] for a
+    /// fractional-second timeout, and [`SdkError::Service`] with
+    /// [`crate::GrpcCode::InvalidArgument`] for a run ID that is not a canonical UUID. Other
+    /// errors match [`Self::wait_for_flow`].
+    pub fn wait_for_flow_with_options(
+        &self,
+        flow_id: &str,
+        options: WaitForFlowOptions,
+    ) -> SdkResult<FlowResult> {
+        self.wait_for_flow_result(flow_id, &options.run_id, options.timeout)
     }
 
     /// Returns current identity, status, type, and start time for the latest run.
+    ///
+    /// To read one exact run, which may be older than the latest run, use
+    /// [`Self::describe_flow_run`].
     ///
     /// # Errors
     ///
     /// Returns [`SdkError::FlowNotFound`] for an unknown ID or a service/protocol error.
     pub fn describe_flow(&self, flow_id: &str) -> SdkResult<FlowInfo> {
-        self.require_server_protocol("describe_flow")?;
+        self.describe_flow_summary("describe_flow", flow_id, "")
+    }
+
+    /// Returns identity, status, type, and start time for one exact run of a Flow ID.
+    ///
+    /// Use it when the caller tracks one run, such as a parent that started a child Flow under a
+    /// business Flow ID and recorded the returned run ID. The result describes that run even when
+    /// a newer run of the same Flow ID exists, so the caller does not need to check that the
+    /// latest run is still the tracked one. A closed run returns its final status. Use
+    /// [`Self::describe_flow`] to read the latest run instead.
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Client, FlowStatus, SdkError, SdkResult};
+    ///
+    /// fn tracked_shipment_is_running(client: &Client, tracked_run_id: &str) -> SdkResult<bool> {
+    ///     match client.describe_flow_run("shipment-42", tracked_run_id) {
+    ///         Ok(info) => Ok(info.status == FlowStatus::Running),
+    ///         Err(SdkError::FlowNotFound { .. }) => Ok(false),
+    ///         Err(error) => Err(error),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Parameters
+    ///
+    /// - `flow_id` is the Flow ID.
+    /// - `run_id` is the run ID, such as one [`Self::start_flow`] returned. It must be non-blank.
+    ///
+    /// Returns the run's [`FlowInfo`], whose `run_id` equals `run_id`.
+    ///
+    /// Since 1.45.9.
+    ///
+    /// # Errors
+    ///
+    /// - [`SdkError::InvalidArgument`] for an empty or whitespace-only run ID. The Client does
+    ///   not contact Dex.
+    /// - [`SdkError::FlowNotFound`] when the run does not exist, belongs to another Flow ID, or
+    ///   is being deleted after its retention period. Treat it as "the tracked run is gone".
+    /// - [`SdkError::Service`] whose [`crate::ServiceError::code`] is
+    ///   [`crate::GrpcCode::InvalidArgument`] when `run_id` is not in its canonical 36-character
+    ///   lowercase hyphenated UUID form, or another service or protocol error.
+    pub fn describe_flow_run(&self, flow_id: &str, run_id: &str) -> SdkResult<FlowInfo> {
+        if run_id.trim().is_empty() {
+            return Err(invalid(format!(
+                "describe_flow_run Flow {flow_id:?} requires a non-blank run ID"
+            )));
+        }
+        self.describe_flow_summary("describe_flow_run", flow_id, run_id)
+    }
+
+    fn describe_flow_summary(
+        &self,
+        operation: &'static str,
+        flow_id: &str,
+        run_id: &str,
+    ) -> SdkResult<FlowInfo> {
+        self.require_server_protocol(operation)?;
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
                 .get_flow_summary(GetFlowSummaryRequest {
                     flow_id: flow_id.to_string(),
-                    run_id: String::new(),
+                    run_id: run_id.to_string(),
                 })
                 .await
                 .map(|response| response.into_inner())
                 .map_err(|status| {
                     SdkError::from_status(
                         status,
-                        "describe_flow",
+                        operation,
                         Some(flow_id),
                         FlowTargetRequirement::Existing,
                     )
@@ -655,6 +743,11 @@ impl Client {
     ///
     /// Changed in 1.45.3: accepts [`StopFlowOptions::graceful_complete`],
     /// [`StopFlowOptions::force_complete`], and [`StopFlowOptions::output`].
+    ///
+    /// [`StopFlowOptions::run_id`] stops one exact run instead. Such a stop never affects a newer
+    /// run.
+    ///
+    /// Changed in 1.45.9: sends [`StopFlowOptions::run_id`].
     ///
     /// # Errors
     ///
@@ -1022,7 +1115,7 @@ impl Client {
         }
         let request = InvokeRpcRequest {
             flow_id: flow_id.to_string(),
-            run_id: String::new(),
+            run_id: invoke_options.run_id,
             rpc_name: rpc_name.to_string(),
             input: Some(value_mapper::encode(input)?),
             timeout_seconds: optional_seconds(rpc.timeout)?,
@@ -1115,6 +1208,7 @@ impl Client {
     fn wait_for_flow_result(
         &self,
         flow_id: &str,
+        run_id: &str,
         timeout: Option<Duration>,
     ) -> SdkResult<FlowResult> {
         self.require_server_protocol("wait_for_flow")?;
@@ -1123,7 +1217,7 @@ impl Client {
             service
                 .wait_for_flow(WaitForFlowRequest {
                     flow_id: flow_id.to_string(),
-                    run_id: String::new(),
+                    run_id: run_id.to_string(),
                     needs_results: true,
                     wait_time_seconds: optional_seconds(timeout)?,
                 })
@@ -1615,6 +1709,9 @@ fn service_error(error: impl std::fmt::Display) -> SdkError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod run_id_targeting_tests;
 
 #[cfg(test)]
 #[path = "client_pull_routing_tests.rs"]
