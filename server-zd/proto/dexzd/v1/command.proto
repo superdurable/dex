@@ -21,7 +21,24 @@ message LogRecord {
   // Field 2 is kept free for node-level commands of a later multi-node release.
   oneof body {
     FlowCommand flow = 3;
+    // A record of an application that embeds server-zd; only its clusters hold one.
+    ExtensionRecord extension_record = 4;
   }
+}
+
+// A record whose payload the embedding application defines. server-zd never decodes the payload.
+// server-zd stamps, routes, orders, and acknowledges the record.
+message ExtensionRecord {
+  // Epoch of the owner that proposed the record.
+  uint64 epoch = 1;
+  // 16-byte UUIDv7, minted by server-zd at stamping.
+  bytes command_id = 2;
+  // Owner wall clock, strictly increasing per partition, stamped by server-zd.
+  int64 proposed_at_micros = 3;
+  // PartitionHasher hash of the record's routing key; it selects the record's partition.
+  fixed64 routing_hash = 4;
+  // Defined by the embedding application.
+  bytes payload = 5;
 }
 
 // A command that changes the state of one Flow (its directory entry and its runs).

@@ -22,9 +22,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::commit::{
     AppliedPositionAdvancer, AppliedPositionSource, CommandCommitter, CommandCommitterParts,
-    CommitProgress, CommitState, CommittedBatchRouter, EngineLocalStore, FrameApplier,
-    FrameApplierParts, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason, PartitionApplierPool,
-    run_log_proposer,
+    CommitProgress, CommitState, CommittedBatchRouter, CommittedRecordKind, EngineLocalStore,
+    FrameApplier, FrameApplierParts, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason,
+    PartitionApplierPool, run_log_proposer,
 };
 use crate::engine_node::{
     EngineNode, EngineNodeConfig, EngineNodeDependencies, LeasedParts, LocalStoreCloseWaiter,
@@ -359,6 +359,8 @@ where
             max_unapplied_bytes: config.commit.max_unapplied_bytes,
             is_checking_replay: config.commit.debug_replay_checks,
             proposals: proposal_sender,
+            hasher: metadata.cluster.partition_hasher.clone(),
+            record_kind: CommittedRecordKind::FlowCommand,
         });
         let hooks = command_and_effect_hooks_factory(EngineServices {
             committer: committer.clone(),

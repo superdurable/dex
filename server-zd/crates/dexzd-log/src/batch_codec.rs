@@ -23,7 +23,8 @@ const PREFIX_LENGTH: usize = 14;
 const TRAILER_LENGTH: usize = 16;
 const MAX_HEADER_LENGTH: usize = 1_048_576;
 pub(crate) const MAX_UNCOMPRESSED_FRAME_LENGTH: usize = 64 * 1024 * 1024;
-pub(crate) const MAX_RECORD_LENGTH: usize = 32 * 1024 * 1024;
+/// The largest encoded record, in bytes, that a log batch accepts.
+pub const MAX_RECORD_LENGTH: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum LogError {

@@ -12,6 +12,7 @@ mod command_committer;
 mod commit_config;
 mod commit_state;
 mod committed_state_view;
+mod extension_record;
 mod log_proposer;
 mod partition_applier;
 mod replay_checks;
@@ -21,10 +22,15 @@ pub use command_committer::CommandCommitter;
 pub use commit_config::CommitConfig;
 pub use commit_state::NodeStopReason;
 pub use committed_state_view::CommittedStateView;
+pub use extension_record::{
+    ExtensionCommitTicket, ExtensionCommitted, ExtensionRecordOutcome, ExtensionStamp,
+    ExtensionSubmitError,
+};
 pub use replay_checks::{ReplayCheck, ReplayMismatch};
 
 pub(crate) use command_committer::CommandCommitterParts;
 pub(crate) use commit_state::{CommitState, LEASE_VALIDITY_EXPIRED_DETAIL};
+pub(crate) use extension_record::CommittedRecordKind;
 pub(crate) use log_proposer::{CommitProgress, CommittedBatchRouter, run_log_proposer};
 pub(crate) use partition_applier::{
     AppliedPositionAdvancer, AppliedPositionSource, ApplierPoolClosed, BatchEnqueueError,

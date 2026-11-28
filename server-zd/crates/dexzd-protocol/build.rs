@@ -30,6 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     prost_config.protoc_executable(protoc_bin_vendored::protoc_bin_path()?);
     // Apply must be deterministic, so every proto map becomes a BTreeMap.
     prost_config.btree_map(["."]);
+    // Payloads may be large; Bytes lets submit and decode avoid copying them.
+    prost_config.bytes([".dexzd.v1.ExtensionRecord.payload"]);
     let includes = [
         public_proto_directory,
         internal_proto_directory,
