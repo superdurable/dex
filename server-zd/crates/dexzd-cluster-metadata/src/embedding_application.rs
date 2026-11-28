@@ -13,12 +13,7 @@ use dexzd_protocol::dexzd::v1::Manifest;
 
 use crate::MetadataError;
 
-/// Identity of an application that embeds server-zd and keeps its own state in the cluster.
-///
-/// The cluster object records `name` and `key_layout_version` when the application creates the
-/// cluster. A node opens the cluster only when both match, so server-zd and the application never
-/// open each other's clusters. The manifest's version barrier records the application's apply
-/// version, which must lie in `supported_versions` before and after a node takes the lease.
+/// Identifies an embedding application's cluster and the apply versions its binary supports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingApplication {
     /// Name recorded as the cluster's creating application.

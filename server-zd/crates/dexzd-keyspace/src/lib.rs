@@ -37,10 +37,8 @@ pub use value_reference::{VALUE_REFERENCE_PREFIX, ValueReference, ValueReference
 /// Current RocksDB key layout version, recorded in the cluster object.
 pub const KEY_LAYOUT_VERSION: u32 = 1;
 
-/// Key layout versions reserved for applications that embed server-zd.
-///
-/// server-zd's own key layout versions always stay below this range, so a server-zd binary,
-/// including an already released one, never opens a cluster that such an application created.
+/// Reserved application key layout versions; released server-zd binaries reject these through
+/// their existing layout equality check.
 pub const EMBEDDING_APPLICATION_KEY_LAYOUT_VERSIONS: RangeInclusive<u32> = 0x8000_0000..=u32::MAX;
 
 /// Tag bytes after the Flow hash that are reserved for applications that embed server-zd.

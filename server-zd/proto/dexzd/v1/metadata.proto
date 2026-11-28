@@ -91,12 +91,8 @@ message ManifestNode {
 message VersionBarrier {
   uint32 behavior_version = 1;
   uint32 format_version = 2;
-  // Apply version of the embedding application that created the cluster (see
-  // ClusterObject.creating_application): every log record after the partitions' snapshots uses
-  // it. 0 means no embedding application; clusters of server-zd itself always record 0. A node
-  // starts only when its binary supports this version, checked before and after it takes the
-  // lease. It changes only together with the snapshot references that cover every record of the
-  // previous version.
+  // Application apply version; zero for server-zd. Changes only with snapshots covering every
+  // prior-version record; checked before/after lease acquisition.
   uint32 application_version = 3;
 }
 
